@@ -1,16 +1,13 @@
-using System.Data.Async.Adapters;
 using Daedalus.Agents;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
+using Daedalus.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
 using Thalos.Workflow;
-using Thalos.Workflow.Orm;
-using ZeroAlloc.ORM.Migrations;
-using ZeroAlloc.Outbox.Orm;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Migrations;
@@ -44,25 +41,11 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
         var sandboxNetwork = $"daedalus-test-{Guid.NewGuid():N}";
         try
         {
-            // Same migration order Daedalus.Migrations/Program.cs runs in production, and
-            // WorkflowOrmMigrationTests.RunAsync mirrors for the same reason: the host under test must see a
-            // schema that actually has process_definition, workflow_run, workflow_run_event and both outbox
-            // tables, or ProcessDefinitionSyncHostedService.StartAsync throws on 42P01 instead of exercising the
-            // path this test exists to guard.
-            await using (var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(connectionString)))
-            {
-                await db.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector");
-                await db.Database.MigrateAsync();
-            }
-
-            await using (var connection = new NpgsqlConnection(connectionString))
-            {
-                await connection.OpenAsync();
-                var asyncConnection = connection.AsAsync();
-                var dialect = new PostgresMigrationDialect();
-                await new MigrationRunner(asyncConnection, OutboxOrmMigrations.Postgres, dialect).RunAsync();
-                await new MigrationRunner(asyncConnection, WorkflowOrmMigrations.Postgres, dialect).RunAsync();
-            }
+            // The same schema Daedalus.Migrations builds in production: the host under test must see
+            // process_definition, workflow_run, workflow_run_event and both outbox tables, or
+            // ProcessDefinitionSyncHostedService.StartAsync throws on 42P01 instead of exercising the path this
+            // test exists to guard.
+            await DatabaseSchema.ApplyAsync(connectionString, CancellationToken.None);
 
             var builder = Host.CreateApplicationBuilder();
             builder.Environment.ContentRootPath = AppContext.BaseDirectory;
