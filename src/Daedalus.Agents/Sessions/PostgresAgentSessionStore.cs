@@ -85,8 +85,8 @@ public sealed class PostgresAgentSessionStore(DaedalusDb db, TimeProvider clock)
 
     /// <inheritdoc />
     /// <remarks>
-    ///     The messages are built and validated first, each numbered by its offset in the batch; the append then locks the
-    ///     session, numbers them after the last stored message and inserts them in one transaction.
+    ///     The messages are built and validated first; the append then locks the session, numbers them by their position
+    ///     after the last stored message and inserts them in one transaction.
     /// </remarks>
     public async ValueTask<UnitResult<AgentError>> AppendMessagesAsync(SessionId id, IReadOnlyList<ChatMessage> messages, CancellationToken ct)
     {

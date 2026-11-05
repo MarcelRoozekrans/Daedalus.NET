@@ -87,13 +87,14 @@ public sealed partial class AgentSessionSql(IAsyncDbConnection connection)
 
     /// <summary>
     ///     Appends <paramref name="batch"/> to the session in one transaction: locks the session row
-    ///     <c>FOR UPDATE</c>, reads the highest stored sequence, and inserts every message numbered after it. Each
-    ///     message's <see cref="AgentMessage.Sequence"/> is its offset in the batch, 0 for the first; the stored sequence
-    ///     is the session's next free number plus that offset. A concurrent append waits on the lock, so the two batches
-    ///     never share a number. Nothing is written when the session does not exist or any insert fails.
+    ///     <c>FOR UPDATE</c>, reads the highest stored sequence, and inserts every message numbered after it by its
+    ///     position in <paramref name="batch"/>: the first gets the session's next free number, the next one more. Each
+    ///     message's own <see cref="AgentMessage.Sequence"/> and <see cref="AgentMessage.SessionId"/> are not read. A
+    ///     concurrent append waits on the lock, so the two batches never share a number. Nothing is written when the
+    ///     session does not exist or any insert fails.
     /// </summary>
     /// <param name="sessionId">The session to append to.</param>
-    /// <param name="batch">The messages, each numbered by its offset in the batch.</param>
+    /// <param name="batch">The messages, in append order.</param>
     /// <param name="ct">Cancels the append.</param>
     /// <returns>False when the session does not exist, true when the batch is committed.</returns>
     public async Task<bool> AppendAsync(Guid sessionId, IReadOnlyList<AgentMessage> batch, CancellationToken ct)
@@ -115,7 +116,7 @@ public sealed partial class AgentSessionSql(IAsyncDbConnection connection)
             {
                 var m = batch[i];
                 rows[i] = new AgentMessageInsertRow(
-                    m.Id, sessionId, first + m.Sequence, m.Role, m.ContentJson, m.InputTokens, m.OutputTokens,
+                    m.Id, sessionId, first + i, m.Role, m.ContentJson, m.InputTokens, m.OutputTokens,
                     m.ModelId, m.CreatedAt);
             }
 
