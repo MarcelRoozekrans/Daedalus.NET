@@ -88,8 +88,49 @@ public sealed class FailurePatternDatabaseTests(PostgresFixture fixture) : IAsyn
     }
 
     /// <summary>
+    ///     The search looks at the newest <c>2 * maxResults</c> errors only: two unresolved errors newer than a resolved
+    ///     one fill the window of <c>maxResults = 1</c>, so nothing is found. Red, shown once: drop <c>Take(limit)</c>
+    ///     from the error query and the older resolved error is found.
+    /// </summary>
+    [Fact]
+    public async SystemTask The_error_window_is_twice_the_result_count()
+    {
+        var resolved = await AddTaskAsync("TASK-R1");
+        await AddExecutionAsync(resolved, 1, "r", "window failure", _at);
+        await AddExecutionAsync(resolved, 2, "fixed", null, _at.AddMinutes(1));
+        foreach (var (identifier, hours) in new[] { ("TASK-N1", 2), ("TASK-N2", 3) })
+        {
+            var unresolved = await AddTaskAsync(identifier);
+            await AddExecutionAsync(unresolved, 1, "r", "window failure", _at.AddHours(hours));
+        }
+
+        var result = await Database().SearchByErrorAsync("window failure", 1, CancellationToken.None);
+
+        result.Value.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     The result stops at <c>maxResults</c> though the window holds more resolved errors. Red, shown once: drop
+    ///     the <c>break</c> from the search loop and both come back.
+    /// </summary>
+    [Fact]
+    public async SystemTask The_result_stops_at_the_count_though_the_window_holds_more()
+    {
+        foreach (var (identifier, hours) in new[] { ("TASK-S1", 1), ("TASK-S2", 2) })
+        {
+            var taskId = await AddTaskAsync(identifier);
+            await AddExecutionAsync(taskId, 1, "r", "stop failure", _at.AddHours(hours));
+            await AddExecutionAsync(taskId, 2, "fixed", null, _at.AddHours(hours).AddMinutes(1));
+        }
+
+        var result = await Database().SearchByErrorAsync("stop failure", 1, CancellationToken.None);
+
+        result.Value.Should().ContainSingle();
+    }
+
+    /// <summary>
     ///     Today's ILIKE passes <c>%</c> and <c>_</c> of the search text through as wildcards. A blank text finds
-    ///     nothing and runs no query.
+    ///     nothing.
     /// </summary>
     [Fact]
     public async SystemTask Wildcards_in_the_search_text_pass_through_and_a_blank_text_finds_nothing()
@@ -99,9 +140,13 @@ public sealed class FailurePatternDatabaseTests(PostgresFixture fixture) : IAsyn
         await AddExecutionAsync(taskId, 2, "fix", null, _at.AddMinutes(1));
 
         var wild = await Database().SearchByErrorAsync("CS%member", 5, CancellationToken.None);
+        var single = await Database().SearchByErrorAsync("CS1_61 missing", 5, CancellationToken.None);
+        var none = await Database().SearchByErrorAsync("CS1_1 missing", 5, CancellationToken.None);
         var blank = await Database().SearchByErrorAsync("  ", 5, CancellationToken.None);
 
         wild.Value.Should().ContainSingle();
+        single.Value.Should().ContainSingle("_ stands for one character");
+        none.Value.Should().BeEmpty("_ stands for exactly one character");
         blank.Value.Should().BeEmpty();
     }
 
@@ -141,8 +186,8 @@ public sealed class FailurePatternDatabaseTests(PostgresFixture fixture) : IAsyn
     }
 
     /// <summary>
-    ///     Review focus 1: execution rows <c>Create</c> would not make, an iteration number of 0 and negative token
-    ///     counts, still load. Red: nothing to break in the read shape, which carries no validation.
+    ///     Rehydrate never validates (R18, plan Review Focus 1): execution rows nothing in the domain would create, an
+    ///     iteration number of 0 and negative token counts, still load as stored.
     /// </summary>
     [Fact]
     public async SystemTask A_row_with_values_nothing_would_create_still_loads()
