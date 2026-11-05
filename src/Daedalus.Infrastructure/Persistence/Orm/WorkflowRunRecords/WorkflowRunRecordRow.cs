@@ -1,6 +1,6 @@
 using Daedalus.Domain.Entities;
 
-namespace Daedalus.Infrastructure.Persistence.Sql.WorkflowRunRecords;
+namespace Daedalus.Infrastructure.Persistence.Orm.WorkflowRunRecords;
 
 /// <summary>One <c>"WorkflowRunRecords"</c> row, every column, as <see cref="WorkflowRunRecordSql"/> reads it.</summary>
 internal sealed record WorkflowRunRecordRow(

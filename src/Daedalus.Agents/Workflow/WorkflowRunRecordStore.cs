@@ -1,6 +1,6 @@
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence.Sql;
-using Daedalus.Infrastructure.Persistence.Sql.WorkflowRunRecords;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.WorkflowRunRecords;
 
 namespace Daedalus.Agents.Workflow;
 

@@ -10,7 +10,7 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Infrastructure.Persistence;
-using Daedalus.Infrastructure.Persistence.Sql;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;

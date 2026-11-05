@@ -343,7 +343,7 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
 
     /// <summary>Whether the failure is the unique index on (run, seq) refusing a second node-usage record.</summary>
     private static bool IsAlreadyRecorded(PostgresException ex) =>
-        ex is { SqlState: PostgresErrorCodes.UniqueViolation }
+        string.Equals(ex.SqlState, PostgresErrorCodes.UniqueViolation, StringComparison.Ordinal)
         && string.Equals(ex.ConstraintName, WorkflowRunRecord.NodeUsageIndexName, StringComparison.Ordinal);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The per-model usage held for run {RunId} at seq {Seq} does not sum to its completion's usage; the node is recorded as one model")]

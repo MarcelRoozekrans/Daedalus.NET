@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Daedalus.Infrastructure.Persistence;
-using Daedalus.Infrastructure.Persistence.Sql;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;

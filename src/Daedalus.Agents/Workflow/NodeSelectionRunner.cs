@@ -452,7 +452,7 @@ internal sealed partial class NodeSelectionRunner(
 
     /// <summary>Whether the failure is the unique index on (run, seq) refusing a second node-selection record.</summary>
     private static bool IsAlreadyRecorded(PostgresException ex) =>
-        ex is { SqlState: PostgresErrorCodes.UniqueViolation }
+        string.Equals(ex.SqlState, PostgresErrorCodes.UniqueViolation, StringComparison.Ordinal)
         && string.Equals(ex.ConstraintName, WorkflowRunRecord.NodeSelectionIndexName, StringComparison.Ordinal);
 
     private const string NotRecorded = "This node's model and tool decision could not be recorded, so the node does not run on it.";

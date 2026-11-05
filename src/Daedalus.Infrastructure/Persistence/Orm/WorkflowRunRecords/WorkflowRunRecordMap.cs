@@ -1,7 +1,7 @@
 using Daedalus.Domain.Entities;
 using ZeroAlloc.ORM;
 
-namespace Daedalus.Infrastructure.Persistence.Sql.WorkflowRunRecords;
+namespace Daedalus.Infrastructure.Persistence.Orm.WorkflowRunRecords;
 
 /// <summary>
 ///     Maps <see cref="WorkflowRunRecord"/> to <c>"WorkflowRunRecords"</c>. Every column carries its property's name, so

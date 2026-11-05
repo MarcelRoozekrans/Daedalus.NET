@@ -2,7 +2,7 @@ using System.Data.Async;
 using System.Data.Async.Adapters;
 using Npgsql;
 
-namespace Daedalus.Infrastructure.Persistence.Sql;
+namespace Daedalus.Infrastructure.Persistence.Orm;
 
 /// <summary>
 ///     Opens connections to the Daedalus database for the ZeroAlloc.ORM stores, from the host's one

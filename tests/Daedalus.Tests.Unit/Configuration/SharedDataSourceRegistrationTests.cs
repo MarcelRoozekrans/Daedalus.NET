@@ -1,5 +1,5 @@
 using Daedalus.Agents;
-using Daedalus.Infrastructure.Persistence.Sql;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.ServiceDefaults;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

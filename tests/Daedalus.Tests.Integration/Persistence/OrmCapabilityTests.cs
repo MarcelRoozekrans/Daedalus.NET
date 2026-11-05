@@ -2,7 +2,7 @@ using System.Data.Async;
 using System.Text.Json.Nodes;
 using Daedalus.Domain.CodeAnalysis;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence.Sql;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Integration.Builders;
 using Daedalus.Tests.Integration.Fixtures;
 using Npgsql;

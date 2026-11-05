@@ -1,5 +1,5 @@
 using Daedalus.Infrastructure.Persistence;
-using Daedalus.Infrastructure.Persistence.Sql;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;

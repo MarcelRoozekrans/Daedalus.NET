@@ -3,7 +3,7 @@ using ZeroAlloc.ORM;
 using ZeroAlloc.ORM.Linq;
 using WorkflowRunRecord = Daedalus.Domain.Entities.WorkflowRunRecord;
 
-namespace Daedalus.Infrastructure.Persistence.Sql.WorkflowRunRecords;
+namespace Daedalus.Infrastructure.Persistence.Orm.WorkflowRunRecords;
 
 /// <summary>
 ///     The SQL of the <c>"WorkflowRunRecords"</c> table, over one open connection. Its public methods take and return
@@ -55,7 +55,7 @@ public sealed partial class WorkflowRunRecordSql(IAsyncDbConnection connection)
     private partial Task<List<WorkflowRunRecordRow>> ListRows(Guid runId, string? kind, CancellationToken ct);
 
     private static IQuery<WorkflowRunRecordRow> ListRowsQuery(Guid runId, string? kind) =>
-        ZeroAlloc.ORM.Linq.Sql.Table<WorkflowRunRecord>()
+        Sql.Table<WorkflowRunRecord>()
             .Where(r => r.RunId == runId && (kind == null || string.Equals(r.Kind, kind, StringComparison.Ordinal)))
             .OrderBy(r => r.Seq)
             .ThenBy(r => r.Id)
