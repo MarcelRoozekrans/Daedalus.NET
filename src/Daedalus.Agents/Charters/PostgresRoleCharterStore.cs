@@ -55,27 +55,21 @@ public sealed class PostgresRoleCharterStore(DaedalusDb db, TimeProvider clock) 
 
         var head = await sql.FindHeadAsync(charter.Role, ct).ConfigureAwait(false);
 
-        // Two independent writes, the version and then the head, each its own statement: a lost check-then-insert
-        // race on either primary key is a failed write, answered as before. A version left behind by a failed head
-        // write is harmless, since the history is append-only and the next sync finds the hash already captured.
+        // One transaction for the version and the head, as EF's single SaveChanges was: a lost check-then-insert
+        // race on either primary key rolls both back and is answered as before.
+        var headExists = head is not null;
+        if (head is null)
+        {
+            head = RoleCharterHead.Create(charter.Role, charter.ContentHash, charter.UpdatedAt.UtcDateTime);
+        }
+        else
+        {
+            head.SetCurrent(charter.ContentHash, charter.UpdatedAt.UtcDateTime);
+        }
+
         try
         {
-            if (version is not null)
-            {
-                await sql.InsertVersionAsync(version, ct).ConfigureAwait(false);
-            }
-
-            if (head is null)
-            {
-                await sql.InsertHeadAsync(
-                    RoleCharterHead.Create(charter.Role, charter.ContentHash, charter.UpdatedAt.UtcDateTime), ct)
-                    .ConfigureAwait(false);
-            }
-            else
-            {
-                head.SetCurrent(charter.ContentHash, charter.UpdatedAt.UtcDateTime);
-                await sql.UpdateHeadAsync(head, ct).ConfigureAwait(false);
-            }
+            await sql.StoreAsync(version, head, headExists, ct).ConfigureAwait(false);
         }
         catch (DbException ex)
         {

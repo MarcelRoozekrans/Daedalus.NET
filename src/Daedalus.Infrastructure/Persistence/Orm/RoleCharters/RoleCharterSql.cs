@@ -13,8 +13,9 @@ namespace Daedalus.Infrastructure.Persistence.Orm.RoleCharters;
 /// </summary>
 /// <remarks>
 ///     The versions table is insert-only. The head table has one row per role: a first sync inserts it and a later
-///     one updates it, as two separate statements, so two writers that both see no head race on the primary key and
-///     the loser's insert fails with Npgsql's <c>PostgresException</c>, unwrapped, as before. No row has a version
+///     one updates it, inside the same transaction as the version insert, so two writers that both see no head race
+///     on the primary key and the loser's insert fails, rolling its version back, with Npgsql's
+///     <c>PostgresException</c>, unwrapped, as before. No row has a version
 ///     column and neither table was ever guarded; last writer wins. The inserts are raw SQL, as the ORM has no LINQ
 ///     insert (ruling R10), and list every column.
 /// </remarks>
@@ -28,16 +29,39 @@ public sealed partial class RoleCharterSql(IAsyncDbConnection connection)
     public Task<bool> VersionExistsAsync(string role, string contentHash, CancellationToken ct) =>
         VersionExists(role, contentHash, ct);
 
-    /// <summary>Appends <paramref name="version"/>; a version with the same role and hash fails on the primary key.</summary>
-    /// <param name="version">The version to store.</param>
-    /// <param name="ct">Cancels the insert.</param>
-    /// <returns>A task that completes when the row is written.</returns>
-    public Task InsertVersionAsync(RoleCharterVersion version, CancellationToken ct)
+    /// <summary>
+    ///     Stores a synced charter in one transaction: the new <paramref name="version"/> when there is one, then the
+    ///     role's head, inserted when <paramref name="headExists"/> is false and repointed otherwise. The rows commit
+    ///     together or not at all, as EF's single save did; any failure, such as a lost race on a primary key,
+    ///     rolls both back and surfaces as Npgsql's <c>PostgresException</c>.
+    /// </summary>
+    /// <param name="version">The version to append, or null when its hash is stored already.</param>
+    /// <param name="head">The head to insert or, after <see cref="RoleCharterHead.SetCurrent"/>, to update.</param>
+    /// <param name="headExists">Whether the role has a head row already.</param>
+    /// <param name="ct">Cancels the writes.</param>
+    /// <returns>A task that completes when both rows are committed.</returns>
+    public async Task StoreAsync(RoleCharterVersion? version, RoleCharterHead head, bool headExists, CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(version);
-        return InsertVersion(
-            version.Role, version.ContentHash, version.Description, version.Instructions, version.Model,
-            version.SourcePath, version.UpdatedAt, [.. version.Skills], ct);
+        ArgumentNullException.ThrowIfNull(head);
+
+        await using var tx = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+        if (version is not null)
+        {
+            await InsertVersion(
+                version.Role, version.ContentHash, version.Description, version.Instructions, version.Model,
+                version.SourcePath, version.UpdatedAt, [.. version.Skills], tx, ct).ConfigureAwait(false);
+        }
+
+        if (headExists)
+        {
+            await SetCurrent(head.Role, head.CurrentHash, head.UpdatedAt, tx, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            await InsertHead(head.Role, head.CurrentHash, head.IsActive, head.UpdatedAt, tx, ct).ConfigureAwait(false);
+        }
+
+        await tx.CommitAsync(ct).ConfigureAwait(false);
     }
 
     /// <summary>Reads every stored version.</summary>
@@ -66,29 +90,6 @@ public sealed partial class RoleCharterSql(IAsyncDbConnection connection)
     {
         var rows = await ListHeadRows(ct).ConfigureAwait(false);
         return rows.ConvertAll(row => row.ToDomain());
-    }
-
-    /// <summary>Inserts <paramref name="head"/> as a role's first head; a second head for the role fails on the primary key.</summary>
-    /// <param name="head">The head to store.</param>
-    /// <param name="ct">Cancels the insert.</param>
-    /// <returns>A task that completes when the row is written.</returns>
-    public Task InsertHeadAsync(RoleCharterHead head, CancellationToken ct)
-    {
-        ArgumentNullException.ThrowIfNull(head);
-        return InsertHead(head.Role, head.CurrentHash, head.IsActive, head.UpdatedAt, ct);
-    }
-
-    /// <summary>
-    ///     Repoints the head of <paramref name="head"/>'s role at its current hash, active, with its update time. Only
-    ///     the three columns <see cref="RoleCharterHead.SetCurrent"/> changes are written.
-    /// </summary>
-    /// <param name="head">The head, after <see cref="RoleCharterHead.SetCurrent"/>.</param>
-    /// <param name="ct">Cancels the update.</param>
-    /// <returns>A task that completes when the row is written.</returns>
-    public Task UpdateHeadAsync(RoleCharterHead head, CancellationToken ct)
-    {
-        ArgumentNullException.ThrowIfNull(head);
-        return SetCurrent(head.Role, head.CurrentHash, head.UpdatedAt, ct);
     }
 
     /// <summary>
@@ -122,7 +123,7 @@ public sealed partial class RoleCharterSql(IAsyncDbConnection connection)
         """)]
     private partial Task<int> InsertVersion(
         string role, string contentHash, string description, string instructions, string? model, string sourcePath,
-        DateTime updatedAt, string[] skills, CancellationToken ct);
+        DateTime updatedAt, string[] skills, IAsyncDbTransaction tx, CancellationToken ct);
 
     [LinqQuery(nameof(ListVersionRowsQuery))]
     private partial Task<List<RoleCharterVersionRow>> ListVersionRows(CancellationToken ct);
@@ -151,10 +152,12 @@ public sealed partial class RoleCharterSql(IAsyncDbConnection connection)
         INSERT INTO "RoleCharters" ("Role", "CurrentHash", "IsActive", "UpdatedAt")
         VALUES (@role, @currentHash, @isActive, @updatedAt)
         """)]
-    private partial Task<int> InsertHead(string role, string currentHash, bool isActive, DateTime updatedAt, CancellationToken ct);
+    private partial Task<int> InsertHead(
+        string role, string currentHash, bool isActive, DateTime updatedAt, IAsyncDbTransaction tx, CancellationToken ct);
 
     [LinqCommand(nameof(SetCurrentQuery))]
-    private partial Task<int> SetCurrent(string role, string currentHash, DateTime updatedAt, CancellationToken ct);
+    private partial Task<int> SetCurrent(
+        string role, string currentHash, DateTime updatedAt, IAsyncDbTransaction tx, CancellationToken ct);
 
     private static int SetCurrentQuery(string role, string currentHash, DateTime updatedAt) =>
         Sql.Table<RoleCharterHead>()

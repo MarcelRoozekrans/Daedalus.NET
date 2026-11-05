@@ -64,8 +64,7 @@ public sealed class PostgresRoleCharterStoreRoundTripTests(PostgresFixture fixtu
         await using var connection = await fixture.Db.OpenAsync(CancellationToken.None);
         var sql = new RoleCharterSql(connection);
 
-        await sql.InsertVersionAsync(version, CancellationToken.None);
-        await sql.InsertHeadAsync(head, CancellationToken.None);
+        await sql.StoreAsync(version, head, headExists: false, CancellationToken.None);
         var versions = await sql.ListVersionsAsync(CancellationToken.None);
         var loadedHead = await sql.FindHeadAsync("reviewer", CancellationToken.None);
 
@@ -112,8 +111,10 @@ public sealed class PostgresRoleCharterStoreRoundTripTests(PostgresFixture fixtu
     /// <summary>
     ///     Two syncs can both see no head and both insert one: the loser's insert breaks the primary key and the
     ///     upsert answers SkillStoreFailed, as it did when EF's SaveChanges threw. A trigger plays the winner, failing
-    ///     the store's own head insert with the primary-key violation the loser gets. The version row is stored,
-    ///     since the saves are independent. Red: catch nothing, and the Npgsql exception escapes.
+    ///     the store's own head insert with the primary-key violation the loser gets. The version and head commit
+    ///     together or not at all, as EF's single SaveChanges did, so the loser's version row is gone too. Red: write
+    ///     the two rows outside one transaction, and the version survives; catch nothing, and the Npgsql exception
+    ///     escapes.
     /// </summary>
     [Fact]
     public async Task Upsert_loses_the_head_insert_race_with_SkillStoreFailed()
@@ -145,6 +146,7 @@ public sealed class PostgresRoleCharterStoreRoundTripTests(PostgresFixture fixtu
 
             result.IsFailure.Should().BeTrue();
             result.Error.Code.Should().Be(AgentErrorCode.SkillStoreFailed);
+            result.Error.Message.Should().Be("Could not store the role charter.");
         }
         finally
         {
@@ -154,7 +156,7 @@ public sealed class PostgresRoleCharterStoreRoundTripTests(PostgresFixture fixtu
         await using var connection = await fixture.Db.OpenAsync(CancellationToken.None);
         var sql = new RoleCharterSql(connection);
         (await sql.FindHeadAsync("reviewer", CancellationToken.None)).Should().BeNull();
-        (await sql.VersionExistsAsync("reviewer", "loser-hash", CancellationToken.None)).Should().BeTrue();
+        (await sql.VersionExistsAsync("reviewer", "loser-hash", CancellationToken.None)).Should().BeFalse();
     }
 
     /// <summary>
