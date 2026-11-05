@@ -2,7 +2,33 @@
 
 **Last session:** 2026-11-04
 
-## Current Position - phase 3.4 built and reviewed (2026-11-04): PR #427 ready, waiting on the owner's merge
+## Current Position - phase 3.4 complete (2026-11-04), next phase 3.5
+
+**Milestone 3.** Phase 3.4, controllers to minimal APIs, merged as #427 (`87c573aa`) and marked complete in ROADMAP.md
+and MILESTONE.md. Renovate #402 closed: `Asp.Versioning.Mvc` left with MVC. Release-please stays on hold.
+
+- 3.1 to 3.4 complete. 3.5, 3.6, 3.7 and 3.8 pending. Order: 3.6 needs 3.2 to 3.5; 3.7 needs only 3.1 and 3.2; 3.8 needs
+  3.2. So 3.5, 3.7 and 3.8 can each start now.
+- AOT baseline on main: Api 1351, Web 196, Cli 633, Sandbox 0, Migrations 798.
+- Open from 3.4: #428 (codeanalysis empty requirements answers 500, a Domain fix) and #436 (Browser E2E fixture registers
+  no validation adapters; the fix changes the CLAUDE.md two-place rule, the owner's call).
+- The squash body of #427 keeps one body line over 100 characters from `ac306f61`; commitlint does not enforce it and no
+  nested parentheses are in the body, so release-please parses it.
+
+## Open Decisions
+
+- Which phase next: 3.5 (EF Core to ZeroAlloc.ORM, unblocks 3.6) is the critical path; 3.7 and 3.8 are side paths.
+
+## Blockers
+
+None.
+
+## Recommended Next Step
+
+In a fresh session, run `start-next-phase`: it routes to phase 3.5, EF Core to ZeroAlloc.ORM with ZeroAlloc.Linq,
+Surface Data, starting with its brainstorm or plan per the files that exist.
+
+## Earlier Position - phase 3.4 built and reviewed (2026-11-04): PR #427 ready, waiting on the owner's merge
 
 **Milestone 3, phase 3.4, controllers to minimal APIs.** Branch `phase/3.4-minimal-apis`, PR #427 to `main`, marked
 ready. Release-please stays on hold.
