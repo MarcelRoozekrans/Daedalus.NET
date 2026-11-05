@@ -22,6 +22,16 @@ public sealed partial class BrainstormService(
     IPrdService prdService,
     ILogger<BrainstormService> logger) : IBrainstormService
 {
+    /// <summary>How many times a generate saves its completed session before it gives up on lost races.</summary>
+    private const int MaxCompletionSaves = 3;
+
+    /// <summary>
+    ///     A generate whose completed session lost every save: the tasks exist, so it carries no conflict marker and
+    ///     invites no retry, which would create them again (ruling R83).
+    /// </summary>
+    private static readonly CompositeFormat CompletionNotSaved = CompositeFormat.Parse(
+        "Created {0} tasks, but the session could not be marked complete. The tasks exist; do not generate them again.");
+
     /// <inheritdoc />
     public async Task<Result<BrainstormSession>> CreateSessionAsync(Guid projectId, CancellationToken ct)
     {
@@ -214,27 +224,56 @@ public sealed partial class BrainstormService(
         if (tasksResult.IsFailure)
             return Result<List<TaskDto>>.Failure($"Task conversion failed: {tasksResult.Error}");
 
+        var tasks = tasksResult.Value;
+        var completed = MarkTasksGenerated(session, tasks.Count);
+        if (completed.IsFailure)
+            return Result<List<TaskDto>>.Failure(completed.Error);
+
+        var saved = await repository.UpdateAsync(session, ct).ConfigureAwait(false);
+
+        // The tasks now exist, committed on their own, so a retry of the whole generate would create them again. A save
+        // that lost a race is redone on the session as read again, while it is still in TaskCreation: marking it
+        // complete does not depend on what the other write changed (ruling R83).
+        for (var attempt = 1;
+             saved.IsFailure && SaveConflict.IsConflict(saved.Error) && attempt < MaxCompletionSaves;
+             attempt++)
+        {
+            var reread = await repository.GetByIdAsync(sessionId, ct).ConfigureAwait(false);
+            if (reread.IsFailure || reread.Value.Phase != BrainstormPhase.TaskCreation
+                || MarkTasksGenerated(reread.Value, tasks.Count).IsFailure)
+                break;
+
+            saved = await repository.UpdateAsync(reread.Value, ct).ConfigureAwait(false);
+        }
+
+        if (saved.IsFailure)
+        {
+            return Result<List<TaskDto>>.Failure(SaveConflict.IsConflict(saved.Error)
+                ? string.Format(CultureInfo.InvariantCulture, CompletionNotSaved, tasks.Count)
+                : string.Create(CultureInfo.InvariantCulture,
+                    $"Created {tasks.Count} tasks, but the session could not be saved: {saved.Error}"));
+        }
+
+        LogTasksGenerated(logger, sessionId, tasks.Count);
+        return Result<List<TaskDto>>.Success(tasks);
+    }
+
+    /// <summary>
+    ///     Records on <paramref name="session"/> that its tasks were generated: a system message with the count, the
+    ///     assistant's completion message, and the advance from TaskCreation to Completed.
+    /// </summary>
+    private static Result MarkTasksGenerated(BrainstormSession session, int taskCount)
+    {
         var systemMsgResult = session.AddMessage(MessageRole.System,
-            string.Format(CultureInfo.InvariantCulture,
-                "Generated {0} tasks from implementation plan.", tasksResult.Value.Count));
+            string.Format(CultureInfo.InvariantCulture, "Generated {0} tasks from implementation plan.", taskCount));
         if (systemMsgResult.IsFailure)
-            return Result<List<TaskDto>>.Failure(systemMsgResult.Error);
+            return systemMsgResult;
 
         var completeMsgResult = session.AddMessage(MessageRole.Assistant, "Task generation complete. [PHASE_COMPLETE]");
         if (completeMsgResult.IsFailure)
-            return Result<List<TaskDto>>.Failure(completeMsgResult.Error);
+            return completeMsgResult;
 
-        var advanceResult = session.AdvancePhase();
-        if (advanceResult.IsFailure)
-            return Result<List<TaskDto>>.Failure(advanceResult.Error);
-
-        var saved = await repository.UpdateAsync(session, ct).ConfigureAwait(false);
-        if (saved.IsFailure)
-            return Result<List<TaskDto>>.Failure(string.Create(CultureInfo.InvariantCulture,
-                $"Created {tasksResult.Value.Count} tasks, but the session could not be saved: {saved.Error}"));
-
-        LogTasksGenerated(logger, sessionId, tasksResult.Value.Count);
-        return Result<List<TaskDto>>.Success(tasksResult.Value);
+        return session.AdvancePhase();
     }
 
     private static string BuildConversationPrompt(BrainstormSession session)

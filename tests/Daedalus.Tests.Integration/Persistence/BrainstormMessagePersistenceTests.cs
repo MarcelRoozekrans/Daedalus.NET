@@ -1,11 +1,13 @@
 using Daedalus.Api.Endpoints;
 using Daedalus.Application.Abstractions;
+using Daedalus.Application.DTOs;
 using Daedalus.Application.Services.Brainstorm;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Repositories;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
@@ -21,7 +23,11 @@ namespace Daedalus.Tests.Integration.Persistence;
 [Collection(DatabaseCollection.Name)]
 public sealed class BrainstormMessagePersistenceTests(PostgresFixture fixture) : IAsyncLifetime
 {
+    private const string TaskItems =
+        """[{"title":"Create entity","description":"d","acceptanceCriteria":"a","priority":"High","complexity":"Low","dependencies":[],"phase":"P1","parallelGroup":1}]""";
+
     private readonly IAgentFactory _agent = Substitute.For<IAgentFactory>();
+    private readonly IPrdService _prd = Substitute.For<IPrdService>();
     private Guid _projectId;
     private Guid _sessionId;
 
@@ -47,7 +53,7 @@ public sealed class BrainstormMessagePersistenceTests(PostgresFixture fixture) :
 
     private BrainstormService Service(IBrainstormRepository repository) =>
         new(repository, _agent, new ProjectRepository(fixture.Db, NullLogger<ProjectRepository>.Instance),
-            Substitute.For<IPrdService>(), NullLogger<BrainstormService>.Instance);
+            _prd, NullLogger<BrainstormService>.Instance);
 
     /// <summary>
     ///     As <c>BrainstormService.SendMessageAsync</c> does: read the session, add two messages, update.
@@ -105,6 +111,115 @@ public sealed class BrainstormMessagePersistenceTests(PostgresFixture fixture) :
         var stored = (await Repository().GetByIdAsync(_sessionId, CancellationToken.None)).Value;
         stored.Phase.Should().Be(BrainstormPhase.Clarification);
         stored.CompletedAt.Should().BeNull();
+    }
+
+    /// <summary>
+    ///     Ruling R83: tasks are created in their own transaction before the session is marked complete, so a lost race
+    ///     on that save must not invite a retry, which would create every task again. A message sent between the
+    ///     generate's load and its save leaves the session in TaskCreation; the service reads it again, marks it
+    ///     complete once more and saves: the tasks are created once and the answer is 200. Red: answer the lost race
+    ///     with the refusal, as before; the answer is 409 "Please retry.".
+    /// </summary>
+    [Fact]
+    public async Task A_generate_whose_session_save_loses_a_race_marks_it_complete_and_answers_200()
+    {
+        var sessionId = await SessionInTaskCreationAsync();
+        var racing = new MessageRacingRepository(Repository(), fixture.ConnectionString, races: 1);
+
+        var result = (await BrainstormEndpoints.GenerateTasks(
+            sessionId, Service(racing), NullLoggerFactory.Instance, CancellationToken.None)).Result;
+
+        result.Should().BeOfType<Ok<List<TaskDto>>>().Which.Value.Should().HaveCount(2);
+        await _prd.Received(1).ConvertToTasksAsync(
+            _projectId, Arg.Any<IReadOnlyList<PrdItemForConversionDto>>(), Arg.Any<CancellationToken>());
+        var stored = (await Repository().GetByIdAsync(sessionId, CancellationToken.None)).Value;
+        stored.Phase.Should().Be(BrainstormPhase.Completed);
+        stored.Messages.Select(m => m.Content).Should().Equal(
+            "Plan ready.", "Sent meanwhile", "Generated 2 tasks from implementation plan.", "Task generation complete.");
+    }
+
+    /// <summary>
+    ///     Ruling R83: when every save of the completed session loses its race, the generate gives up with a failure
+    ///     that says the tasks exist and not to generate them again, without the conflict marker, so the endpoint
+    ///     answers 400, never 409, and nothing invites a retry. Red: answer the last refusal, as before; the answer is
+    ///     409 "Please retry.".
+    /// </summary>
+    [Fact]
+    public async Task A_generate_whose_session_save_keeps_losing_gives_up_without_inviting_a_retry()
+    {
+        var sessionId = await SessionInTaskCreationAsync();
+        var racing = new MessageRacingRepository(Repository(), fixture.ConnectionString, races: int.MaxValue);
+
+        var result = (await BrainstormEndpoints.GenerateTasks(
+            sessionId, Service(racing), NullLoggerFactory.Instance, CancellationToken.None)).Result;
+
+        var json = result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
+        json.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        json.Value.Should().Be(new ErrorBody(
+            "Created 2 tasks, but the session could not be marked complete. The tasks exist; do not generate them again."));
+        await _prd.Received(1).ConvertToTasksAsync(
+            _projectId, Arg.Any<IReadOnlyList<PrdItemForConversionDto>>(), Arg.Any<CancellationToken>());
+        (await Repository().GetByIdAsync(sessionId, CancellationToken.None)).Value.Phase.Should()
+            .Be(BrainstormPhase.TaskCreation);
+    }
+
+    private async Task<Guid> SessionInTaskCreationAsync()
+    {
+        var id = Guid.NewGuid();
+        var session = BrainstormSession.Rehydrate(
+            id, _projectId, BrainstormPhase.TaskCreation, "design", "### Task 1: Create entity", false, DateTime.UtcNow,
+            null, 0,
+            [BrainstormMessage.Rehydrate(
+                Guid.NewGuid(), id, MessageRole.Assistant, "Plan ready.", BrainstormPhase.PlanGeneration,
+                DateTime.UtcNow.AddMinutes(-1))]);
+        (await Repository().AddAsync(session, CancellationToken.None)).IsSuccess.Should().BeTrue();
+        _agent.InvokeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult { Response = TaskItems }));
+        _prd.ConvertToTasksAsync(_projectId, Arg.Any<IReadOnlyList<PrdItemForConversionDto>>(), Arg.Any<CancellationToken>())
+            .Returns(Result<List<TaskDto>>.Success([null!, null!]));
+        return id;
+    }
+
+    /// <summary>
+    ///     Before each of the first <c>races</c> saves, sends a message to the session over a second connection, as a
+    ///     concurrent SendMessage would: a message row and a session write, which leave the phase as it is.
+    /// </summary>
+    private sealed class MessageRacingRepository(IBrainstormRepository inner, string connectionString, int races)
+        : IBrainstormRepository
+    {
+        private int _raced;
+
+        public Task<Result<BrainstormSession>> AddAsync(BrainstormSession session, CancellationToken ct) =>
+            inner.AddAsync(session, ct);
+
+        public Task<Result<BrainstormSession>> GetByIdAsync(Guid id, CancellationToken ct) => inner.GetByIdAsync(id, ct);
+
+        public Task<Result<IReadOnlyList<BrainstormSession>>> GetByProjectIdAsync(Guid projectId, CancellationToken ct) =>
+            inner.GetByProjectIdAsync(projectId, ct);
+
+        public async Task<Result> UpdateAsync(BrainstormSession session, CancellationToken ct)
+        {
+            if (_raced < races)
+            {
+                await using var connection = new NpgsqlConnection(connectionString);
+                await connection.OpenAsync(ct);
+                await using var command = new NpgsqlCommand(
+                    _raced == 0
+                        ? """
+                          INSERT INTO "BrainstormMessages" ("Id", "BrainstormSessionId", "Role", "Content", "Phase", "CreatedAt")
+                          VALUES (@message, @id, 2, 'Sent meanwhile', 5, now());
+                          UPDATE "BrainstormSessions" SET "PhaseCompleteSignaled" = FALSE WHERE "Id" = @id
+                          """
+                        : """UPDATE "BrainstormSessions" SET "PhaseCompleteSignaled" = FALSE WHERE "Id" = @id""",
+                    connection);
+                command.Parameters.AddWithValue("id", session.Id);
+                command.Parameters.AddWithValue("message", Guid.NewGuid());
+                await command.ExecuteNonQueryAsync(ct);
+                _raced++;
+            }
+
+            return await inner.UpdateAsync(session, ct);
+        }
     }
 
     /// <summary>Moves the session to Clarification over a second connection just before each save, as a concurrent request would.</summary>

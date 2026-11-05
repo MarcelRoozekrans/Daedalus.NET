@@ -14,7 +14,8 @@ namespace Daedalus.Api.Endpoints;
 ///     failure answers an <c>{ "error" }</c> body through <see cref="ApiJson.Of"/> (R45); the declared 400 and 404 are
 ///     <c>ProducesProblem</c> because MVC declared <c>ProblemDetails</c> and wrote the anonymous object. The
 ///     controller had no catch-all, so neither do the handlers (R47). A write whose session save lost a race to another
-///     write answers 409 with the refusal, matched by <see cref="SaveConflict.IsConflict"/>, as projects do (R83).
+///     write answers 409 with the refusal, matched by <see cref="SaveConflict.IsConflict"/>, as projects do;
+///     generate-tasks is the exception (R83).
 /// </remarks>
 public static partial class BrainstormEndpoints
 {
@@ -63,8 +64,7 @@ public static partial class BrainstormEndpoints
         group.MapPost("sessions/{sessionId:guid}/generate-tasks", GenerateTasks)
             .RequireAuthorization("TaskManagement")
             .RequireRateLimiting("write-operations")
-            .ProducesProblem(StatusCodes.Status400BadRequest, "application/json")
-            .ProducesProblem(StatusCodes.Status409Conflict, "application/json");
+            .ProducesProblem(StatusCodes.Status400BadRequest, "application/json");
 
         return group;
     }
@@ -168,7 +168,10 @@ public static partial class BrainstormEndpoints
             : WriteFailure(result.Error);
     }
 
-    /// <summary>Generate tasks from a brainstorm session's implementation plan.</summary>
+    /// <summary>
+    ///     Generate tasks from a brainstorm session's implementation plan. Every failure answers 400: once the tasks exist,
+    ///     the service redoes a lost save itself and never answers the retry text, which would create them again (R83).
+    /// </summary>
     public static async Task<Results<Ok<List<TaskDto>>, ApiJsonResult<ErrorBody>>> GenerateTasks(
         Guid sessionId, [FromServices] IBrainstormService brainstormService,
         [FromServices] ILoggerFactory loggerFactory, CancellationToken ct)
@@ -180,7 +183,7 @@ public static partial class BrainstormEndpoints
 
         return result.IsSuccess
             ? TypedResults.Ok(result.Value)
-            : WriteFailure(result.Error);
+            : Error(result.Error, StatusCodes.Status400BadRequest);
     }
 
     /// <summary>A failed write: 409 when its session save lost a race to another write (R83), else 400.</summary>

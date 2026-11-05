@@ -291,21 +291,19 @@ public sealed class BrainstormEndpointsTests
 
     public static TheoryData<string> WriteRoutes => new()
     {
-        "CreateSession", "SendMessage", "AdvancePhase", "AbandonSession", "GenerateTasks",
+        "CreateSession", "SendMessage", "AdvancePhase", "AbandonSession",
     };
 
     /// <summary>
     ///     Owner decision of 2026-11-05, ruling R83: a write whose session save lost a race to another write answers 409
-    ///     with the refusal, as projects and repositories do; GenerateTasks keeps its prefix, which says the tasks were
-    ///     created. Red: drop the <c>SaveConflict.IsConflict</c> branch in the endpoints' failure mapping; each route
-    ///     answers 400.
+    ///     with the refusal, as projects and repositories do. Red: drop the <c>SaveConflict.IsConflict</c> branch in the
+    ///     endpoints' failure mapping; each route answers 400.
     /// </summary>
     [Theory]
     [MemberData(nameof(WriteRoutes))]
     public async Task A_write_that_lost_a_race_answers_409_with_the_refusal(string route)
     {
         const string Refusal = "The brainstorm session was modified by another operation. Please retry.";
-        var generated = $"Created 2 tasks, but the session could not be saved: {Refusal}";
         _service.CreateSessionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(Result<BrainstormSession>.Failure(Refusal));
         _service.SendMessageAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -313,8 +311,6 @@ public sealed class BrainstormEndpointsTests
         _service.AdvancePhaseAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(Result<BrainstormSession>.Failure(Refusal));
         _service.AbandonSessionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(Result.Failure(Refusal));
-        _service.GenerateTasksAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns(Result<List<TaskDto>>.Failure(generated));
         var factory = CreateLogging().Factory;
 
         IResult result = route switch
@@ -325,13 +321,31 @@ public sealed class BrainstormEndpointsTests
                 SessionId, await BindSend("{\"content\":\"Hello\"}"), _service, factory, CancellationToken.None)).Result,
             "AdvancePhase" => (await BrainstormEndpoints.AdvancePhase(SessionId, _service, factory, CancellationToken.None)).Result,
             "AbandonSession" => (await BrainstormEndpoints.AbandonSession(SessionId, _service, factory, CancellationToken.None)).Result,
-            "GenerateTasks" => (await BrainstormEndpoints.GenerateTasks(SessionId, _service, factory, CancellationToken.None)).Result,
             _ => throw new ArgumentOutOfRangeException(nameof(route), route, null),
         };
 
         var json = result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
         json.StatusCode.Should().Be(StatusCodes.Status409Conflict);
-        json.Value.Should().Be(new ErrorBody(string.Equals(route, "GenerateTasks", StringComparison.Ordinal) ? generated : Refusal));
+        json.Value.Should().Be(new ErrorBody(Refusal));
+    }
+
+    /// <summary>
+    ///     Ruling R83: once the tasks exist, a retry of the generate would create them again, so a failure composed after
+    ///     them answers 400, never 409, even one that quotes a refusal with the conflict marker. Red: map GenerateTasks'
+    ///     failure through <c>WriteFailure</c>; the second case answers 409.
+    /// </summary>
+    [Theory]
+    [InlineData("Created 2 tasks, but the session could not be marked complete. The tasks exist; do not generate them again.")]
+    [InlineData("Created 2 tasks, but the session could not be saved: The brainstorm session was modified by another operation. Please retry.")]
+    public async Task GenerateTasks_after_the_tasks_exist_answers_400(string error)
+    {
+        _service.GenerateTasksAsync(SessionId, Arg.Any<CancellationToken>()).Returns(Result<List<TaskDto>>.Failure(error));
+
+        var result = await BrainstormEndpoints.GenerateTasks(SessionId, _service, CreateLogging().Factory, CancellationToken.None);
+
+        var json = result.Result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
+        json.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        json.Value.Should().Be(new ErrorBody(error));
     }
 
     private static async Task<ApiBody<CreateBrainstormSessionDto>> BindCreate(string body) =>

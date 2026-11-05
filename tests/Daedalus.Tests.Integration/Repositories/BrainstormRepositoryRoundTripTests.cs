@@ -207,6 +207,27 @@ public sealed class BrainstormRepositoryRoundTripTests(PostgresFixture fixture) 
     }
 
     /// <summary>
+    ///     Review focus 3, ruling R78: a session deleted after its load, saved with only its columns changed, an abandon,
+    ///     answers the same logged failure. EF Core answered "modified by another operation" here, since its update
+    ///     matched no row and no message was inserted; the port cannot tell this save from one with a new message
+    ///     without tracking, and a deleted session is not a race to retry. Red: answer every
+    ///     <c>ZeroAllocOrmConcurrencyException</c> as modified by another operation; the abandon answers that instead.
+    /// </summary>
+    [Fact]
+    public async SystemTask UpdateAsync_of_an_abandon_of_a_session_deleted_since_its_load_answers_the_failure()
+    {
+        var id = await AddSessionAsync();
+        var read = (await Repository().GetByIdAsync(id, CancellationToken.None)).Value;
+        read.Abandon().IsSuccess.Should().BeTrue();
+        await ExecuteAsync("""DELETE FROM "BrainstormSessions" WHERE "Id" = @id""", ("id", id));
+
+        var result = await Repository().UpdateAsync(read, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be($"Failed to update brainstorm session {id}. The cause is logged.");
+    }
+
+    /// <summary>
     ///     The save writes the five columns the domain methods change and nothing else: a project id and creation time
     ///     that differ in memory are not stored. Red: also set <c>"ProjectId"</c> in <c>UpdateQuery</c>; the stored
     ///     project id changes.

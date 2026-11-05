@@ -95,9 +95,11 @@ public class BrainstormServiceSaveFailureTests
     }
 
     /// <summary>
-    ///     The tasks exist by then, so the failure says they were created and that the session was not saved.
+    ///     The tasks exist by then, so the failure says they were created, and, the refusal being a lost race that
+    ///     cannot be redone here (the read back finds the session past TaskCreation), not to generate them again; it
+    ///     carries no conflict marker (ruling R83).
     ///     Red: <c>GenerateTasksAsync</c> ignores the result of <c>UpdateAsync</c>; the generate succeeds.
-    ///     Red: the failure returns <c>saved.Error</c> alone; it does not say the tasks were created.
+    ///     Red: the failure quotes the refusal, as before; it invites the retry.
     /// </summary>
     [Fact]
     public async Task Generated_tasks_whose_session_is_not_saved_fail_and_say_the_tasks_exist()
@@ -122,6 +124,85 @@ public class BrainstormServiceSaveFailureTests
         var result = await _service.GenerateTasksAsync(session.Id, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Be($"Created 2 tasks, but the session could not be saved: {SaveRefusal}");
+        result.Error.Should().Be(CompletionNotSaved);
+    }
+
+    /// <summary>
+    ///     Ruling R83: a lost race on the completed session is redone on the session read again while it is still in
+    ///     TaskCreation, so the generate succeeds and the tasks are converted once. Red: answer the first refusal; the
+    ///     generate fails.
+    /// </summary>
+    [Fact]
+    public async Task Generated_tasks_whose_session_save_loses_once_are_saved_on_the_session_read_again()
+    {
+        var session = TaskCreationSessionOnEveryRead();
+        _repository.UpdateAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Failure(SaveRefusal), Result.Success());
+
+        var result = await _service.GenerateTasksAsync(session.Id, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : string.Empty);
+        await _prdService.Received(1).ConvertToTasksAsync(
+            session.ProjectId, Arg.Any<IReadOnlyList<PrdItemForConversionDto>>(), Arg.Any<CancellationToken>());
+        await _repository.Received(2).UpdateAsync(
+            Arg.Is<BrainstormSession>(s => s.Phase == BrainstormPhase.Completed), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     Ruling R83: the redo is bounded; after three lost saves the generate gives up with the text that says the tasks
+    ///     exist. Red: allow two saves in place of three; the save is attempted twice.
+    /// </summary>
+    [Fact(Timeout = 5000)]
+    public async Task Generated_tasks_whose_session_save_keeps_losing_give_up_after_three_saves()
+    {
+        var session = TaskCreationSessionOnEveryRead();
+
+        var result = await _service.GenerateTasksAsync(session.Id, CancellationToken.None);
+
+        result.Error.Should().Be(CompletionNotSaved);
+        await _repository.Received(3).UpdateAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     A refusal that is not a lost race is not redone and keeps its text after the tasks' count. Red: redo every
+    ///     refusal; the save is attempted three times.
+    /// </summary>
+    [Fact]
+    public async Task Generated_tasks_whose_session_save_fails_otherwise_say_why_without_a_redo()
+    {
+        var session = TaskCreationSessionOnEveryRead();
+        _repository.UpdateAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Failure("Failed to update brainstorm session x. The cause is logged."));
+
+        var result = await _service.GenerateTasksAsync(session.Id, CancellationToken.None);
+
+        result.Error.Should().Be(
+            "Created 2 tasks, but the session could not be saved: Failed to update brainstorm session x. The cause is logged.");
+        await _repository.Received(1).UpdateAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>());
+    }
+
+    private const string CompletionNotSaved =
+        "Created 2 tasks, but the session could not be marked complete. The tasks exist; do not generate them again.";
+
+    /// <summary>
+    ///     A session in TaskCreation with a plan, read afresh on every <c>GetByIdAsync</c>, as the repository reads it;
+    ///     the model and the conversion answer two tasks.
+    /// </summary>
+    private BrainstormSession TaskCreationSessionOnEveryRead()
+    {
+        var id = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        BrainstormSession Read() => BrainstormSession.Rehydrate(
+            id, projectId, BrainstormPhase.TaskCreation, "design", "### Task 1: Create entity", false, DateTime.UtcNow,
+            null, 1, []);
+        _repository.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(_ => Result<BrainstormSession>.Success(Read()));
+        _agentFactory.InvokeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult
+            {
+                Response = """[{"title":"Create entity","description":"d","acceptanceCriteria":"a","priority":"High","complexity":"Low","dependencies":[],"phase":"P1","parallelGroup":1}]""",
+            }));
+        _prdService.ConvertToTasksAsync(projectId, Arg.Any<IReadOnlyList<PrdItemForConversionDto>>(), Arg.Any<CancellationToken>())
+            .Returns(Result<List<TaskDto>>.Success([null!, null!]));
+        return Read();
     }
 }
