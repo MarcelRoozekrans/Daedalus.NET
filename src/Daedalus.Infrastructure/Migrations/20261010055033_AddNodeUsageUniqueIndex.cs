@@ -22,7 +22,7 @@ namespace Daedalus.Infrastructure.Migrations
                 DELETE FROM "WorkflowRunRecords" d
                 USING "WorkflowRunRecords" k
                 WHERE d."Kind" = 'node-usage' AND k."Kind" = 'node-usage'
-                  AND d."RunId" = k."RunId" AND d."Seq" = k."Seq" AND d."Id" > k."Id"
+                  AND d."RunId" = k."RunId" AND d."Seq" = k."Seq" AND d."Id" > k."Id";
                 """);
 
             migrationBuilder.CreateIndex(

@@ -93,6 +93,9 @@
         <None Include="..\Daedalus.Tests.Unit\Configuration\RoslynCodeLens.Mcp.tools.json" Link="RoslynCodeLens.Mcp.tools.json" CopyToOutputDirectory="PreserveNewest"/>
         <!-- Phase 3.4: EndpointContractSnapshotTests reads the endpoint table snapshot from Api/ beside the test assembly. -->
         <None Update="Api/endpoint-contract.snapshot.txt" CopyToOutputDirectory="PreserveNewest"/>
+        <!-- Phase 3.5, Task 2: EF Core's chain scripted once and frozen; EfChainDatabase reads it from Migrations/ beside the
+             test assembly to build an "EF database". -->
+        <None Update="Migrations/ef-chain.sql" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 
     <ItemGroup>

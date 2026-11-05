@@ -52,4 +52,10 @@
         <PackageReference Include="ZeroAlloc.ORM.Linq" />
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- Phase 3.5: Daedalus' schema migrations, read by DaedalusMigrations through EmbeddedResourceMigrationSource
+             as Daedalus.Infrastructure.Persistence.Migrations.NNNN_name.sql. -->
+        <EmbeddedResource Include="Persistence/Migrations/*.sql" />
+    </ItemGroup>
+
 </Project>
