@@ -26,6 +26,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -174,6 +175,11 @@ public class E2EServerFixture
             builder.Services.AddDbContext<ApplicationDbContext>(options =>
                 options.UseNpgsql(ConnectionString),
                 contextLifetime: ServiceLifetime.Scoped, optionsLifetime: ServiceLifetime.Singleton);
+
+            // The ZeroAlloc.ORM stores (memory, skills, charters) open their connections from one data source, as
+            // AddApplicationDatabase registers it in a real host.
+            builder.Services.TryAddSingleton(_ => Npgsql.NpgsqlDataSource.Create(ConnectionString));
+            builder.Services.TryAddSingleton<DaedalusDb>();
 
             // Core infrastructure (ISystemClock, etc.)
             builder.Services.AddCoreInfrastructureServices();
@@ -708,9 +714,10 @@ public class E2EServerFixture
             {
                 throw new InvalidOperationException($"Seeding agent memories failed: {seed.Error}");
             }
-
-            await sql.InsertAsync(seed.Value, CancellationToken.None).ConfigureAwait(false);
         }
+
+        // All or nothing, as EF's one SaveChanges was: a half-seeded table would pass the emptiness check above.
+        await sql.InsertAllAsync([.. seeds.Select(seed => seed.Value)], CancellationToken.None).ConfigureAwait(false);
     }
 
     [OneTimeTearDown]

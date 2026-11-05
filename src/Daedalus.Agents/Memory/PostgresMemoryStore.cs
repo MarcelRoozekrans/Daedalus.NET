@@ -176,8 +176,8 @@ public sealed class PostgresMemoryStore : IMemoryStore
             return UnitResult<AgentError>.Success();
         }
 
-        // ids are a set (duplicates count once); the statement touches each row once anyway, distinct keeps the parameter small.
-        var guids = ids.Select(i => i.Value).Distinct().ToList();
+        // AgentMemorySql counts a repeated id once.
+        var guids = ids.Select(i => i.Value).ToList();
         await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
         await new AgentMemorySql(connection).MarkRecalledAsync(guids, at.UtcDateTime, ct).ConfigureAwait(false);
 
