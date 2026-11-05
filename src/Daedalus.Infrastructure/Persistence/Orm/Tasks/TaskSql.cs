@@ -80,8 +80,8 @@ public sealed partial class TaskSql(IAsyncDbConnection connection)
     }
 
     /// <summary>
-    ///     Reads the number of tasks and one page of them, newest first, each with its executions, in one round trip.
-    ///     The page orders by <c>CreatedAt</c> descending, then by id, so tasks created at the same instant page in one
+    ///     Reads the number of tasks and one page of them, newest first, each with its executions, in one read-only
+    ///     REPEATABLE READ transaction: BEGIN, SET TRANSACTION, the three-statement read, COMMIT. The page orders by <c>CreatedAt</c> descending, then by id, so tasks created at the same instant page in one
     ///     order; the executions are those of the page's tasks.
     /// </summary>
     /// <param name="skip">How many tasks to skip.</param>
