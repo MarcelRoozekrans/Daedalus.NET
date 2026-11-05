@@ -223,7 +223,7 @@ public sealed class RepositoriesEndpointsIntegrationTests : IAsyncLifetime
             IsActive = true
         };
 
-        _repositoryMock.GetByIdTrackingAsync(entity.Id, Arg.Any<CancellationToken>())
+        _repositoryMock.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>())
             .Returns(Result<RepositoryConfiguration>.Success(entity));
         _repositoryMock.UpdateAsync(entity, Arg.Any<CancellationToken>())
             .Returns(Result.Success());
@@ -248,7 +248,7 @@ public sealed class RepositoriesEndpointsIntegrationTests : IAsyncLifetime
             Url = "https://github.com/org/repo"
         };
 
-        _repositoryMock.GetByIdTrackingAsync(id, Arg.Any<CancellationToken>())
+        _repositoryMock.GetByIdAsync(id, Arg.Any<CancellationToken>())
             .Returns(Result<RepositoryConfiguration>.Failure("not found"));
 
         // Act
@@ -273,7 +273,7 @@ public sealed class RepositoriesEndpointsIntegrationTests : IAsyncLifetime
             IsActive = true
         };
 
-        _repositoryMock.GetByIdTrackingAsync(entity.Id, Arg.Any<CancellationToken>())
+        _repositoryMock.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>())
             .Returns(Result<RepositoryConfiguration>.Success(entity));
         _repositoryMock.UpdateAsync(entity, Arg.Any<CancellationToken>())
             .Returns(Result.Failure("The repository was modified by another operation"));
@@ -300,7 +300,7 @@ public sealed class RepositoriesEndpointsIntegrationTests : IAsyncLifetime
             IsActive = true
         };
 
-        _repositoryMock.GetByIdTrackingAsync(entity.Id, Arg.Any<CancellationToken>())
+        _repositoryMock.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>())
             .Returns(Result<RepositoryConfiguration>.Success(entity));
 
         // Act

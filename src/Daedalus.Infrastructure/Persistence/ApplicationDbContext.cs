@@ -22,7 +22,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<CodeAnalysisRequest> CodeAnalysisRequests => Set<CodeAnalysisRequest>();
     public DbSet<AnalysisIteration> AnalysisIterations => Set<AnalysisIteration>();
-    public DbSet<RepositoryConfiguration> RepositoryConfigurations => Set<RepositoryConfiguration>();
     public DbSet<AgentSession> AgentSessions => Set<AgentSession>();
 
     /// <summary>Recurring autonomous runs; see <see cref="ScheduledRun"/>.</summary>
@@ -49,7 +48,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         Entry(new CodeAnalysisRequestConfiguration()),
         Entry(new ExecutionSessionConfiguration()),
         Entry(new ProjectConfiguration()),
-        Entry(new RepositoryConfigurationEntityConfiguration()),
         Entry(new ScheduledRunConfiguration()),
         Entry(new ScheduledRunExecutionConfiguration()),
         Entry(new TaskConfiguration()),

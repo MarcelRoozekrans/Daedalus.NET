@@ -257,50 +257,6 @@ Model:
     Annotations: 
       Relational:TableName: Projects
       RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
-  EntityType: RepositoryConfiguration
-    Properties: 
-      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
-      AuthenticationMethod (string) MaxLength(100)
-        Annotations: 
-          MaxLength: 100
-      CreatedAt (DateTime) Required Index
-      CredentialIdentifier (string) MaxLength(512)
-        Annotations: 
-          MaxLength: 512
-      DefaultBranch (string) Required MaxLength(256)
-        Annotations: 
-          MaxLength: 256
-      Description (string) MaxLength(2000)
-        Annotations: 
-          MaxLength: 2000
-      IsActive (bool) Required Index
-      LastUsedAt (DateTime?)
-      ModifiedAt (DateTime?)
-      Name (string) Required Index MaxLength(256)
-        Annotations: 
-          MaxLength: 256
-      Platform (string) Required MaxLength(50)
-        Annotations: 
-          MaxLength: 50
-      RowVersion (byte[]) Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
-      Url (string) Required MaxLength(1024)
-        Annotations: 
-          MaxLength: 1024
-    Keys: 
-      Id PK
-    Indexes: 
-      CreatedAt
-        Annotations: 
-          Relational:Name: IX_RepositoryConfiguration_CreatedAt
-      IsActive
-        Annotations: 
-          Relational:Name: IX_RepositoryConfiguration_IsActive
-      Name
-        Annotations: 
-          Relational:Name: IX_RepositoryConfiguration_Name
-    Annotations: 
-      Relational:TableName: RepositoryConfigurations
-      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
   EntityType: ScheduledRun
     Properties: 
       Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd

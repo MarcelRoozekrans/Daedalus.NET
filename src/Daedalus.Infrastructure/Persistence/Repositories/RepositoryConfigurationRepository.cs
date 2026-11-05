@@ -1,36 +1,41 @@
 using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.RepositoryConfigurations;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.ORM;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Persistence.Repositories;
 
 /// <summary>
-///     EF Core repository implementation for RepositoryConfiguration.
+///     Stores repository configurations on ZeroAlloc.ORM, one pooled connection per call.
 /// </summary>
-public sealed partial class RepositoryConfigurationRepository(
-    ApplicationDbContext dbContext,
-    ILogger<RepositoryConfigurationRepository> logger) : IRepositoryConfigurationRepository
+/// <remarks>
+///     <see cref="UpdateAsync"/> is an independent full overwrite of the columns the request carries, with no version
+///     check (owner decision 5): the second of two saves wins. It matches the row by id only, so a configuration
+///     deleted since it was read answers <see cref="ModifiedByAnotherOperation"/>, as EF's update matching no row did.
+/// </remarks>
+public sealed partial class RepositoryConfigurationRepository(DaedalusDb db, ILogger<RepositoryConfigurationRepository> logger)
+    : IRepositoryConfigurationRepository
 {
+    /// <summary>The failure of an update that matched no row, a configuration deleted since it was read.</summary>
+    public const string ModifiedByAnotherOperation = "The repository was modified by another operation. Please retry.";
+
     public async Task<Result<IReadOnlyList<RepositoryConfiguration>>> GetAllAsync(
         CancellationToken ct = default)
     {
         try
         {
-            var repos = await dbContext.RepositoryConfigurations
-                .AsNoTracking()
-                .OrderByDescending(r => r.CreatedAt)
-                .ToListAsync(ct)
-                .ConfigureAwait(false);
-
-            return Result<IReadOnlyList<RepositoryConfiguration>>.Success((IReadOnlyList<RepositoryConfiguration>)repos);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var repos = await new RepositoryConfigurationSql(connection).ListAsync(ct).ConfigureAwait(false);
+            return Result<IReadOnlyList<RepositoryConfiguration>>.Success(repos);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingRepositories(logger, ex);
             return Result<IReadOnlyList<RepositoryConfiguration>>.Failure(
-                $"Error retrieving repositories: {ex.Message}");
+                "Error retrieving repositories. The cause is logged.");
         }
     }
 
@@ -39,10 +44,8 @@ public sealed partial class RepositoryConfigurationRepository(
     {
         try
         {
-            var repo = await dbContext.RepositoryConfigurations
-                .AsNoTracking()
-                .FirstOrDefaultAsync(r => r.Id == id, ct)
-                .ConfigureAwait(false);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var repo = await new RepositoryConfigurationSql(connection).FindAsync(id, ct).ConfigureAwait(false);
 
             return repo is not null
                 ? Result<RepositoryConfiguration>.Success(repo)
@@ -53,29 +56,7 @@ public sealed partial class RepositoryConfigurationRepository(
         {
             LogErrorRetrievingRepository(logger, ex, id);
             return Result<RepositoryConfiguration>.Failure(
-                $"Error retrieving repository: {ex.Message}");
-        }
-    }
-
-    public async Task<Result<RepositoryConfiguration>> GetByIdTrackingAsync(
-        Guid id, CancellationToken ct = default)
-    {
-        try
-        {
-            var repo = await dbContext.RepositoryConfigurations
-                .FirstOrDefaultAsync(r => r.Id == id, ct)
-                .ConfigureAwait(false);
-
-            return repo is not null
-                ? Result<RepositoryConfiguration>.Success(repo)
-                : Result<RepositoryConfiguration>.Failure(
-                    $"Repository configuration {id} not found");
-        }
-        catch (Exception ex)
-        {
-            LogErrorRetrievingRepository(logger, ex, id);
-            return Result<RepositoryConfiguration>.Failure(
-                $"Error retrieving repository: {ex.Message}");
+                "Error retrieving repository. The cause is logged.");
         }
     }
 
@@ -84,15 +65,15 @@ public sealed partial class RepositoryConfigurationRepository(
     {
         try
         {
-            dbContext.RepositoryConfigurations.Add(repository);
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            await new RepositoryConfigurationSql(connection).InsertAsync(repository, ct).ConfigureAwait(false);
             return Result<RepositoryConfiguration>.Success(repository);
         }
         catch (Exception ex)
         {
             LogErrorAddingRepository(logger, ex, repository.Id);
             return Result<RepositoryConfiguration>.Failure(
-                $"Error adding repository: {ex.Message}");
+                "Error adding repository. The cause is logged.");
         }
     }
 
@@ -101,18 +82,18 @@ public sealed partial class RepositoryConfigurationRepository(
     {
         try
         {
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            await new RepositoryConfigurationSql(connection).UpdateAsync(repository, ct).ConfigureAwait(false);
             return Result.Success();
         }
-        catch (DbUpdateConcurrencyException)
+        catch (ZeroAllocOrmConcurrencyException)
         {
-            return Result.Failure(
-                "The repository was modified by another operation. Please retry.");
+            return Result.Failure(ModifiedByAnotherOperation);
         }
         catch (Exception ex)
         {
             LogErrorUpdatingRepository(logger, ex, repository.Id);
-            return Result.Failure($"Error updating repository: {ex.Message}");
+            return Result.Failure("Error updating repository. The cause is logged.");
         }
     }
 
@@ -120,23 +101,16 @@ public sealed partial class RepositoryConfigurationRepository(
     {
         try
         {
-            var repo = await dbContext.RepositoryConfigurations
-                .FirstOrDefaultAsync(r => r.Id == id, ct)
-                .ConfigureAwait(false);
-
-            if (repo is null)
-            {
-                return Result.Failure($"Repository configuration {id} not found");
-            }
-
-            dbContext.RepositoryConfigurations.Remove(repo);
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-            return Result.Success();
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var deleted = await new RepositoryConfigurationSql(connection).DeleteAsync(id, ct).ConfigureAwait(false);
+            return deleted > 0
+                ? Result.Success()
+                : Result.Failure($"Repository configuration {id} not found");
         }
         catch (Exception ex)
         {
             LogErrorDeletingRepository(logger, ex, id);
-            return Result.Failure($"Error deleting repository: {ex.Message}");
+            return Result.Failure("Error deleting repository. The cause is logged.");
         }
     }
 

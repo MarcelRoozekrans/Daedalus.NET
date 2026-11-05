@@ -1,38 +1,25 @@
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Repositories;
 using Daedalus.Tests.Integration.Builders;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Repositories;
 
 /// <summary>
-///     Integration tests for RepositoryConfigurationRepository.
-///     Uses the EF InMemory provider (via InMemoryDbContextFactory) for speed and isolation.
+///     Integration tests for RepositoryConfigurationRepository. Moved to the migrated Postgres schema from EF Core's
+///     InMemory provider when the repository moved to ZeroAlloc.ORM (ruling R84); the assertions are the ones they had.
 /// </summary>
-[Collection("Database collection")]
-public class RepositoryConfigurationRepositoryIntegrationTests : IAsyncLifetime
+[Collection(DatabaseCollection.Name)]
+public class RepositoryConfigurationRepositoryIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
 {
-    private readonly ApplicationDbContext _dbContext;
-    private readonly RepositoryConfigurationRepository _repository;
+    private readonly RepositoryConfigurationRepository _repository =
+        new(fixture.Db, Substitute.For<ILogger<RepositoryConfigurationRepository>>());
 
-    public RepositoryConfigurationRepositoryIntegrationTests()
-    {
-        _dbContext = InMemoryDbContextFactory.Create();
-        var logger = Substitute.For<ILogger<RepositoryConfigurationRepository>>();
-        _repository = new RepositoryConfigurationRepository(_dbContext, logger);
-    }
+    public async Task InitializeAsync() => await fixture.DatabaseResetter.ResetAsync();
 
-    public async Task InitializeAsync() => await _dbContext.Database.EnsureCreatedAsync();
-
-    public async Task DisposeAsync()
-    {
-        await _dbContext.Database.EnsureDeletedAsync();
-        await _dbContext.DisposeAsync();
-    }
+    public Task DisposeAsync() => Task.CompletedTask;
 
     #region AddAsync
 
@@ -153,59 +140,6 @@ public class RepositoryConfigurationRepositoryIntegrationTests : IAsyncLifetime
 
     #endregion
 
-    #region GetByIdTrackingAsync
-
-    [Fact]
-    public async Task GetByIdTrackingAsync_WithExistingId_ReturnsEntity()
-    {
-        // Arrange
-        var entity = IntegrationTestFactory.CreateRepositoryConfiguration(name: "Tracked");
-        await _repository.AddAsync(entity);
-
-        // Act
-        var result = await _repository.GetByIdTrackingAsync(entity.Id);
-
-        // Assert
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Id.Should().Be(entity.Id);
-        result.Value.Name.Should().Be("Tracked");
-    }
-
-    [Fact]
-    public async Task GetByIdTrackingAsync_WithNonExistingId_ReturnsFailure()
-    {
-        // Arrange
-        var nonExistingId = Guid.NewGuid();
-
-        // Act
-        var result = await _repository.GetByIdTrackingAsync(nonExistingId);
-
-        // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Contain("not found");
-    }
-
-    [Fact]
-    public async Task GetByIdTrackingAsync_EntityIsTracked_CanBeUpdated()
-    {
-        // Arrange
-        var entity = IntegrationTestFactory.CreateRepositoryConfiguration(name: "Original");
-        await _repository.AddAsync(entity);
-
-        // Act
-        var tracked = await _repository.GetByIdTrackingAsync(entity.Id);
-        tracked.Value.Update("Updated Name", "https://github.com/org/repo", "main",
-            null, null, true, null);
-        await _repository.UpdateAsync(tracked.Value);
-
-        // Assert
-        var refreshed = await _repository.GetByIdAsync(entity.Id);
-        refreshed.IsSuccess.Should().BeTrue();
-        refreshed.Value.Name.Should().Be("Updated Name");
-    }
-
-    #endregion
-
     #region GetAllAsync
 
     [Fact]
@@ -268,18 +202,18 @@ public class RepositoryConfigurationRepositoryIntegrationTests : IAsyncLifetime
     #region UpdateAsync
 
     [Fact]
-    public async Task UpdateAsync_WithTrackedEntity_PersistsChanges()
+    public async Task UpdateAsync_WithReadEntity_PersistsChanges()
     {
         // Arrange
         var entity = IntegrationTestFactory.CreateRepositoryConfiguration(name: "Before Update");
         await _repository.AddAsync(entity);
 
-        var tracked = await _repository.GetByIdTrackingAsync(entity.Id);
-        tracked.Value.Update("After Update", "https://github.com/org/updated", "develop",
+        var read = await _repository.GetByIdAsync(entity.Id);
+        read.Value.Update("After Update", "https://github.com/org/updated", "develop",
             "SSH", "vault://key", true, "Updated desc");
 
         // Act
-        var result = await _repository.UpdateAsync(tracked.Value);
+        var result = await _repository.UpdateAsync(read.Value);
 
         // Assert
         result.IsSuccess.Should().BeTrue();
@@ -299,12 +233,12 @@ public class RepositoryConfigurationRepositoryIntegrationTests : IAsyncLifetime
         var entity = IntegrationTestFactory.CreateRepositoryConfiguration(name: "Active Repo");
         await _repository.AddAsync(entity);
 
-        var tracked = await _repository.GetByIdTrackingAsync(entity.Id);
-        tracked.Value.Update("Active Repo", "https://github.com/org/repo", "main",
+        var read = await _repository.GetByIdAsync(entity.Id);
+        read.Value.Update("Active Repo", "https://github.com/org/repo", "main",
             null, null, false, null);
 
         // Act
-        var result = await _repository.UpdateAsync(tracked.Value);
+        var result = await _repository.UpdateAsync(read.Value);
 
         // Assert
         result.IsSuccess.Should().BeTrue();

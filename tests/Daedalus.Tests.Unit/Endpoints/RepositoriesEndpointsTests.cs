@@ -208,10 +208,10 @@ public sealed class RepositoriesEndpointsTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task UpdateRepository_updates_the_tracked_entity_answers_204_and_logs()
+    public async Task UpdateRepository_updates_the_entity_answers_204_and_logs()
     {
         var entity = Entity("Original");
-        _repository.GetByIdTrackingAsync(entity.Id, Arg.Any<CancellationToken>()).Returns(Result<RepositoryConfiguration>.Success(entity));
+        _repository.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>()).Returns(Result<RepositoryConfiguration>.Success(entity));
         _repository.UpdateAsync(entity, Arg.Any<CancellationToken>()).Returns(Result.Success());
         var (factory, logger) = CreateLogging();
         var (context, request) = await BindUpdate("Updated", isActive: false);
@@ -221,7 +221,6 @@ public sealed class RepositoriesEndpointsTests : IAsyncDisposable
 
         // Red: answer the NotFound problem in place of NoContent in the success branch of UpdateRepository.
         result.Result.Should().BeOfType<NoContent>();
-        // Red: call GetByIdAsync in place of GetByIdTrackingAsync in UpdateRepository; the stub is not met.
         // Red: pass dto.Url in place of dto.Name to entity.Update in UpdateRepository.
         entity.Name.Should().Be("Updated");
         // Red: pass true in place of dto.IsActive to entity.Update in UpdateRepository.
@@ -237,7 +236,7 @@ public sealed class RepositoriesEndpointsTests : IAsyncDisposable
     public async Task UpdateRepository_answers_a_hand_built_404_problem_for_a_missing_repository()
     {
         var id = Guid.NewGuid();
-        _repository.GetByIdTrackingAsync(id, Arg.Any<CancellationToken>()).Returns(Result<RepositoryConfiguration>.Failure("not found"));
+        _repository.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(Result<RepositoryConfiguration>.Failure("not found"));
         var (context, request) = await BindUpdate("Updated");
 
         var result = await RepositoriesEndpoints.UpdateRepository(
@@ -257,7 +256,7 @@ public sealed class RepositoriesEndpointsTests : IAsyncDisposable
     public async Task UpdateRepository_answers_a_hand_built_400_problem_for_an_invalid_name_and_does_not_save()
     {
         var entity = Entity("Original");
-        _repository.GetByIdTrackingAsync(entity.Id, Arg.Any<CancellationToken>()).Returns(Result<RepositoryConfiguration>.Success(entity));
+        _repository.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>()).Returns(Result<RepositoryConfiguration>.Success(entity));
         var (context, request) = await BindUpdate(string.Empty);
 
         var result = await RepositoriesEndpoints.UpdateRepository(
@@ -280,7 +279,7 @@ public sealed class RepositoriesEndpointsTests : IAsyncDisposable
     public async Task UpdateRepository_maps_a_failed_save_to_409_or_500(string error, int status, string title)
     {
         var entity = Entity("Original");
-        _repository.GetByIdTrackingAsync(entity.Id, Arg.Any<CancellationToken>()).Returns(Result<RepositoryConfiguration>.Success(entity));
+        _repository.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>()).Returns(Result<RepositoryConfiguration>.Success(entity));
         _repository.UpdateAsync(entity, Arg.Any<CancellationToken>()).Returns(Result.Failure(error));
         var (context, request) = await BindUpdate("Updated");
 

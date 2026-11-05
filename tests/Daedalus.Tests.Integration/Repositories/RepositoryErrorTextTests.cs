@@ -22,12 +22,14 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
     private readonly CapturingLogger<TaskRepository> _taskLog = new();
     private readonly CapturingLogger<ProjectRepository> _projectLog = new();
     private readonly CapturingLogger<BrainstormRepository> _brainstormLog = new();
+    private readonly CapturingLogger<RepositoryConfigurationRepository> _repositoryLog = new();
 
     public static TheoryData<string> Operations => new()
     {
         "task.GetById", "task.GetByProjectId", "task.Add", "task.Update", "task.Delete",
         "project.GetById", "project.Add", "project.Update", "project.Delete",
         "brainstorm.GetById", "brainstorm.GetByProjectId", "brainstorm.Add", "brainstorm.Update",
+        "repository.GetAll", "repository.GetById", "repository.Add", "repository.Update", "repository.Delete",
     };
 
     /// <summary>
@@ -35,6 +37,8 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
     ///     Red, run for <c>task.Add</c>: put the exception's message back; the text carries the secret.
     ///     Red, run for <c>project.GetById</c>: put <c>{ex.Message}</c> back; the text carries the secret.
     ///     Red, run for <c>task.Delete</c>: drop its log call; no Error entry carries the exception.
+    ///     Red, run for <c>repository.Update</c>: put the exception's message back into the failure text, as before the
+    ///     port; the text carries the secret (ruling R84).
     ///     Red, run for <c>brainstorm.Update</c>: put <c>{ex.Message}</c> back, as before the port; the text carries the
     ///     secret (ruling R79).
     /// </summary>
@@ -46,6 +50,8 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
         var tasks = new TaskRepository(new DaedalusDb(failingSource), _taskLog);
         var projects = new ProjectRepository(new DaedalusDb(failingSource), _projectLog);
         var brainstorms = new BrainstormRepository(new DaedalusDb(failingSource), _brainstormLog);
+        var repositories = new RepositoryConfigurationRepository(new DaedalusDb(failingSource), _repositoryLog);
+        var repository = IntegrationTestFactory.CreateRepositoryConfiguration();
         var session = Daedalus.Domain.Entities.BrainstormSession.Create(Guid.NewGuid()).Value;
         var task = IntegrationTestFactory.CreateTask();
         var project = IntegrationTestFactory.CreateProject();
@@ -65,12 +71,17 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
             "brainstorm.GetByProjectId" => (await brainstorms.GetByProjectIdAsync(Guid.NewGuid(), CancellationToken.None)).Error,
             "brainstorm.Add" => (await brainstorms.AddAsync(session, CancellationToken.None)).Error,
             "brainstorm.Update" => (await brainstorms.UpdateAsync(session, CancellationToken.None)).Error,
+            "repository.GetAll" => (await repositories.GetAllAsync(CancellationToken.None)).Error,
+            "repository.GetById" => (await repositories.GetByIdAsync(Guid.NewGuid(), CancellationToken.None)).Error,
+            "repository.Add" => (await repositories.AddAsync(repository, CancellationToken.None)).Error,
+            "repository.Update" => (await repositories.UpdateAsync(repository, CancellationToken.None)).Error,
+            "repository.Delete" => (await repositories.DeleteAsync(Guid.NewGuid(), CancellationToken.None)).Error,
             _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null),
         };
 
         error.Should().NotContain(Secret).And.NotContain("hunter2");
         error.Should().Contain("The cause is logged.");
-        var logged = _taskLog.Entries.Concat(_projectLog.Entries).Concat(_brainstormLog.Entries).Should()
+        var logged = _taskLog.Entries.Concat(_projectLog.Entries).Concat(_brainstormLog.Entries).Concat(_repositoryLog.Entries).Should()
             .ContainSingle(e => e.Level == LogLevel.Error).Subject;
         logged.Exception.Should().NotBeNull();
         logged.Exception!.GetBaseException().Should().BeOfType<SecretDbException>();

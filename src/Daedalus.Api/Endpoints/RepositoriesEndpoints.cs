@@ -146,8 +146,7 @@ public static partial class RepositoriesEndpoints
         var logger = loggerFactory.CreateLogger(typeof(RepositoriesEndpoints));
         Log.UpdatingRepository(logger, id);
 
-        // Fetch with change tracking enabled for proper optimistic concurrency
-        var getResult = await repository.GetByIdTrackingAsync(id, ct);
+        var getResult = await repository.GetByIdAsync(id, ct);
         if (getResult.IsFailure)
         {
             return NotFound(context, getResult.Error);

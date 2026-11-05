@@ -65,7 +65,7 @@ public class ApplicationDbContextModelTests
     {
         // Red: remove the outbox table registration from OnModelCreating, or a configuration that declares an entity,
         // and the count drops.
-        BuildModel().GetEntityTypes().Should().HaveCount(15);
+        BuildModel().GetEntityTypes().Should().HaveCount(14);
     }
 
     [Fact]

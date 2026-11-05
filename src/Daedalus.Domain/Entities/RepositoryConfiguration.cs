@@ -1,7 +1,5 @@
-#pragma warning disable CA1819 // Use byte[] instead of property returning array (EF Core concurrency token standard pattern)
 #pragma warning disable CA1054 // URI parameters should not be strings
 #pragma warning disable CA1056 // URI properties should not be strings
-#pragma warning disable S1144 // EF Core sets RowVersion via reflection (unused private setter is required)
 
 using ZeroAlloc.Results;
 
@@ -50,10 +48,49 @@ public sealed class RepositoryConfiguration : AggregateRoot<Guid>
     public DateTime? LastUsedAt { get; private set; }
 
     /// <summary>
-    ///     Gets the concurrency token (row version) for optimistic locking.
-    ///     Prevents lost updates in concurrent scenarios.
+    ///     Rebuilds a repository configuration from its stored row, for persistence only. It sets every field as given,
+    ///     validates nothing, so a row <see cref="Create"/> would refuse still loads, and raises no domain event.
     /// </summary>
-    public byte[]? RowVersion { get; private set; }
+    /// <param name="id">The configuration id.</param>
+    /// <param name="name">The stored name.</param>
+    /// <param name="url">The stored URL.</param>
+    /// <param name="platform">The stored platform.</param>
+    /// <param name="defaultBranch">The stored default branch.</param>
+    /// <param name="authenticationMethod">The stored authentication method.</param>
+    /// <param name="credentialIdentifier">The stored credential identifier.</param>
+    /// <param name="isActive">Whether the configuration is active.</param>
+    /// <param name="description">The stored description.</param>
+    /// <param name="createdAt">When the configuration was created (UTC).</param>
+    /// <param name="modifiedAt">When it was last modified (UTC).</param>
+    /// <param name="lastUsedAt">When it was last used (UTC).</param>
+    /// <returns>The configuration as stored.</returns>
+    public static RepositoryConfiguration Rehydrate(
+        Guid id,
+        string name,
+        string url,
+        string platform,
+        string defaultBranch,
+        string? authenticationMethod,
+        string? credentialIdentifier,
+        bool isActive,
+        string? description,
+        DateTime createdAt,
+        DateTime? modifiedAt,
+        DateTime? lastUsedAt) => new()
+        {
+            Id = id,
+            Name = name,
+            Url = url,
+            Platform = platform,
+            DefaultBranch = defaultBranch,
+            AuthenticationMethod = authenticationMethod,
+            CredentialIdentifier = credentialIdentifier,
+            IsActive = isActive,
+            Description = description,
+            CreatedAt = createdAt,
+            ModifiedAt = modifiedAt,
+            LastUsedAt = lastUsedAt
+        };
 
     /// <summary>
     ///     Factory method to create a new RepositoryConfiguration with validation.
@@ -193,5 +230,3 @@ public sealed class RepositoryConfiguration : AggregateRoot<Guid>
     }
 }
 
-#pragma warning restore S1144
-#pragma warning restore CA1819
