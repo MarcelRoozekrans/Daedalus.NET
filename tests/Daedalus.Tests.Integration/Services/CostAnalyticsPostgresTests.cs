@@ -81,6 +81,9 @@ public sealed class CostAnalyticsPostgresTests(PostgresFixture fixture) : IAsync
     ///     Red: drop <c>EntityMapDefaults(DateTimeStorage = TimestampTz)</c> from the ORM assembly attributes; the cut is
     ///     <c>date_trunc('day', col)</c> in the session's zone and the rows move to 1 October.
     ///     Red: count each history group as one entry; the two executions of the day read as 1.
+    ///     Red: key the sessions on <c>LastActivityAt.Date</c> instead of <c>CreatedAt.Date</c>; the chat row moves to
+    ///     3 October, the day of its turn. Keying them on <c>CreatedAt</c> without <c>.Date</c> stays green: the service
+    ///     groups the rows by day again in memory, so the SQL key's precision cannot change a figure.
     /// </summary>
     [Fact]
     public async Task A_day_is_the_utc_day_whatever_the_session_time_zone()
@@ -93,7 +96,7 @@ public sealed class CostAnalyticsPostgresTests(PostgresFixture fixture) : IAsync
             Execution(task.Id, 10, inputTokens: 100, at: JustAfterUtcMidnight),
             Execution(task.Id, 10, inputTokens: 50, at: JustAfterUtcMidnight));
         var session = AgentSession.Create(Guid.NewGuid(), Guid.NewGuid(), "alice", JustAfterUtcMidnight).Value;
-        session.RecordTurn(300, 1, JustAfterUtcMidnight);
+        session.RecordTurn(300, 1, JustAfterUtcMidnight.AddDays(1));
         await StoreSeed.AddSessionAsync(fixture.Db, session);
         var losAngeles = new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { Timezone = "America/Los_Angeles" };
         await using var scratch = new ScratchDaedalusDb(losAngeles.ConnectionString);
@@ -146,4 +149,40 @@ public sealed class CostAnalyticsPostgresTests(PostgresFixture fixture) : IAsync
         ModelId = "m",
         ExecutedAt = at ?? Day1,
     };
+
+    /// <summary>
+    ///     The per-task costs cover only the tasks of the project asked for. Two projects, each with one task and one
+    ///     execution of the same model, give the asked project's task alone; an unknown project and a project whose task
+    ///     has no execution give none.
+    ///     Red: make the inner side's <c>Where(t =&gt; t.ProjectId == projectId)</c> always true, with
+    ///     <c>|| t.ProjectId != projectId</c>; project B's task joins the list. Dropping the <c>Where</c> outright leaves
+    ///     <c>projectId</c> unused, which does not build.
+    /// </summary>
+    [Fact]
+    public async Task Task_costs_cover_only_the_project_asked_for()
+    {
+        var projectA = DomainProject.Create(Guid.NewGuid(), "A", "D").Value;
+        var projectB = DomainProject.Create(Guid.NewGuid(), "B", "D").Value;
+        var idle = DomainProject.Create(Guid.NewGuid(), "Idle", "D").Value;
+        var taskA = DomainTask.Create(Guid.NewGuid(), projectA.Id, "T-A", "Task A", "D", Priority.Medium, "x", 1, Complexity.Medium, "p").Value;
+        var taskB = DomainTask.Create(Guid.NewGuid(), projectB.Id, "T-B", "Task B", "D", Priority.Medium, "x", 1, Complexity.Medium, "p").Value;
+        var idleTask = DomainTask.Create(Guid.NewGuid(), idle.Id, "T-I", "Idle", "D", Priority.Medium, "x", 1, Complexity.Medium, "p").Value;
+        await StoreSeed.AddAsync(fixture.Db, [projectA, projectB, idle], [taskA, taskB, idleTask]);
+        await StoreSeed.AddExecutionsAsync(
+            fixture.ConnectionString,
+            Execution(taskA.Id, 20, inputTokens: 100),
+            Execution(taskB.Id, 70, inputTokens: 900));
+        var service = new CostAnalyticsService(
+            fixture.Db, Options.Create(new ModelPricingConfiguration()), Options.Create(new ClaudeConfiguration()));
+
+        var costs = await service.GetCostsByProjectIdAsync(projectA.Id);
+
+        var only = costs.Should().ContainSingle().Subject;
+        only.TaskId.Should().Be(taskA.Id);
+        only.InputTokens.Should().Be(100);
+        only.OutputTokens.Should().Be(20);
+        only.IterationCount.Should().Be(1);
+        (await service.GetCostsByProjectIdAsync(Guid.NewGuid())).Should().BeEmpty();
+        (await service.GetCostsByProjectIdAsync(idle.Id)).Should().BeEmpty();
+    }
 }

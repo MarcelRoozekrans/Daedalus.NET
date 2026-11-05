@@ -51,6 +51,10 @@ internal static class StoreSeed
     ///     <see cref="DomainTask.Create"/> no longer takes, set through <see cref="DomainTask.Rehydrate"/>, where tests set
     ///     them on EF's change tracker before saving.
     /// </summary>
+    /// <remarks>
+    ///     The rebuilt task keeps <paramref name="task"/>'s executions, but no seed inserts them; add them with
+    ///     <see cref="AddExecutionsAsync"/>.
+    /// </remarks>
     public static DomainTask AsStored(
         DomainTask task, int? maxIterations = null, string? completionPromise = null,
         Daedalus.Domain.Entities.TaskStatus? status = null)
@@ -69,6 +73,9 @@ internal static class StoreSeed
         AddAsync(db, [], tasks, CancellationToken.None);
 
     /// <summary>Inserts <paramref name="projects"/> with their tasks and then <paramref name="tasks"/>, in one transaction.</summary>
+    /// <remarks>
+    ///     A task's <see cref="DomainTask.Executions"/> are not inserted; add them with <see cref="AddExecutionsAsync"/>.
+    /// </remarks>
     public static async SystemTask AddAsync(
         DaedalusDb db, IReadOnlyList<Project> projects, IReadOnlyList<DomainTask> tasks, CancellationToken ct = default)
     {
