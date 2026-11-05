@@ -346,29 +346,6 @@ Model:
       Relational:Schema: 
       Relational:TableName: BrainstormSessions
       RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
-  EntityType: ChannelConversation
-    Properties: 
-      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
-      AgentId (Guid) Required
-      ChannelId (string) Required Index MaxLength(32)
-        Annotations: 
-          MaxLength: 32
-      ConversationId (string) Required Index MaxLength(128)
-        Annotations: 
-          MaxLength: 128
-      CreatedAt (DateTime) Required
-      LastActivityAt (DateTime) Required
-      SessionId (Guid) Required
-    Keys: 
-      Id PK
-    Indexes: 
-      ChannelId, ConversationId Unique
-        Annotations: 
-          Relational:Name: IX_ChannelConversation_Channel_Conversation
-    Annotations: 
-      Relational:Schema: 
-      Relational:TableName: ChannelConversations
-      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
   EntityType: ExecutionSession
     Properties: 
       Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd

@@ -38,7 +38,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
     /// <summary>Which version is each role's current one, and whether the role is active; see <see cref="RoleCharterHead"/>.</summary>
     public DbSet<RoleCharterHead> RoleCharters => Set<RoleCharterHead>();
-    public DbSet<ChannelConversation> ChannelConversations => Set<ChannelConversation>();
 
     /// <summary>Recurring autonomous runs; see <see cref="ScheduledRun"/>.</summary>
     public DbSet<ScheduledRun> ScheduledRuns => Set<ScheduledRun>();
@@ -65,7 +64,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         Entry(new AnalysisIterationConfiguration()),
         Entry(new BrainstormMessageConfiguration()),
         Entry(new BrainstormSessionConfiguration()),
-        Entry(new ChannelConversationConfiguration()),
         Entry(new CodeAnalysisRequestConfiguration()),
         Entry(new ExecutionSessionConfiguration()),
         Entry(new ProjectConfiguration()),

@@ -275,8 +275,8 @@ public sealed class CleanArchitectureTests
     [Fact]
     public void DomainLayer_ShouldNotDependOn_EfCore()
     {
-        // ChannelConversation (like every other Domain entity) must stay framework-free: the EF Core mapping for it
-        // is ChannelConversationConfiguration, which lives in Daedalus.Infrastructure, never in Domain itself.
+        // ChannelConversation (like every other Domain entity) must stay framework-free: the table mapping for it
+        // is ChannelConversationMap, which lives in Daedalus.Infrastructure, never in Domain itself.
         var rule = Types().That().Are(DomainTypes)
             .Should().NotDependOnAnyTypesThat().ResideInNamespaceMatching(EfCoreNamespacePattern)
             .Because("Domain entities must stay persistence-ignorant; EF Core configuration lives in Infrastructure");
