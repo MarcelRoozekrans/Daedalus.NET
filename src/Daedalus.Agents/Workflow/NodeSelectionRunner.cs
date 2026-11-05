@@ -3,7 +3,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Daedalus.Agents.Decisions;
 using Daedalus.Domain.Entities;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -435,7 +434,7 @@ internal sealed partial class NodeSelectionRunner(
             await records.AppendAsync(record.Value, ct).ConfigureAwait(false);
             return Result<bool, AgentError>.Success(true);
         }
-        catch (DbUpdateException ex) when (IsAlreadyRecorded(ex))
+        catch (PostgresException ex) when (IsAlreadyRecorded(ex))
         {
             return Result<bool, AgentError>.Success(false);
         }
@@ -452,9 +451,9 @@ internal sealed partial class NodeSelectionRunner(
     }
 
     /// <summary>Whether the failure is the unique index on (run, seq) refusing a second node-selection record.</summary>
-    private static bool IsAlreadyRecorded(DbUpdateException ex) =>
-        ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } pg
-        && string.Equals(pg.ConstraintName, WorkflowRunRecord.NodeSelectionIndexName, StringComparison.Ordinal);
+    private static bool IsAlreadyRecorded(PostgresException ex) =>
+        ex is { SqlState: PostgresErrorCodes.UniqueViolation }
+        && string.Equals(ex.ConstraintName, WorkflowRunRecord.NodeSelectionIndexName, StringComparison.Ordinal);
 
     private const string NotRecorded = "This node's model and tool decision could not be recorded, so the node does not run on it.";
 

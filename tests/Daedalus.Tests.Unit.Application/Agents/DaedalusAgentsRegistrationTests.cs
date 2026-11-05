@@ -10,6 +10,7 @@ using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Sql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
@@ -85,6 +86,9 @@ public sealed class DaedalusAgentsRegistrationTests
         // the pull request publisher needs one to resolve.
         services.AddSingleton(Substitute.For<IPullRequestFactory>());
         services.AddDaedalusAgents(configuration, environment, embeddings);
+        // A real host gets DaedalusDb from AddApplicationDatabase, over the data source AddDaedalusAgents shares, and the
+        // run record store needs it to resolve.
+        services.TryAddSingleton<DaedalusDb>();
         return services.BuildServiceProvider();
     }
 
@@ -289,7 +293,7 @@ public sealed class DaedalusAgentsRegistrationTests
 
     /// <summary>
     ///     Task B6: the write audit and the review lenses resolve the run record store from the host, so a
-    ///     workflow-enabled host must register the EF store, not leave it for each consumer to add.
+    ///     workflow-enabled host must register the store, not leave it for each consumer to add.
     /// </summary>
     [Fact]
     public void The_run_record_store_is_registered_when_the_workflow_engine_is_enabled()

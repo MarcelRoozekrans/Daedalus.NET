@@ -10,6 +10,10 @@ namespace Daedalus.Infrastructure.Persistence.Configurations;
 ///     foreign key on <see cref="WorkflowRunRecord.RunId"/>: the Thalos <c>workflow_run</c> table it names belongs
 ///     to another schema with its own migrations.
 /// </summary>
+/// <remarks>
+///     Phase 3.5: <c>WorkflowRunRecordStore</c> reads and writes the table through ZeroAlloc.ORM. This mapping stays
+///     only for <c>CostAnalyticsService</c>'s read, and goes when that service is ported.
+/// </remarks>
 internal sealed class WorkflowRunRecordConfiguration : IEntityTypeConfiguration<WorkflowRunRecord>
 {
     public void Configure(EntityTypeBuilder<WorkflowRunRecord> builder)

@@ -594,7 +594,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         services.AddSingleton<WorkflowRunGateway>();
 
         // Task B6: the host's append-only record of a run, which the write audit and the review lenses append to.
-        // A singleton is safe: the store takes a fresh DbContext from IDbContextFactory on every call.
+        // A singleton is safe: the store opens a pooled connection from DaedalusDb on every call.
         services.AddSingleton<IWorkflowRunRecordStore, WorkflowRunRecordStore>();
 
         // Phase 2.8: writes each completed agent node's usage, for cost analytics. Resolves the record store from a scope

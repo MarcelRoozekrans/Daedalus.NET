@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using Daedalus.Domain.Entities;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -322,7 +321,7 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
                 .AppendAsync(record.Value, timeout.Token).ConfigureAwait(false);
             return true;
         }
-        catch (DbUpdateException ex) when (IsAlreadyRecorded(ex))
+        catch (PostgresException ex) when (IsAlreadyRecorded(ex))
         {
             LogAlreadyRecorded(logger, runId, seq);
             return false;
@@ -343,9 +342,9 @@ internal sealed partial class NodeUsageRecorder(IServiceScopeFactory scopes, Tim
     }
 
     /// <summary>Whether the failure is the unique index on (run, seq) refusing a second node-usage record.</summary>
-    private static bool IsAlreadyRecorded(DbUpdateException ex) =>
-        ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } pg
-        && string.Equals(pg.ConstraintName, WorkflowRunRecord.NodeUsageIndexName, StringComparison.Ordinal);
+    private static bool IsAlreadyRecorded(PostgresException ex) =>
+        ex is { SqlState: PostgresErrorCodes.UniqueViolation }
+        && string.Equals(ex.ConstraintName, WorkflowRunRecord.NodeUsageIndexName, StringComparison.Ordinal);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The per-model usage held for run {RunId} at seq {Seq} does not sum to its completion's usage; the node is recorded as one model")]
     private static partial void LogSplitDiscarded(ILogger logger, Guid runId, long seq);

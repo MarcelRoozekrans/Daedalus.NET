@@ -798,12 +798,6 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
 
     private sealed record FindingPayload(string File, int Line, string Scenario);
 
-    /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
-    private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => fixture.CreateDbContext();
-    }
-
     private static async Task AssertNoProposalAtTheGateAsync(RunOutcome result)
     {
         result.PlantsReported.Should().Be(1, "otherwise the attack was never attempted and this test proves nothing");
@@ -915,7 +909,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             var runner = new ScriptedRunner(
                 retrospectProposal ?? DefaultRetrospectProposal, plantAt, retrospectOutcome, rejectFirstReview, malformedPass, forgeHostKeys,
                 filesTouched);
-            var records = new WorkflowRunRecordStore(new FixtureDbContextFactory(fixture));
+            var records = new WorkflowRunRecordStore(fixture.Db);
             var overrideChecks = new List<OverrideCheck>();
             var (provider, references, catalog) = BuildProvider(store, definitions, runner, squadEnabled, skills, records, decisions, overrideChecks);
             await using var disposable = provider;

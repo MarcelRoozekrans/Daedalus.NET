@@ -23,7 +23,7 @@ public sealed class WorkflowRunRecordStoreTests(PostgresFixture fixture) : IAsyn
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    private WorkflowRunRecordStore NewStore() => new(new FixtureDbContextFactory(fixture));
+    private WorkflowRunRecordStore NewStore() => new(fixture.Db);
 
     private static WorkflowRunRecord Record(
         long seq, string kind, string node = "implement", Guid? runId = null, string payloadJson = "{}") =>
@@ -105,10 +105,4 @@ public sealed class WorkflowRunRecordStoreTests(PostgresFixture fixture) : IAsyn
     public void The_store_has_no_update_or_delete_method() =>
         typeof(IWorkflowRunRecordStore).GetMethods().Select(m => m.Name)
             .Should().BeEquivalentTo(["AppendAsync", "ListAsync"]);
-
-    /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
-    private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => fixture.CreateDbContext();
-    }
 }

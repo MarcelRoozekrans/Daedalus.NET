@@ -4,7 +4,6 @@ using Daedalus.Agents;
 using Daedalus.Agents.Decisions;
 using Daedalus.Agents.Workflow;
 using Daedalus.Tests.Unit.Decisions;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -855,8 +854,9 @@ public sealed class NodeSelectionRunnerTests
         throw new OperationCanceledException(cts.Token);
     }
 
-    private static DbUpdateException UniqueViolation(string constraint) =>
-        new("insert failed", new PostgresException("duplicate key", "ERROR", "ERROR", PostgresErrorCodes.UniqueViolation, constraintName: constraint));
+    /// <summary>A unique violation on <paramref name="constraint"/>, as the record store throws it: Npgsql's, unwrapped.</summary>
+    private static PostgresException UniqueViolation(string constraint) =>
+        new("duplicate key", "ERROR", "ERROR", PostgresErrorCodes.UniqueViolation, constraintName: constraint);
 
     /// <summary>
     ///     Final review item 4: with decisions off the turn is today's request whatever the record says, so a record that

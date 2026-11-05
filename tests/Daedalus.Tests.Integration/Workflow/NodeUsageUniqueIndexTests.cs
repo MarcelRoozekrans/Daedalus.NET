@@ -96,15 +96,10 @@ public sealed class NodeUsageUniqueIndexTests(PostgresFixture fixture) : IAsyncL
 
     private (NodeUsageRecorder Recorder, IWorkflowRunRecordStore Store, CapturingLogger<NodeUsageRecorder> Log) NewRecorder()
     {
-        IWorkflowRunRecordStore store = new WorkflowRunRecordStore(new FixtureDbContextFactory(fixture));
+        IWorkflowRunRecordStore store = new WorkflowRunRecordStore(fixture.Db);
         var services = new ServiceCollection().AddSingleton(store).BuildServiceProvider();
         var log = new CapturingLogger<NodeUsageRecorder>();
         return (new NodeUsageRecorder(services.GetRequiredService<IServiceScopeFactory>(), TimeProvider.System, log), store, log);
-    }
-
-    private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => fixture.CreateDbContext();
     }
 
     private sealed class CapturingLogger<T> : ILogger<T>

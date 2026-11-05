@@ -463,7 +463,8 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
                 await db.Database.MigrateAsync();
             }
 
-            var records = new WorkflowRunRecordStore(new ConnectionStringDbContextFactory(store.ConnectionString));
+            await using var scratch = new ScratchDaedalusDb(store.ConnectionString);
+            var records = new WorkflowRunRecordStore(scratch.Db);
             var run = await store.Store.FindAsync(runId, CancellationToken.None);
             var evidence = WorkflowRunRecord.Create(
                 runId, run!.CurrentSeq, "review", WorkflowRunRecord.ReviewEvidenceKind, "workflow:run/review", null,
@@ -642,12 +643,6 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     }
 
     private sealed record ScratchStore(OrmWorkflowStore Store, OrmProcessDefinitionStore Definitions, string ConnectionString);
-
-    /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
-    private sealed class ConnectionStringDbContextFactory(string connectionString) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => new(PostgresFixture.CreateDbContextOptions(connectionString));
-    }
 
     /// <summary>
     ///     The record-store scope factory every gateway here is built with, as <c>ReviewLensRunnerTests.Scopes</c>

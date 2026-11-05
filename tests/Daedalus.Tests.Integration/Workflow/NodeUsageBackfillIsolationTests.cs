@@ -105,7 +105,7 @@ public sealed class NodeUsageBackfillIsolationTests(PostgresFixture fixture) : I
 
     private (NodeUsageBackfill Backfill, IWorkflowRunRecordStore Store) NewBackfill(IWorkflowRunHistory history)
     {
-        IWorkflowRunRecordStore store = new WorkflowRunRecordStore(new FixtureDbContextFactory(fixture));
+        IWorkflowRunRecordStore store = new WorkflowRunRecordStore(fixture.Db);
         var scopes = new ServiceCollection().AddSingleton(store).BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
         var recorder = new NodeUsageRecorder(scopes, TimeProvider.System, NullLogger<NodeUsageRecorder>.Instance);
         var backfill = new NodeUsageBackfill(
@@ -120,10 +120,5 @@ public sealed class NodeUsageBackfillIsolationTests(PostgresFixture fixture) : I
         await connection.OpenAsync();
         await using var command = new NpgsqlCommand(sql, connection);
         await command.ExecuteNonQueryAsync();
-    }
-
-    private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => fixture.CreateDbContext();
     }
 }

@@ -1,6 +1,5 @@
 using Daedalus.Agents.Workflow;
 using Daedalus.Domain.Entities;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -28,7 +27,7 @@ public sealed class NodeUsageRecorderViolationTests
             "duplicate key", "ERROR", "ERROR", PostgresErrorCodes.UniqueViolation, constraintName: "PK_WorkflowRunRecords");
         var records = Substitute.For<IWorkflowRunRecordStore>();
         records.AppendAsync(Arg.Any<WorkflowRunRecord>(), Arg.Any<CancellationToken>())
-            .Returns<ValueTask>(_ => throw new DbUpdateException("save failed", violation));
+            .Returns<ValueTask>(_ => throw violation);
         var scopes = new ServiceCollection().AddSingleton(records).BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
         var logger = new LevelLogger();
         var recorder = new NodeUsageRecorder(scopes, TimeProvider.System, logger);

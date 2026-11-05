@@ -120,36 +120,49 @@ public sealed class WorkflowRunRecord
     public const int MaxPrincipalIdLength = 256;
 
     /// <summary>
-    ///     Gets the database-generated id, which orders records that share a <see cref="Seq"/>. Get-only: EF sets it
-    ///     through the backing field after the insert.
+    ///     Gets the database-generated id, which orders records that share a <see cref="Seq"/>. A record from
+    ///     <see cref="Create"/> has 0 until it is stored and loaded back through <see cref="Rehydrate"/>.
     /// </summary>
     public long Id { get; }
 
     /// <summary>Gets the id of the Thalos workflow run this record belongs to.</summary>
-    public Guid RunId { get; private set; }
+    public Guid RunId { get; }
 
     /// <summary>Gets the run's sequence number at the moment the record was written.</summary>
-    public long Seq { get; private set; }
+    public long Seq { get; }
 
     /// <summary>Gets the process node the run was on when the record was written.</summary>
-    public string Node { get; private set; } = string.Empty;
+    public string Node { get; }
 
     /// <summary>Gets what kind of observation this is, such as <see cref="WorkspaceWriteKind"/>.</summary>
-    public string Kind { get; private set; } = string.Empty;
+    public string Kind { get; }
 
     /// <summary>Gets the id of the caller that did the thing recorded.</summary>
-    public string PrincipalId { get; private set; } = string.Empty;
+    public string PrincipalId { get; }
 
     /// <summary>Gets the id of the principal that started the run, or null when the run carries none.</summary>
-    public string? StartedById { get; private set; }
+    public string? StartedById { get; }
 
     /// <summary>Gets the observation's details as JSON, stored as <c>jsonb</c>.</summary>
-    public string PayloadJson { get; private set; } = string.Empty;
+    public string PayloadJson { get; }
 
     /// <summary>Gets when the record was written (UTC).</summary>
-    public DateTime CreatedAt { get; private set; }
+    public DateTime CreatedAt { get; }
 
-    private WorkflowRunRecord() { } // EF Core
+    private WorkflowRunRecord(
+        long id, Guid runId, long seq, string node, string kind, string principalId, string? startedById,
+        string payloadJson, DateTime createdAt)
+    {
+        Id = id;
+        RunId = runId;
+        Seq = seq;
+        Node = node;
+        Kind = kind;
+        PrincipalId = principalId;
+        StartedById = startedById;
+        PayloadJson = payloadJson;
+        CreatedAt = createdAt;
+    }
 
     /// <summary>Creates a record, rejecting any field its column could not hold.</summary>
     /// <returns>A Result containing the new record or the first validation error.</returns>
@@ -170,18 +183,19 @@ public sealed class WorkflowRunRecord
         if (createdAt.Kind != DateTimeKind.Utc)
             return Result<WorkflowRunRecord>.Failure("Created at must be a UTC time.");
 
-        return Result<WorkflowRunRecord>.Success(new WorkflowRunRecord
-        {
-            RunId = runId,
-            Seq = seq,
-            Node = node,
-            Kind = kind,
-            PrincipalId = principalId,
-            StartedById = startedById,
-            PayloadJson = payloadJson,
-            CreatedAt = createdAt,
-        });
+        return Result<WorkflowRunRecord>.Success(new WorkflowRunRecord(
+            0, runId, seq, node, kind, principalId, startedById, payloadJson, createdAt));
     }
+
+    /// <summary>
+    ///     Rebuilds a stored record from its columns. For persistence only: it sets every value as given and
+    ///     validates nothing, so a row written before a rule of <see cref="Create"/> existed still loads.
+    /// </summary>
+    /// <returns>The record the row holds.</returns>
+    public static WorkflowRunRecord Rehydrate(
+        long id, Guid runId, long seq, string node, string kind, string principalId, string? startedById,
+        string payloadJson, DateTime createdAt) =>
+        new(id, runId, seq, node, kind, principalId, startedById, payloadJson, createdAt);
 
     private static Result<bool> ValidateText(string node, string kind, string principalId, string? startedById)
     {

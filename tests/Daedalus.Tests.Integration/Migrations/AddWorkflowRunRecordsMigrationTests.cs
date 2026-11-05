@@ -104,7 +104,8 @@ public sealed class AddWorkflowRunRecordsMigrationTests(PostgresFixture fixture)
     {
         await RunMigrationAsync(async (_, connectionString) =>
         {
-            var store = new WorkflowRunRecordStore(new ConnectionStringDbContextFactory(connectionString));
+            await using var scratch = new ScratchDaedalusDb(connectionString);
+            var store = new WorkflowRunRecordStore(scratch.Db);
             var createdAt = new DateTime(2026, 9, 28, 12, 0, 0, DateTimeKind.Utc);
             var record = WorkflowRunRecord.Create(
                 _runId, 5, "implement", WorkflowRunRecord.WorkspaceWriteKind, "workflow:run/implement", "u-admin",
@@ -201,10 +202,4 @@ public sealed class AddWorkflowRunRecordsMigrationTests(PostgresFixture fixture)
     }
 
     private sealed record ColumnShape(string Name, string DataType, int? MaxLength, string IsNullable);
-
-    /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
-    private sealed class ConnectionStringDbContextFactory(string connectionString) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => new(PostgresFixture.CreateDbContextOptions(connectionString));
-    }
 }

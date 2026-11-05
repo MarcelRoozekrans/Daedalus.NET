@@ -1,40 +1,33 @@
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Sql;
+using Daedalus.Infrastructure.Persistence.Sql.WorkflowRunRecords;
 
 namespace Daedalus.Agents.Workflow;
 
 /// <summary>
-///     <see cref="IWorkflowRunRecordStore"/> over <see cref="ApplicationDbContext"/> (table <c>WorkflowRunRecords</c>).
-///     A fresh short-lived context per call, so the store is safe as a singleton, the same pattern as
-///     <see cref="Charters.PostgresRoleCharterStore"/>.
+///     <see cref="IWorkflowRunRecordStore"/> over <see cref="WorkflowRunRecordSql"/> (table <c>WorkflowRunRecords</c>).
+///     One pooled connection per call, so the store is safe as a singleton.
 /// </summary>
-internal sealed class WorkflowRunRecordStore(IDbContextFactory<ApplicationDbContext> contextFactory)
-    : IWorkflowRunRecordStore
+/// <remarks>
+///     A database failure is thrown as Npgsql raised it. A duplicate on one of the partial unique indexes is a
+///     <c>PostgresException</c> with <c>SqlState</c> 23505 and the index as its <c>ConstraintName</c>, which
+///     <see cref="NodeUsageRecorder"/> and <see cref="NodeSelectionRunner"/> read as "already recorded".
+/// </remarks>
+internal sealed class WorkflowRunRecordStore(DaedalusDb db) : IWorkflowRunRecordStore
 {
     /// <inheritdoc />
     public async ValueTask AppendAsync(WorkflowRunRecord record, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(record);
 
-        await using var db = await contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        db.WorkflowRunRecords.Add(record);
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+        await new WorkflowRunRecordSql(connection).InsertAsync(record, ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async ValueTask<IReadOnlyList<WorkflowRunRecord>> ListAsync(Guid runId, string? kind, CancellationToken ct)
     {
-        await using var db = await contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-
-        var query = db.WorkflowRunRecords.AsNoTracking().Where(r => r.RunId == runId);
-        if (kind is not null)
-            query = query.Where(r => r.Kind == kind);
-
-        return await query
-            .OrderBy(r => r.Seq)
-            .ThenBy(r => r.Id)
-            .ToListAsync(ct)
-            .ConfigureAwait(false);
+        await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+        return await new WorkflowRunRecordSql(connection).ListAsync(runId, kind, ct).ConfigureAwait(false);
     }
 }

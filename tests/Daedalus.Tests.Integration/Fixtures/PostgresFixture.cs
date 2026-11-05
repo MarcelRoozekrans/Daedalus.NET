@@ -1,4 +1,5 @@
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Sql;
 using Daedalus.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -17,6 +18,8 @@ public sealed class PostgresFixture : IAsyncLifetime
     private const int _retryDelayMs = 500;
     private PostgreSqlContainer? _container;
     private RespawnDatabaseResetter? _databaseResetter;
+    private NpgsqlDataSource? _dataSource;
+    private DaedalusDb? _db;
 
     /// <summary>
     ///     Gets the connection string for the test database.
@@ -54,6 +57,12 @@ public sealed class PostgresFixture : IAsyncLifetime
             return _databaseResetter;
         }
     }
+
+    /// <summary>
+    ///     Gets the <see cref="DaedalusDb"/> over the fixture database, the way a host's ZeroAlloc.ORM stores reach it:
+    ///     one data source for the fixture's lifetime, a pooled connection per call.
+    /// </summary>
+    public DaedalusDb Db => _db ?? throw new InvalidOperationException("Container not initialized. Call InitializeAsync first.");
 
     /// <summary>
     ///     Builds <see cref="DbContextOptions{TContext}"/> for <paramref name="connectionString"/>. Every test context should
@@ -104,6 +113,8 @@ public sealed class PostgresFixture : IAsyncLifetime
                 await ApplyMigrationsAsync();
                 // Initialize Respawn checkpoint after schema is created
                 await InitializeRespawnerAsync();
+                _dataSource = NpgsqlDataSource.Create(ConnectionString);
+                _db = new DaedalusDb(_dataSource);
                 return;
             }
             catch (Exception ex)
@@ -129,6 +140,11 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// </summary>
     public async Task DisposeAsync()
     {
+        if (_dataSource != null)
+        {
+            await _dataSource.DisposeAsync();
+        }
+
         if (_container != null)
         {
             try

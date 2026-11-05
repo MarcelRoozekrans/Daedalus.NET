@@ -74,7 +74,7 @@ public sealed class OpenPullRequestActionTests(PostgresFixture fixture) : IAsync
         _config = config;
 
         var services = new ServiceCollection();
-        services.AddSingleton<IDbContextFactory<ApplicationDbContext>>(new FixtureDbContextFactory(fixture));
+        services.AddSingleton(fixture.Db);
         services.AddSingleton<IWorkflowRunRecordStore, WorkflowRunRecordStore>();
         services.AddSingleton(_publisher);
         services.AddSingleton<IPullRequestPublisher>(_publisher);
@@ -387,11 +387,5 @@ public sealed class OpenPullRequestActionTests(PostgresFixture fixture) : IAsync
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
             Entries.Add((logLevel, formatter(state, exception), exception));
-    }
-
-    /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
-    private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => fixture.CreateDbContext();
     }
 }

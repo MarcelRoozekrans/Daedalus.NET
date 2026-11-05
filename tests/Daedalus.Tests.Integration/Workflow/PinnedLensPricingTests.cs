@@ -43,7 +43,7 @@ public sealed class PinnedLensPricingTests(PostgresFixture fixture) : IAsyncLife
     [Fact]
     public async Task A_pinned_lens_is_priced_at_its_own_models_rate()
     {
-        IWorkflowRunRecordStore store = new WorkflowRunRecordStore(new FixtureDbContextFactory(fixture));
+        IWorkflowRunRecordStore store = new WorkflowRunRecordStore(fixture.Db);
         var scopes = new ServiceCollection().AddSingleton(store).BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
         var recorder = new NodeUsageRecorder(scopes, TimeProvider.System, NullLogger<NodeUsageRecorder>.Instance);
         var pins = new Dictionary<string, string>(StringComparer.Ordinal) { ["falsifiability"] = Pinned };
@@ -142,10 +142,5 @@ public sealed class PinnedLensPricingTests(PostgresFixture fixture) : IAsyncLife
             ], TimeSpan.FromSeconds(1));
             return ValueTask.FromResult(Result<AgentTurnResult, AgentError>.Success(turn));
         }
-    }
-
-    private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => fixture.CreateDbContext();
     }
 }
