@@ -40,8 +40,9 @@ public sealed class TaskRepositoryRoundTripTests(PostgresFixture fixture) : IAsy
     /// <summary>
     ///     A task stored through the repository, with both lists, and two executions beside it come back equal in every
     ///     property, with UTC times and the interval as a <see cref="TimeSpan"/>: through the get, through the page with
-    ///     its executions, and through the project list without them. Red, shown once: read <c>"Phase"</c> into
-    ///     <c>Title</c> in <c>FindRowsQuery</c>; the comparison names <c>Title</c>.
+    ///     its executions, and through the project list without them. Red, shown once each: read <c>"Phase"</c> into
+    ///     <c>Title</c> in <c>FindRowsQuery</c>, and the comparison names <c>Title</c>; read <c>"InputTokens"</c> into
+    ///     <c>OutputTokens</c> of its executions, and it names <c>Executions[0].OutputTokens</c>.
     /// </summary>
     [Fact]
     public async SystemTask Stored_task_loads_back_whole()
@@ -112,8 +113,11 @@ public sealed class TaskRepositoryRoundTripTests(PostgresFixture fixture) : IAsy
 
     /// <summary>
     ///     Three tasks created at the same instant page by id after <c>CreatedAt</c>, and each page carries the
-    ///     executions of its own task only. Without the <c>ThenBy(t => t.Id)</c> tie-breaker the order of tied rows is
-    ///     undefined, so no reliable red exists; the test pins the order the tie-breaker defines.
+    ///     executions of its own task only. The tie order has no reliable red: without <c>ThenBy(t => t.Id)</c> the
+    ///     order of tied rows is undefined, so the test pins the order the tie-breaker defines. The ownership half has
+    ///     none through the public surface either: <c>PageAsync</c> groups the executions by task id, so with the
+    ///     <c>IN</c> filter dropped the strays are read and then dropped, and the test still passes; the filter only
+    ///     limits the rows read.
     /// </summary>
     [Fact]
     public async SystemTask A_page_carries_the_executions_of_its_own_tasks()

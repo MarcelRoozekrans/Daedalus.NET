@@ -88,9 +88,16 @@ public sealed partial class TaskSql(IAsyncDbConnection connection)
     /// <param name="take">How many tasks to read.</param>
     /// <param name="ct">Cancels the read.</param>
     /// <returns>The total number of tasks and the page.</returns>
+    /// <remarks>
+    ///     The three statements run in one read-only REPEATABLE READ transaction, so they share one snapshot: a task
+    ///     inserted or reordered between them cannot shift the page under its executions, as EF's one query could not.
+    /// </remarks>
     public async Task<(int Total, IReadOnlyList<DomainTask> Page)> PageAsync(int skip, int take, CancellationToken ct)
     {
-        var (total, heads, executions) = await PageRows(skip, take, ct).ConfigureAwait(false);
+        await using var tx = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+        await SnapshotReadOnly(tx, ct).ConfigureAwait(false);
+        var (total, heads, executions) = await PageRows(skip, take, tx, ct).ConfigureAwait(false);
+        await tx.CommitAsync(ct).ConfigureAwait(false);
         var byTask = executions.ToLookup(e => e.TaskId);
         return (total, heads.ConvertAll(head => head.ToDomain(byTask[head.Id].Select(e => e.ToDomain()))));
     }
@@ -212,7 +219,10 @@ public sealed partial class TaskSql(IAsyncDbConnection connection)
 
     [LinqQuery(nameof(PageRowsQuery))]
     private partial Task<(int Total, List<TaskRow> Heads, List<TaskExecutionRow> Executions)> PageRows(
-        int skip, int take, CancellationToken ct);
+        int skip, int take, IAsyncDbTransaction tx, CancellationToken ct);
+
+    [Command("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")]
+    private partial Task<int> SnapshotReadOnly(IAsyncDbTransaction tx, CancellationToken ct);
 
     private static (IQuery<int>, IQuery<TaskRow>, IQuery<TaskExecutionRow>) PageRowsQuery(int skip, int take) =>
         (Sql.Table<DomainTask>().Count(),
