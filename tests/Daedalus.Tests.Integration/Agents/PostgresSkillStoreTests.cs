@@ -24,7 +24,7 @@ public sealed class PostgresSkillStoreTests(PostgresFixture fixture) : SkillStor
     protected override ValueTask<ISkillStore> CreateStoreAsync(TimeProvider clock) =>
         new(new PostgresSkillStore(fixture.Db, clock));
 
-    /// <summary>Daedalus-specific: the tag filter is AND over normalised tags, translated to per-tag <c>= ANY("Tags")</c>.</summary>
+    /// <summary>Daedalus-specific: the tag filter is AND over normalised tags, translated to one <c>"Tags" @&gt; @tags</c> containment test.</summary>
     [Fact]
     public async Task List_tag_filter_requires_every_tag()
     {

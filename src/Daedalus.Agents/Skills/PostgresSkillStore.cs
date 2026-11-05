@@ -4,6 +4,7 @@ using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Infrastructure.Persistence.Orm.Skills;
 using Thalos;
 using Thalos.Skills;
+using ZeroAlloc.ORM;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.Skills;
@@ -85,7 +86,7 @@ public sealed class PostgresSkillStore(DaedalusDb db, TimeProvider clock) : ISki
         {
             await sql.StoreAsync(row, skillExists, addedVersion, ct).ConfigureAwait(false);
         }
-        catch (DbException ex)
+        catch (Exception ex) when (ex is DbException or ZeroAllocOrmConcurrencyException)
         {
             return Result<SkillDocument, AgentError>.Failure(
                 AgentError.SkillStoreFailed("Could not store the skill.", ex.GetType().Name));
@@ -146,15 +147,14 @@ public sealed class PostgresSkillStore(DaedalusDb db, TimeProvider clock) : ISki
         }
 
         await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
-        var found = await new SkillSql(connection).ListAsync(names, tags, query.IncludeInactive, ct).ConfigureAwait(false);
+        var rows = await new SkillSql(connection).ListAsync(names, tags, query.IncludeInactive, ct).ConfigureAwait(false);
 
         // Sorted by name: the catalogue is rendered in this order (design section 5). The sort is ordinal and therefore
         // deliberately NOT done in SQL: the contract requires code-point order ("a-b" < "a0b" < "a_b" < "aab"), and a
         // Postgres database collation such as en_US.UTF-8 treats punctuation as variable-weight and returns a different
         // order. Filtering stays in SQL; only the ordering is client-side, and the table is repo-sized.
-        var rows = found.ToList();
-        rows.Sort(static (a, b) => string.CompareOrdinal(a.Id, b.Id));
-        return Result<IReadOnlyList<SkillDocument>, AgentError>.Success(rows.ConvertAll(ToDocument));
+        IReadOnlyList<SkillDocument> documents = [.. rows.OrderBy(static r => r.Id, StringComparer.Ordinal).Select(ToDocument)];
+        return Result<IReadOnlyList<SkillDocument>, AgentError>.Success(documents);
     }
 
     /// <inheritdoc />

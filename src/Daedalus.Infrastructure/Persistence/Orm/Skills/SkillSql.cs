@@ -33,7 +33,8 @@ public sealed partial class SkillSql(IAsyncDbConnection connection)
     ///     <c>ON CONFLICT DO NOTHING</c> because a version row is a pure function of its key, so a host that lost the
     ///     race to write it has nothing left to write. The rows commit together or not at all, as EF's single save
     ///     did; any other failure, such as two hosts inserting the same skill, rolls both back and surfaces as
-    ///     Npgsql's <c>PostgresException</c>.
+    ///     Npgsql's <c>PostgresException</c>. A replace that finds no row, a skill deleted since it was read, throws
+    ///     <c>ZeroAllocOrmConcurrencyException</c> and rolls back, as EF's update of a missing row threw.
     /// </summary>
     /// <param name="skill">The skill to insert or, after <see cref="Skill.Update"/>, to replace.</param>
     /// <param name="skillExists">Whether the skill has a row already.</param>
@@ -142,7 +143,7 @@ public sealed partial class SkillSql(IAsyncDbConnection connection)
         string name, string description, string body, string[] tags, string sourcePath, string contentHash,
         bool isActive, DateTime updatedAt, IAsyncDbTransaction tx, CancellationToken ct);
 
-    [LinqCommand(nameof(ReplaceSkillQuery))]
+    [LinqCommand(nameof(ReplaceSkillQuery), ThrowOnNoRows = true)]
     private partial Task<int> ReplaceSkill(
         string name, string description, string body, string[] tags, string sourcePath, string contentHash,
         bool isActive, DateTime updatedAt, IAsyncDbTransaction tx, CancellationToken ct);

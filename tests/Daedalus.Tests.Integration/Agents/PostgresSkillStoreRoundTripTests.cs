@@ -5,6 +5,7 @@ using Daedalus.Tests.Integration.Fixtures;
 using Npgsql;
 using Thalos;
 using Thalos.Skills;
+using ZeroAlloc.ORM;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Agents;
@@ -47,6 +48,8 @@ public sealed class PostgresSkillStoreRoundTripTests(PostgresFixture fixture) : 
         (await store.UpsertAsync(document, CancellationToken.None)).IsSuccess.Should().BeTrue();
 
         (await store.GetAsync(document.Name, CancellationToken.None)).Value.Should().BeEquivalentTo(document);
+        (await store.ListAsync(new SkillQuery(), CancellationToken.None)).Value.Should().ContainSingle()
+            .Which.Should().BeEquivalentTo(document, "the raw list statement must select every column in order");
         (await store.GetVersionAsync(document.Name, "hash-1", CancellationToken.None)).Value.Should().BeEquivalentTo(document);
     }
 
@@ -151,9 +154,10 @@ public sealed class PostgresSkillStoreRoundTripTests(PostgresFixture fixture) : 
 
     /// <summary>
     ///     Two hosts creating the same Skills row: the loser's insert breaks the primary key and the upsert answers
-    ///     SkillStoreFailed, as it did when EF's SaveChanges threw, and the version row goes with it. A trigger plays
-    ///     the winner. Red: write the two rows outside one transaction and the version survives; catch nothing and
-    ///     the Npgsql exception escapes.
+    ///     SkillStoreFailed, as it did when EF's SaveChanges threw. A trigger plays the winner. The skill insert runs
+    ///     first, so no version row is written either way: this pins the answer, not the transaction, which
+    ///     <see cref="Upsert_rolls_the_skill_update_back_when_the_version_insert_fails"/> pins. Red: catch nothing
+    ///     and the Npgsql exception escapes.
     /// </summary>
     [Fact]
     public async Task Upsert_loses_the_skill_insert_race_with_SkillStoreFailed()
@@ -187,6 +191,60 @@ public sealed class PostgresSkillStoreRoundTripTests(PostgresFixture fixture) : 
         var sql = new SkillSql(connection);
         (await sql.FindAsync("loser", CancellationToken.None)).Should().BeNull();
         (await sql.VersionExistsAsync("loser", "loser-hash", CancellationToken.None)).Should().BeFalse();
+    }
+
+    /// <summary>
+    ///     The skill and its new version commit together or not at all, as EF's single SaveChanges did. An existing
+    ///     skill is updated to a new hash and a trigger fails the version insert with an error that is not a unique
+    ///     violation. The upsert answers SkillStoreFailed and the Skills row still holds its old hash. Red: write the
+    ///     update outside the transaction and the new hash survives.
+    /// </summary>
+    [Fact]
+    public async Task Upsert_rolls_the_skill_update_back_when_the_version_insert_fails()
+    {
+        var store = new PostgresSkillStore(fixture.Db, TimeProvider.System);
+        (await store.UpsertAsync(Document("atomic", "hash-v1"), CancellationToken.None)).IsSuccess.Should().BeTrue();
+        await ExecuteAsync(
+            """
+            CREATE FUNCTION fail_version() RETURNS trigger AS $$
+            BEGIN
+                RAISE EXCEPTION 'version insert refused' USING ERRCODE = 'P0001';
+            END $$ LANGUAGE plpgsql;
+            CREATE TRIGGER fail_version BEFORE INSERT ON "SkillVersions"
+                FOR EACH ROW EXECUTE FUNCTION fail_version();
+            """);
+        try
+        {
+            var result = await store.UpsertAsync(Document("atomic", "hash-v2"), CancellationToken.None);
+
+            result.IsFailure.Should().BeTrue();
+            result.Error.Code.Should().Be(AgentErrorCode.SkillStoreFailed);
+        }
+        finally
+        {
+            await ExecuteAsync("""DROP TRIGGER fail_version ON "SkillVersions"; DROP FUNCTION fail_version();""");
+        }
+
+        (await store.GetAsync(SkillName.Parse("atomic"), CancellationToken.None)).Value.ContentHash.Should().Be("hash-v1");
+    }
+
+    /// <summary>
+    ///     A replace that finds no row, the skill deleted between the read and the write, throws and rolls back, as EF's
+    ///     update of a missing row threw; the store turns that into SkillStoreFailed. Red: drop ThrowOnNoRows from the
+    ///     replace and the version row is committed for a skill that does not exist.
+    /// </summary>
+    [Fact]
+    public async Task Replacing_a_missing_skill_throws_and_writes_no_version()
+    {
+        var skill = Skill.Create("gone", "Releases", "Body.", [], "skills/gone/SKILL.md", "hash-1", true, _at.UtcDateTime).Value;
+        var version = SkillVersion.Create("gone", "hash-1", "Releases", "Body.", [], "skills/gone/SKILL.md", _at.UtcDateTime).Value;
+        await using var connection = await fixture.Db.OpenAsync(CancellationToken.None);
+        var sql = new SkillSql(connection);
+
+        var store = async () => await sql.StoreAsync(skill, skillExists: true, version, CancellationToken.None);
+
+        await store.Should().ThrowAsync<ZeroAllocOrmConcurrencyException>();
+        (await sql.VersionExistsAsync("gone", "hash-1", CancellationToken.None)).Should().BeFalse();
     }
 
     /// <summary>
