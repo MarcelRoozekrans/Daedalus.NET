@@ -54,7 +54,8 @@ public static partial class ProjectsEndpoints
             .RequireAuthorization("ProjectManagement")
             .RequireRateLimiting("write-operations")
             .ProducesProblem(StatusCodes.Status404NotFound, "application/json")
-            .ProducesProblem(StatusCodes.Status400BadRequest, "application/json");
+            .ProducesProblem(StatusCodes.Status400BadRequest, "application/json")
+            .ProducesProblem(StatusCodes.Status409Conflict, "application/json");
 
         group.MapDelete("{id:guid}", DeleteProject)
             .RequireAuthorization("ProjectManagement")
@@ -138,7 +139,7 @@ public static partial class ProjectsEndpoints
             : Error(result.Error, StatusCodes.Status400BadRequest);
     }
 
-    /// <summary>Update an existing project.</summary>
+    /// <summary>Update an existing project. 409 when the save lost a race to another write of the project (R74).</summary>
     public static async Task<Results<Ok<ProjectDto>, ApiJsonResult<ErrorBody>>> UpdateProject(
         Guid id, ApiBody<UpdateProjectDto> request, [FromServices] IApplicationCommands commands, CancellationToken ct)
     {
@@ -150,6 +151,11 @@ public static partial class ProjectsEndpoints
         if (result.IsSuccess)
         {
             return TypedResults.Ok(result.Value);
+        }
+
+        if (SaveConflict.IsConflict(result.Error))
+        {
+            return Error(result.Error, StatusCodes.Status409Conflict);
         }
 
         return Error(result.Error, IsNotFound(result.Error) ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest);

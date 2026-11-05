@@ -236,6 +236,26 @@ public sealed class ProjectsEndpointsTests
         json.Value.Should().Be(new ErrorBody(error));
     }
 
+    /// <summary>
+    ///     Ruling R74, owner decision: an update that lost a race to another write answers 409 with the refusal, as
+    ///     <c>RepositoriesEndpoints</c> does. Red: drop the <c>SaveConflict.IsConflict</c> branch in UpdateProject; it
+    ///     answers 400.
+    /// </summary>
+    [Fact]
+    public async Task UpdateProject_maps_a_lost_race_to_409()
+    {
+        const string Refusal = "The project was modified by another operation. Please retry.";
+        _commands.UpdateProjectAsync(Arg.Any<UpdateProjectCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ProjectDto>.Failure(Refusal));
+        var request = await BindUpdate();
+
+        var result = await ProjectsEndpoints.UpdateProject(Id, request, _commands, CancellationToken.None);
+
+        var json = result.Result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
+        json.StatusCode.Should().Be(StatusCodes.Status409Conflict);
+        json.Value.Should().Be(new ErrorBody(Refusal));
+    }
+
     [Fact]
     public async Task DeleteProject_answers_204_on_success()
     {

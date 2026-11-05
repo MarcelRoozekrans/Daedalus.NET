@@ -16,8 +16,11 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 using NSubstitute;
 using ZeroAlloc.Results;
+using Project = Daedalus.Domain.Entities.Project;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Controllers;
@@ -421,6 +424,37 @@ public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsync
         result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Which.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
     }
 
+    /// <summary>
+    ///     Ruling R74, owner decision: an update that loses a race to another write of the project answers 409 Conflict
+    ///     with the retry message, through the real handler and repository. Another write lands between the handler's
+    ///     load and its save; the other write's value stands. Red: map only not-found to 404 and every other failure to
+    ///     400 in UpdateProject, as before; the lost race answers 400.
+    /// </summary>
+    [Fact(Timeout = 10000)]
+    public async Task UpdateProject_that_loses_a_race_returns_409_with_the_retry_message()
+    {
+        // Arrange
+        var project = IntegrationTestFactory.CreateProject(name: "Original", description: "Original description");
+        var projects = new ProjectRepository(fixture.Db, NullLogger<ProjectRepository>.Instance);
+        (await projects.AddAsync(project, CancellationToken.None)).IsSuccess.Should().BeTrue();
+        var racing = new RacingProjectRepository(projects, fixture.ConnectionString);
+        var handler = new UpdateProjectCommandHandler(racing, NullLogger<UpdateProjectCommandHandler>.Instance);
+        _commandsMock
+            .UpdateProjectAsync(Arg.Any<UpdateProjectCommand>(), Arg.Any<CancellationToken>())
+            .Returns(call => handler.Handle(call.Arg<UpdateProjectCommand>(), call.Arg<CancellationToken>()));
+        var request = new UpdateProjectDto("Loser", "Loser description", "2.0");
+
+        // Act
+        var result = (await ProjectsEndpoints.UpdateProject(project.Id, await BindUpdate(request), _commandsMock, CancellationToken.None)).Result;
+
+        // Assert
+        var json = result.Should().BeOfType<ApiJsonResult<ErrorBody>>().Subject;
+        json.StatusCode.Should().Be(StatusCodes.Status409Conflict);
+        json.Value.Should().Be(new ErrorBody("The project was modified by another operation. Please retry."));
+        var stored = (await projects.GetByIdAsync(project.Id, CancellationToken.None)).Value;
+        stored.ProjectName.Should().Be("Winner");
+    }
+
     #endregion
 
     #region DeleteProject Tests
@@ -522,4 +556,28 @@ public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsync
 
     private static async Task<TSelf> BindVia<TSelf>(HttpContext context, System.Reflection.ParameterInfo parameter)
         where TSelf : class, IBindableFromHttpContext<TSelf> => (await TSelf.BindAsync(context, parameter))!;
+    /// <summary>
+    ///     Loads through the real repository, then renames the project with a separate connection, the other write
+    ///     that wins the race before the caller's save.
+    /// </summary>
+    private sealed class RacingProjectRepository(IProjectRepository inner, string connectionString) : IProjectRepository
+    {
+        public async Task<Result<Project>> GetByIdAsync(Guid id, CancellationToken ct)
+        {
+            var loaded = await inner.GetByIdAsync(id, ct);
+            await using var connection = new NpgsqlConnection(connectionString);
+            await connection.OpenAsync(ct);
+            await using var command = new NpgsqlCommand(
+                """UPDATE "Projects" SET "ProjectName" = 'Winner' WHERE "Id" = @id""", connection);
+            command.Parameters.AddWithValue("id", id);
+            await command.ExecuteNonQueryAsync(ct);
+            return loaded;
+        }
+
+        public Task<Result<Project>> AddAsync(Project project, CancellationToken ct) => inner.AddAsync(project, ct);
+
+        public Task<Result> UpdateAsync(Project project, CancellationToken ct) => inner.UpdateAsync(project, ct);
+
+        public Task<Result> DeleteAsync(Guid id, CancellationToken ct) => inner.DeleteAsync(id, ct);
+    }
 }
