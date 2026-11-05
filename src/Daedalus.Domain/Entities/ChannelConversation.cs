@@ -13,8 +13,8 @@ namespace Daedalus.Domain.Entities;
 ///     chat, regardless of channel. <see cref="Entity{TId}"/> carries a single id, so this aggregate keeps a surrogate
 ///     <c>Guid</c> primary key (like <see cref="AgentMessage"/>'s surrogate id next to its unique
 ///     (SessionId, Sequence) pair) and the natural key is enforced by a UNIQUE database index on
-///     (<see cref="ChannelId"/>, <see cref="ConversationId"/>), configured in
-///     <c>ChannelConversationConfiguration</c>. A synthesised string id (e.g. "telegram:123") was considered and
+///     (<see cref="ChannelId"/>, <see cref="ConversationId"/>), declared in the
+///     baseline migration. A synthesised string id (e.g. "telegram:123") was considered and
 ///     rejected: it would make correctness depend on a separator no <see cref="ChannelId"/> value may ever contain,
 ///     where a plain composite unique index needs no such argument and matches the codebase's existing precedent for
 ///     composite natural keys.
@@ -28,24 +28,35 @@ public sealed class ChannelConversation : Entity<Guid>
     public const int MaxConversationIdLength = 128;
 
     /// <summary>Gets which channel adapter owns this conversation (e.g. "telegram", "console").</summary>
-    public string ChannelId { get; private set; } = string.Empty;
+    public string ChannelId { get; }
 
     /// <summary>Gets the channel-specific conversation identifier (the Telegram chat id or "console", as a string).</summary>
-    public string ConversationId { get; private set; } = string.Empty;
+    public string ConversationId { get; }
 
     /// <summary>Gets the Thalos session currently serving this conversation (the Guid backing Thalos's <c>SessionId</c>).</summary>
-    public Guid SessionId { get; private set; }
+    public Guid SessionId { get; }
 
     /// <summary>Gets the Thalos agent definition running the session (the Guid backing Thalos's <c>AgentId</c>).</summary>
-    public Guid AgentId { get; private set; }
+    public Guid AgentId { get; }
 
     /// <summary>Gets when the conversation was created (UTC).</summary>
-    public DateTime CreatedAt { get; private set; }
+    public DateTime CreatedAt { get; }
 
     /// <summary>Gets when the conversation was last active (UTC).</summary>
-    public DateTime LastActivityAt { get; private set; }
+    public DateTime LastActivityAt { get; }
 
-    private ChannelConversation() { } // EF Core
+    private ChannelConversation(
+        Guid id, string channelId, string conversationId, Guid sessionId, Guid agentId, DateTime createdAt,
+        DateTime lastActivityAt)
+    {
+        Id = id;
+        ChannelId = channelId;
+        ConversationId = conversationId;
+        SessionId = sessionId;
+        AgentId = agentId;
+        CreatedAt = createdAt;
+        LastActivityAt = lastActivityAt;
+    }
 
     /// <summary>Creates a new channel-to-session binding. Timestamps are supplied by the caller (UTC).</summary>
     /// <param name="channelId">Which channel adapter owns this conversation (e.g. "telegram", "console").</param>
@@ -79,15 +90,24 @@ public sealed class ChannelConversation : Entity<Guid>
         if (agentId == Guid.Empty)
             return Result<ChannelConversation>.Failure("Agent id is required.");
 
-        return Result<ChannelConversation>.Success(new ChannelConversation
-        {
-            Id = Guid.NewGuid(),
-            ChannelId = channelId,
-            ConversationId = conversationId,
-            SessionId = sessionId,
-            AgentId = agentId,
-            CreatedAt = utcNow,
-            LastActivityAt = utcNow,
-        });
+        return Result<ChannelConversation>.Success(
+            new ChannelConversation(Guid.NewGuid(), channelId, conversationId, sessionId, agentId, utcNow, utcNow));
     }
+
+    /// <summary>
+    ///     Rebuilds a stored binding from its columns. For persistence only: it sets every value as given and
+    ///     validates nothing, so a row written before a rule of <see cref="Create"/> existed still loads.
+    /// </summary>
+    /// <param name="id">The surrogate primary key.</param>
+    /// <param name="channelId">Which channel adapter owns the conversation.</param>
+    /// <param name="conversationId">The channel-specific conversation identifier.</param>
+    /// <param name="sessionId">The Thalos session serving the conversation.</param>
+    /// <param name="agentId">The Thalos agent definition running the session.</param>
+    /// <param name="createdAt">When the binding was created.</param>
+    /// <param name="lastActivityAt">When the conversation was last active.</param>
+    /// <returns>The binding the row holds.</returns>
+    public static ChannelConversation Rehydrate(
+        Guid id, string channelId, string conversationId, Guid sessionId, Guid agentId, DateTime createdAt,
+        DateTime lastActivityAt) =>
+        new(id, channelId, conversationId, sessionId, agentId, createdAt, lastActivityAt);
 }

@@ -1,6 +1,6 @@
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.ChannelConversations;
 using Thalos;
 using Thalos.Channels;
 using ZeroAlloc.Results;
@@ -8,10 +8,9 @@ using ZeroAlloc.Results;
 namespace Daedalus.Agents.Channels;
 
 /// <summary>
-///     Thalos conversation map over <see cref="ApplicationDbContext"/> (table <c>ChannelConversations</c>): remembers
-///     which agent session is currently serving which external chat. Fresh short-lived DbContext per call (the store
-///     is a singleton), same patterns as <see cref="Skills.PostgresSkillStore"/> and
-///     <see cref="Memory.PostgresMemoryStore"/>.
+///     Thalos conversation map over <see cref="ChannelConversationSql"/> (table <c>ChannelConversations</c>):
+///     remembers which agent session is currently serving which external chat. One pooled connection per call, so
+///     the store is safe as a singleton.
 /// </summary>
 /// <remarks>
 ///     <see cref="ConversationId"/> is a hand-written <c>record struct</c> whose <c>Value</c> normalises a defaulted
@@ -24,17 +23,13 @@ namespace Daedalus.Agents.Channels;
 ///     path every other write of this aggregate goes through — <c>ChannelConversation</c>'s "conversation id
 ///     required" rule was relaxed precisely so this contract's empty-string binding stays valid there), then persists
 ///     the validated entity's own fields with a genuine database upsert (<c>INSERT … ON CONFLICT … DO UPDATE</c>)
-///     against the unique index on <c>(ChannelId, ConversationId)</c> that <c>ChannelConversationConfiguration</c>
-///     enforces, rather than a read-then-write. A read-then-write has a TOCTOU window between the read and the save;
+///     against the unique index on <c>(ChannelId, ConversationId)</c> that the schema enforces, rather than a read-then-write. A read-then-write has a TOCTOU window between the read and the save;
 ///     the Telegram poller is single-instance, but the CLI host can run concurrently against the same database, so
 ///     two processes really can race to bind the same conversation, and only a database-level upsert closes that
 ///     window.
 /// </remarks>
-public sealed class PostgresConversationMap(IDbContextFactory<ApplicationDbContext> contextFactory) : IConversationMap
+public sealed class PostgresConversationMap(DaedalusDb db) : IConversationMap
 {
-    private readonly IDbContextFactory<ApplicationDbContext> _contextFactory =
-        contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
-
     /// <inheritdoc />
     public async ValueTask<Result<ConversationBinding?, AgentError>> GetAsync(
         string channelId, ConversationId conversationId, CancellationToken ct)
@@ -42,9 +37,8 @@ public sealed class PostgresConversationMap(IDbContextFactory<ApplicationDbConte
         ArgumentNullException.ThrowIfNull(channelId);
 
         var conversationKey = conversationId.Value;
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var row = await db.ChannelConversations.AsNoTracking()
-            .FirstOrDefaultAsync(c => c.ChannelId == channelId && c.ConversationId == conversationKey, ct)
+        await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+        var row = await new ChannelConversationSql(connection).FindAsync(channelId, conversationKey, ct)
             .ConfigureAwait(false);
 
         // Unbound is the normal state of a first message, not a failure - see the IConversationMap contract.
@@ -71,20 +65,13 @@ public sealed class PostgresConversationMap(IDbContextFactory<ApplicationDbConte
 
         var entity = created.Value;
 
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
 
-        // A true upsert on the unique (ChannelId, ConversationId) index - see the upsert remark on the type. This
-        // is a raw statement rather than a SaveChanges round trip, so failures surface as the underlying Npgsql
-        // exception directly rather than as a wrapped DbUpdateException, matching the session-store propagation
+        // A true upsert on the unique (ChannelId, ConversationId) index - see the upsert remark on the type. A
+        // database failure surfaces as the underlying Npgsql exception, matching the session-store propagation
         // policy without needing a catch here. CreatedAt is only set on INSERT (the conflict branch never touches
         // it), so an existing row keeps its original creation time across repeated binds.
-        await db.Database.ExecuteSqlInterpolatedAsync(
-            $"""
-             INSERT INTO "ChannelConversations" ("Id", "ChannelId", "ConversationId", "SessionId", "AgentId", "CreatedAt", "LastActivityAt")
-             VALUES ({entity.Id}, {entity.ChannelId}, {entity.ConversationId}, {entity.SessionId}, {entity.AgentId}, {entity.CreatedAt}, {entity.LastActivityAt})
-             ON CONFLICT ("ChannelId", "ConversationId")
-             DO UPDATE SET "SessionId" = EXCLUDED."SessionId", "AgentId" = EXCLUDED."AgentId", "LastActivityAt" = EXCLUDED."LastActivityAt"
-             """, ct).ConfigureAwait(false);
+        await new ChannelConversationSql(connection).UpsertAsync(entity, ct).ConfigureAwait(false);
 
         return UnitResult<AgentError>.Success();
     }
@@ -95,15 +82,12 @@ public sealed class PostgresConversationMap(IDbContextFactory<ApplicationDbConte
         ArgumentNullException.ThrowIfNull(channelId);
 
         var conversationKey = conversationId.Value;
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
 
         // Scoped by BOTH ChannelId and ConversationId - dropping the ChannelId half of this predicate would delete
         // every channel's binding for an identically-named conversation id, not just the caller's own channel.
-        // ExecuteDeleteAsync affecting zero rows is not an error - removing an absent binding succeeds (idempotent).
-        await db.ChannelConversations
-            .Where(c => c.ChannelId == channelId && c.ConversationId == conversationKey)
-            .ExecuteDeleteAsync(ct)
-            .ConfigureAwait(false);
+        // Deleting zero rows is not an error - removing an absent binding succeeds (idempotent).
+        await new ChannelConversationSql(connection).DeleteAsync(channelId, conversationKey, ct).ConfigureAwait(false);
 
         return UnitResult<AgentError>.Success();
     }

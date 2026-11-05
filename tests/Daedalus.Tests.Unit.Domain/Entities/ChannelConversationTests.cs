@@ -92,4 +92,31 @@ public sealed class ChannelConversationTests
 
         first.Id.Should().NotBe(second.Id);
     }
+
+    /// <summary>
+    ///     A stored row loads as it is, even one <see cref="ChannelConversation.Create"/> would refuse today: a blank
+    ///     channel id, an over-long conversation id, empty session and agent ids and a local time.
+    ///     Red: validate in <c>Rehydrate</c>, or drop any one assignment.
+    /// </summary>
+    [Fact]
+    public void Rehydrate_keeps_every_value_including_ones_Create_rejects()
+    {
+        var id = Guid.NewGuid();
+        var local = DateTime.SpecifyKind(_now, DateTimeKind.Local);
+        var lastActive = local.AddMinutes(7);
+        var longConversationId = new string('c', ChannelConversation.MaxConversationIdLength + 1);
+        ChannelConversation.Create("  ", longConversationId, Guid.Empty, Guid.Empty, local).IsFailure
+            .Should().BeTrue("the values below are ones Create refuses");
+
+        var conversation = ChannelConversation.Rehydrate(id, "  ", longConversationId, Guid.Empty, Guid.Empty, local, lastActive);
+
+        conversation.Id.Should().Be(id);
+        conversation.ChannelId.Should().Be("  ");
+        conversation.ConversationId.Should().Be(longConversationId);
+        conversation.SessionId.Should().Be(Guid.Empty);
+        conversation.AgentId.Should().Be(Guid.Empty);
+        conversation.CreatedAt.Should().Be(local);
+        conversation.CreatedAt.Kind.Should().Be(DateTimeKind.Local);
+        conversation.LastActivityAt.Should().Be(lastActive);
+    }
 }

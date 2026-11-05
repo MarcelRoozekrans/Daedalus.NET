@@ -1,7 +1,6 @@
 using Daedalus.Agents.Channels;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Thalos;
 using Thalos.Channels;
 using Task = System.Threading.Tasks.Task;
@@ -29,7 +28,7 @@ public sealed class PostgresConversationMapTests(PostgresFixture fixture) : IAsy
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    private PostgresConversationMap CreateMap() => new(new FixtureDbContextFactory(fixture));
+    private PostgresConversationMap CreateMap() => new(fixture.Db);
 
     [Fact]
     public async Task Get_of_an_unbound_conversation_is_success_null_not_a_failure()
@@ -81,11 +80,12 @@ public sealed class PostgresConversationMapTests(PostgresFixture fixture) : IAsy
             new ConversationBinding("telegram", conversationId, secondSessionId, secondAgentId, secondActivityAt),
             CancellationToken.None);
 
-        await using var db = fixture.CreateDbContext();
-        var rows = await db.ChannelConversations
-            .Where(c => c.ChannelId == "telegram" && c.ConversationId == "482910337")
-            .ToListAsync();
-        rows.Should().HaveCount(1, "the second bind must replace, not duplicate, the row");
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var count = new NpgsqlCommand(
+            """SELECT count(*) FROM "ChannelConversations" WHERE "ChannelId" = 'telegram' AND "ConversationId" = '482910337'""",
+            connection);
+        ((long)(await count.ExecuteScalarAsync())!).Should().Be(1, "the second bind must replace, not duplicate, the row");
 
         var result = await map.GetAsync("telegram", conversationId, CancellationToken.None);
         result.Value.Should().NotBeNull();
@@ -203,11 +203,5 @@ public sealed class PostgresConversationMapTests(PostgresFixture fixture) : IAsy
         result.IsSuccess.Should().BeTrue();
         result.Value.Should().NotBeNull("a binding keyed on .Value must be found via the struct's default, too");
         result.Value!.SessionId.Should().Be(new SessionId(_sessionId));
-    }
-
-    /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
-    private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => fixture.CreateDbContext();
     }
 }

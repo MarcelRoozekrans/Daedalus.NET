@@ -1,9 +1,10 @@
 using Daedalus.Agents.Channels;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 using Thalos;
 using Thalos.Channels;
 using Thalos.Channels.Telegram;
@@ -44,11 +45,21 @@ public sealed class DaedalusChannelsRegistrationTests
         ("Thalos:Channels:Telegram:PrincipalId", "telegram:marcel"),
         ("Thalos:Channels:Telegram:AllowedUserIds:0", TelegramChatId));
 
+    /// <summary>
+    ///     What <c>AddApplicationDatabase</c> gives a host and <see cref="PostgresConversationMap"/> needs: a data
+    ///     source and the <see cref="DaedalusDb"/> over it. Nothing connects until a call opens one.
+    /// </summary>
+    private static void AddDatabase(IServiceCollection services)
+    {
+        services.TryAddSingleton(_ => NpgsqlDataSource.Create("Host=registration-test;Database=registration-test"));
+        services.TryAddSingleton<DaedalusDb>();
+    }
+
     private static ServiceProvider Build(IConfiguration configuration, bool includeConsoleChannel = false)
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        AddDatabase(services);
         services.AddDaedalusChannels(configuration, includeConsoleChannel);
         return services.BuildServiceProvider();
     }
@@ -122,7 +133,7 @@ public sealed class DaedalusChannelsRegistrationTests
         // resolved objects can hide a duplicate registration that counting descriptors would not.
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        AddDatabase(services);
         var config = TelegramConfig();
 
         services.AddDaedalusChannels(config, includeConsoleChannel: true);
@@ -145,7 +156,7 @@ public sealed class DaedalusChannelsRegistrationTests
         // DefaultOutboxDispatcher via TryAdd) runs before AddDaedalusChannels is added on top.
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        AddDatabase(services);
         services.AddOutbox().AddChannelMessageQueuedOutbox();
 
         services.AddDaedalusChannels(Config());
@@ -162,7 +173,7 @@ public sealed class DaedalusChannelsRegistrationTests
         // TryAdd install the throwing default unopposed.
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        AddDatabase(services);
 
         services.AddDaedalusChannels(Config());
         services.AddOutbox().AddChannelMessageQueuedOutbox();

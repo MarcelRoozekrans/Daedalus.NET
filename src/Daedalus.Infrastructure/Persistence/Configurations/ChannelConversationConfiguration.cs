@@ -8,6 +8,12 @@ namespace Daedalus.Infrastructure.Persistence.Configurations;
 ///     EF Core configuration for the <see cref="ChannelConversation"/> aggregate (table
 ///     <c>ChannelConversations</c>): binds one external chat to the Thalos session currently serving it.
 /// </summary>
+/// <remarks>
+///     Phase 3.5: <c>PostgresConversationMap</c> reads and writes the table through ZeroAlloc.ORM. This mapping stays
+///     only so the EF model still matches the migration snapshot: EF's <c>MigrateAsync</c>, which many integration
+///     fixtures and the historical migration tests run, refuses a model that has lost an entity the snapshot holds.
+///     It goes with the rest of EF in the cut-over task.
+/// </remarks>
 internal sealed class ChannelConversationConfiguration : IEntityTypeConfiguration<ChannelConversation>
 {
     public void Configure(EntityTypeBuilder<ChannelConversation> builder)
