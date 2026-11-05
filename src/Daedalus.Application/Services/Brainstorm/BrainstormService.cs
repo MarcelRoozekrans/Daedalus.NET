@@ -33,11 +33,17 @@ public sealed partial class BrainstormService(
         if (sessionResult.IsFailure)
             return sessionResult;
 
-        var session = sessionResult.Value;
-        var addResult = await repository.AddAsync(session, ct).ConfigureAwait(false);
+        var addResult = await repository.AddAsync(sessionResult.Value, ct).ConfigureAwait(false);
         if (addResult.IsFailure)
             return addResult;
 
+        // The save below is guarded by the row version the session was read with, and an add reads none back, so the
+        // stored session is read before it is changed (ruling R77).
+        var storedResult = await repository.GetByIdAsync(sessionResult.Value.Id, ct).ConfigureAwait(false);
+        if (storedResult.IsFailure)
+            return storedResult;
+
+        var session = storedResult.Value;
         var project = projectResult.Value;
         var contextPrompt = string.Format(
             CultureInfo.InvariantCulture,

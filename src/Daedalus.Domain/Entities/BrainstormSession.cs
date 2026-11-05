@@ -1,6 +1,3 @@
-#pragma warning disable CA1819 // EF Core concurrency token standard pattern
-#pragma warning disable S1144 // EF Core sets RowVersion via reflection
-
 using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
@@ -40,12 +37,12 @@ public sealed class BrainstormSession : AggregateRoot<Guid>
     public DateTime? CompletedAt { get; private set; }
 
     /// <summary>
-    ///     Gets the concurrency token (row version) for optimistic locking.
-    ///     Prevents lost updates in concurrent scenarios.
+    ///     Gets the row version the session was read with, PostgreSQL's <c>xmin</c>, which guards its save against a
+    ///     concurrent write; 0 for a session that was never read.
     /// </summary>
-    public byte[]? RowVersion { get; private set; }
+    public uint RowVersion { get; private set; }
 
-    private BrainstormSession() { } // EF Core
+    private BrainstormSession() { }
 
     /// <summary>
     ///     Creates a new brainstorming session for a project.
@@ -64,6 +61,51 @@ public sealed class BrainstormSession : AggregateRoot<Guid>
             Phase = BrainstormPhase.ContextGathering,
             CreatedAt = DateTime.UtcNow
         });
+    }
+
+    /// <summary>
+    ///     Rebuilds a stored session, for persistence only: every value is taken as stored, nothing is validated and no
+    ///     domain event is raised.
+    /// </summary>
+    /// <param name="id">The session id.</param>
+    /// <param name="projectId">The parent project id.</param>
+    /// <param name="phase">The current phase.</param>
+    /// <param name="designDocument">The design document, or null.</param>
+    /// <param name="implementationPlan">The implementation plan, or null.</param>
+    /// <param name="phaseCompleteSignaled">Whether the model signalled the phase complete.</param>
+    /// <param name="createdAt">When the session was created.</param>
+    /// <param name="completedAt">When the session reached a terminal state, or null.</param>
+    /// <param name="rowVersion">The row version the session was read with.</param>
+    /// <param name="messages">The session's messages, in conversation order.</param>
+    /// <returns>The session as stored.</returns>
+    public static BrainstormSession Rehydrate(
+        Guid id,
+        Guid projectId,
+        BrainstormPhase phase,
+        string? designDocument,
+        string? implementationPlan,
+        bool phaseCompleteSignaled,
+        DateTime createdAt,
+        DateTime? completedAt,
+        uint rowVersion,
+        IEnumerable<BrainstormMessage> messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        var session = new BrainstormSession
+        {
+            Id = id,
+            ProjectId = projectId,
+            Phase = phase,
+            DesignDocument = designDocument,
+            ImplementationPlan = implementationPlan,
+            PhaseCompleteSignaled = phaseCompleteSignaled,
+            CreatedAt = createdAt,
+            CompletedAt = completedAt,
+            RowVersion = rowVersion
+        };
+        session._messages.AddRange(messages);
+        return session;
     }
 
     /// <summary>
@@ -171,6 +213,3 @@ public sealed class BrainstormSession : AggregateRoot<Guid>
         return Result.Success();
     }
 }
-
-#pragma warning restore S1144
-#pragma warning restore CA1819

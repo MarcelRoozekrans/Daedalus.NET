@@ -50,9 +50,9 @@ public sealed class InfrastructureServiceCollectionResolutionTests
         services.AddExternalServices(configuration);
         services.AddCodeAnalysisServices(configuration);
 
-        // ICodeAnalysisRepository, IFailurePatternDatabase and IBrainstormRepository are all EF Core repositories
-        // needing ApplicationDbContext, which nothing in this test registers. Only ICodeAnalysisRepository sits on
-        // the graph under test (IRalphLoopOrchestrator's constructor); the other two are registered by
+        // ICodeAnalysisRepository needs EF Core's ApplicationDbContext, and IFailurePatternDatabase and
+        // IBrainstormRepository need DaedalusDb; nothing in this test registers either. Only ICodeAnalysisRepository
+        // sits on the graph under test (IRalphLoopOrchestrator's constructor); the other two are registered by
         // AddExternalServices but never resolved here, so they are left alone.
         services.AddScoped<ICodeAnalysisRepository>(_ => Substitute.For<ICodeAnalysisRepository>());
 

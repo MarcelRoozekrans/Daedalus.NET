@@ -201,69 +201,6 @@ Model:
       Relational:Schema: 
       Relational:TableName: AgentSessions
       RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
-  EntityType: BrainstormMessage
-    Properties: 
-      Id (Guid) Required PK AfterSave:Throw
-      BrainstormSessionId (Guid) Required FK Index
-      Content (string) Required
-        Annotations: 
-          Relational:ColumnType: text
-      CreatedAt (DateTime) Required
-      Phase (BrainstormPhase) Required
-        Annotations: 
-          ProviderClrType: System.Int32
-          ValueConverter: 
-      Role (MessageRole) Required
-        Annotations: 
-          ProviderClrType: System.Int32
-          ValueConverter: 
-    Keys: 
-      Id PK
-    Foreign keys: 
-      BrainstormMessage {'BrainstormSessionId'} -> BrainstormSession {'Id'} Required Cascade ToDependent: Messages
-    Indexes: 
-      BrainstormSessionId
-        Annotations: 
-          Relational:Name: IX_BrainstormMessage_SessionId
-    Annotations: 
-      Relational:Schema: 
-      Relational:TableName: BrainstormMessages
-      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
-  EntityType: BrainstormSession
-    Properties: 
-      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
-      CompletedAt (DateTime?)
-      CreatedAt (DateTime) Required
-      DesignDocument (string)
-        Annotations: 
-          Relational:ColumnType: text
-      ImplementationPlan (string)
-        Annotations: 
-          Relational:ColumnType: text
-      Phase (BrainstormPhase) Required Index
-        Annotations: 
-          ProviderClrType: System.Int32
-          ValueConverter: 
-      PhaseCompleteSignaled (bool) Required ValueGenerated.OnAdd
-        Annotations: 
-          Relational:DefaultValue: False
-      ProjectId (Guid) Required Index
-      RowVersion (byte[]) Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
-    Navigations: 
-      Messages (_messages, IReadOnlyList<BrainstormMessage>) Collection ToDependent BrainstormMessage
-    Keys: 
-      Id PK
-    Indexes: 
-      Phase
-        Annotations: 
-          Relational:Name: IX_BrainstormSession_Phase
-      ProjectId
-        Annotations: 
-          Relational:Name: IX_BrainstormSession_ProjectId
-    Annotations: 
-      Relational:Schema: 
-      Relational:TableName: BrainstormSessions
-      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
   EntityType: ExecutionSession
     Properties: 
       Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd

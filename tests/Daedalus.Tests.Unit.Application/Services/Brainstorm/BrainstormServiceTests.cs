@@ -40,6 +40,7 @@ public class BrainstormServiceTests
 
         _repository.AddAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
             .Returns(callInfo => Result<BrainstormSession>.Success(callInfo.Arg<BrainstormSession>()));
+        StoreOnRead(projectId);
 
         _repository.UpdateAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
             .Returns(Result.Success());
@@ -79,6 +80,7 @@ public class BrainstormServiceTests
 
         _repository.AddAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
             .Returns(callInfo => Result<BrainstormSession>.Success(callInfo.Arg<BrainstormSession>()));
+        StoreOnRead(projectId);
 
         _agentFactory.InvokeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Result<LlmInvocationResult>.Failure("LLM service unavailable"));
@@ -89,6 +91,32 @@ public class BrainstormServiceTests
         // Assert
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Contain("LLM invocation failed");
+    }
+
+    /// <summary>
+    ///     Ruling R77: the save after the add is guarded by the row version the session was read with, and an add reads
+    ///     none back, so the service saves the session as read back after its add, carrying its row version. Red: save
+    ///     the added instance; the saved session has row version 0.
+    /// </summary>
+    [Fact]
+    public async Task CreateSessionAsync_saves_the_session_read_back_after_its_add()
+    {
+        var projectId = Guid.NewGuid();
+        _projectRepository.GetByIdAsync(projectId, Arg.Any<CancellationToken>())
+            .Returns(Result<Project>.Success(ApplicationTestFactory.CreateProject(projectId)));
+        _agentFactory.InvokeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Result<LlmInvocationResult>.Success(new LlmInvocationResult { Response = "Hello." }));
+        _repository.AddAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => Result<BrainstormSession>.Success(callInfo.Arg<BrainstormSession>()));
+        StoreOnRead(projectId);
+        _repository.UpdateAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>()).Returns(Result.Success());
+
+        var result = await _service.CreateSessionAsync(projectId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        await _repository.Received(1).UpdateAsync(
+            Arg.Is<BrainstormSession>(s => s.RowVersion == StoredRowVersion && s.Messages.Count == 1),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -309,4 +337,13 @@ public class BrainstormServiceTests
         // Assert
         result.IsFailure.Should().BeTrue();
     }
+
+    private const uint StoredRowVersion = 17;
+
+    /// <summary>A read of any id answers that session as stored, with a row version, as the repository reads it back.</summary>
+    private void StoreOnRead(Guid projectId) =>
+        _repository.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => Result<BrainstormSession>.Success(BrainstormSession.Rehydrate(
+                callInfo.Arg<Guid>(), projectId, BrainstormPhase.ContextGathering, null, null, false, DateTime.UtcNow,
+                null, StoredRowVersion, [])));
 }

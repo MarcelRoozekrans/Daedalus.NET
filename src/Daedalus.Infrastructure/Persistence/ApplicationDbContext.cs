@@ -23,8 +23,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<CodeAnalysisRequest> CodeAnalysisRequests => Set<CodeAnalysisRequest>();
     public DbSet<AnalysisIteration> AnalysisIterations => Set<AnalysisIteration>();
     public DbSet<RepositoryConfiguration> RepositoryConfigurations => Set<RepositoryConfiguration>();
-    public DbSet<BrainstormSession> BrainstormSessions => Set<BrainstormSession>();
-    public DbSet<BrainstormMessage> BrainstormMessages => Set<BrainstormMessage>();
     public DbSet<AgentSession> AgentSessions => Set<AgentSession>();
 
     /// <summary>Recurring autonomous runs; see <see cref="ScheduledRun"/>.</summary>
@@ -48,8 +46,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     [
         Entry(new AgentSessionConfiguration()),
         Entry(new AnalysisIterationConfiguration()),
-        Entry(new BrainstormMessageConfiguration()),
-        Entry(new BrainstormSessionConfiguration()),
         Entry(new CodeAnalysisRequestConfiguration()),
         Entry(new ExecutionSessionConfiguration()),
         Entry(new ProjectConfiguration()),

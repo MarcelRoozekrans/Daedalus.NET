@@ -45,6 +45,10 @@ public class BrainstormServiceSaveFailureTests
         _projectRepository.GetByIdAsync(project.Id, Arg.Any<CancellationToken>()).Returns(Result<Project>.Success(project));
         _repository.AddAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
             .Returns(call => Result<BrainstormSession>.Success(call.Arg<BrainstormSession>()));
+        _repository.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(call => Result<BrainstormSession>.Success(BrainstormSession.Rehydrate(
+                call.Arg<Guid>(), project.Id, BrainstormPhase.ContextGathering, null, null, false, DateTime.UtcNow, null,
+                1, [])));
 
         var result = await _service.CreateSessionAsync(project.Id, CancellationToken.None);
 

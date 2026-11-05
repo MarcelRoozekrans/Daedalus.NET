@@ -1,41 +1,26 @@
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Repositories;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using Task = System.Threading.Tasks.Task;
 
-namespace Daedalus.Tests.Unit.Infrastructure.Persistence;
+namespace Daedalus.Tests.Integration.Repositories;
 
 /// <summary>
-///     Unit tests for <see cref="BrainstormRepository" />.
-///     Uses InMemoryDatabase for speed and isolation.
+///     Tests for <see cref="BrainstormRepository" />, moved from <c>Daedalus.Tests.Unit.Infrastructure</c>, where they ran
+///     on EF Core's InMemory provider, when the repository moved to ZeroAlloc.ORM (ruling R82). They run against the
+///     migrated schema; the assertions are the ones they had.
 /// </summary>
-public class BrainstormRepositoryTests : IAsyncLifetime
+[Collection(DatabaseCollection.Name)]
+public class BrainstormRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
 {
-    private readonly ApplicationDbContext _dbContext;
-    private readonly BrainstormRepository _repository;
+    private readonly BrainstormRepository _repository =
+        new(fixture.Db, Substitute.For<ILogger<BrainstormRepository>>());
 
-    public BrainstormRepositoryTests()
-    {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .ConfigureWarnings(w => w.Ignore(
-                Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
-            .Options;
+    public async Task InitializeAsync() => await fixture.DatabaseResetter.ResetAsync();
 
-        _dbContext = new TestApplicationDbContext(options);
-        var logger = Substitute.For<ILogger<BrainstormRepository>>();
-        _repository = new BrainstormRepository(_dbContext, logger);
-    }
-
-    public async Task InitializeAsync() => await _dbContext.Database.EnsureCreatedAsync();
-
-    public async Task DisposeAsync()
-    {
-        await _dbContext.Database.EnsureDeletedAsync();
-        await _dbContext.DisposeAsync();
-    }
+    public Task DisposeAsync() => Task.CompletedTask;
 
     #region AddAsync
 
@@ -50,7 +35,7 @@ public class BrainstormRepositoryTests : IAsyncLifetime
 
         // Assert
         result.IsSuccess.Should().BeTrue();
-        var stored = await _dbContext.BrainstormSessions.FindAsync(session.Id);
+        var stored = await FindAsync(session.Id);
         stored.Should().NotBeNull();
     }
 
@@ -84,7 +69,7 @@ public class BrainstormRepositoryTests : IAsyncLifetime
         await _repository.AddAsync(session2, CancellationToken.None);
 
         // Assert
-        var count = await _dbContext.BrainstormSessions.CountAsync();
+        var count = await CountSessionsAsync();
         count.Should().Be(2);
     }
 
@@ -97,8 +82,7 @@ public class BrainstormRepositoryTests : IAsyncLifetime
     {
         // Arrange
         var session = BrainstormSession.Create(Guid.NewGuid()).Value;
-        _dbContext.BrainstormSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
+        await StoreAsync(session);
 
         // Act
         var result = await _repository.GetByIdAsync(session.Id, CancellationToken.None);
@@ -114,8 +98,7 @@ public class BrainstormRepositoryTests : IAsyncLifetime
         // Arrange
         var session = BrainstormSession.Create(Guid.NewGuid()).Value;
         session.AddMessage(MessageRole.Assistant, "Hello!");
-        _dbContext.BrainstormSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
+        await StoreAsync(session);
 
         // Act
         var result = await _repository.GetByIdAsync(session.Id, CancellationToken.None);
@@ -145,8 +128,7 @@ public class BrainstormRepositoryTests : IAsyncLifetime
         var session1 = BrainstormSession.Create(Guid.NewGuid()).Value;
         var session2 = BrainstormSession.Create(Guid.NewGuid()).Value;
         var session3 = BrainstormSession.Create(Guid.NewGuid()).Value;
-        _dbContext.BrainstormSessions.AddRange(session1, session2, session3);
-        await _dbContext.SaveChangesAsync();
+        await StoreAsync(session1, session2, session3);
 
         // Act
         var result = await _repository.GetByIdAsync(session2.Id, CancellationToken.None);
@@ -168,8 +150,7 @@ public class BrainstormRepositoryTests : IAsyncLifetime
         var session1 = BrainstormSession.Create(projectId).Value;
         var session2 = BrainstormSession.Create(projectId).Value;
         var otherSession = BrainstormSession.Create(Guid.NewGuid()).Value;
-        _dbContext.BrainstormSessions.AddRange(session1, session2, otherSession);
-        await _dbContext.SaveChangesAsync();
+        await StoreAsync(session1, session2, otherSession);
 
         // Act
         var result = await _repository.GetByProjectIdAsync(projectId, CancellationToken.None);
@@ -198,8 +179,7 @@ public class BrainstormRepositoryTests : IAsyncLifetime
         var projectId = Guid.NewGuid();
         var session1 = BrainstormSession.Create(projectId).Value;
         var session2 = BrainstormSession.Create(projectId).Value;
-        _dbContext.BrainstormSessions.AddRange(session1, session2);
-        await _dbContext.SaveChangesAsync();
+        await StoreAsync(session1, session2);
 
         // Act
         var result = await _repository.GetByProjectIdAsync(projectId, CancellationToken.None);
@@ -217,8 +197,9 @@ public class BrainstormRepositoryTests : IAsyncLifetime
     public async Task UpdateAsync_ShouldPersistChanges()
     {
         // Arrange
-        var session = BrainstormSession.Create(Guid.NewGuid()).Value;
-        await _repository.AddAsync(session, CancellationToken.None);
+        var added = BrainstormSession.Create(Guid.NewGuid()).Value;
+        await _repository.AddAsync(added, CancellationToken.None);
+        var session = await ReadAsync(added.Id);
 
         session.SetDesignDocument("# Design\nInitial design.");
         session.SetImplementationPlan("# Plan\nPhase 1.");
@@ -228,7 +209,7 @@ public class BrainstormRepositoryTests : IAsyncLifetime
 
         // Assert
         result.IsSuccess.Should().BeTrue();
-        var refreshed = await _dbContext.BrainstormSessions.FindAsync(session.Id);
+        var refreshed = await FindAsync(session.Id);
         refreshed!.DesignDocument.Should().Be("# Design\nInitial design.");
         refreshed!.ImplementationPlan.Should().Be("# Plan\nPhase 1.");
     }
@@ -238,8 +219,8 @@ public class BrainstormRepositoryTests : IAsyncLifetime
     {
         // Arrange
         var session = BrainstormSession.Create(Guid.NewGuid()).Value;
-        _dbContext.BrainstormSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
+        await StoreAsync(session);
+        session = await ReadAsync(session.Id);
 
         session.SetDesignDocument("# Design\nSome design content.");
 
@@ -248,7 +229,7 @@ public class BrainstormRepositoryTests : IAsyncLifetime
 
         // Assert
         result.IsSuccess.Should().BeTrue();
-        var refreshed = await _dbContext.BrainstormSessions.FindAsync(session.Id);
+        var refreshed = await FindAsync(session.Id);
         refreshed!.DesignDocument.Should().Be("# Design\nSome design content.");
     }
 
@@ -257,8 +238,8 @@ public class BrainstormRepositoryTests : IAsyncLifetime
     {
         // Arrange
         var session = BrainstormSession.Create(Guid.NewGuid()).Value;
-        _dbContext.BrainstormSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
+        await StoreAsync(session);
+        session = await ReadAsync(session.Id);
 
         session.SetImplementationPlan("# Plan\nStep 1: Do things.");
 
@@ -267,26 +248,40 @@ public class BrainstormRepositoryTests : IAsyncLifetime
 
         // Assert
         result.IsSuccess.Should().BeTrue();
-        var refreshed = await _dbContext.BrainstormSessions.FindAsync(session.Id);
+        var refreshed = await FindAsync(session.Id);
         refreshed!.ImplementationPlan.Should().Be("# Plan\nStep 1: Do things.");
     }
 
     #endregion
 
-    /// <summary>
-    ///     Test-only DbContext that adjusts the model for InMemory provider compatibility:
-    ///     disables RowVersion concurrency tokens (not supported by InMemory provider).
-    /// </summary>
-    private sealed class TestApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
-        : ApplicationDbContext(options)
+    /// <summary>Stores the sessions through the repository, where the InMemory tests added them to the context.</summary>
+    private async Task StoreAsync(params BrainstormSession[] sessions)
     {
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        foreach (var session in sessions)
         {
-            base.OnModelCreating(modelBuilder);
-
-            // Disable RowVersion concurrency token (not supported by InMemory)
-            modelBuilder.Entity<BrainstormSession>()
-                .Ignore(s => s.RowVersion);
+            (await _repository.AddAsync(session, CancellationToken.None)).IsSuccess.Should().BeTrue();
         }
+    }
+
+    /// <summary>
+    ///     Reads the stored session back, with the row version its guarded save needs: an add reads none back (rulings
+    ///     R58, R77), where EF's context tracked the added instance.
+    /// </summary>
+    private async Task<BrainstormSession> ReadAsync(Guid id) =>
+        (await _repository.GetByIdAsync(id, CancellationToken.None)).Value;
+
+    /// <summary>The stored session, or null, where the InMemory tests used the context's <c>FindAsync</c>.</summary>
+    private async Task<BrainstormSession?> FindAsync(Guid id)
+    {
+        var result = await _repository.GetByIdAsync(id, CancellationToken.None);
+        return result.IsSuccess ? result.Value : null;
+    }
+
+    private async Task<long> CountSessionsAsync()
+    {
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand("SELECT count(*) FROM \"BrainstormSessions\"", connection);
+        return (long)(await command.ExecuteScalarAsync())!;
     }
 }
