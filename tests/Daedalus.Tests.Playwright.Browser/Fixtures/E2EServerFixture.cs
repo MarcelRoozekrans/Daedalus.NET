@@ -176,8 +176,8 @@ public class E2EServerFixture
                 options.UseNpgsql(ConnectionString),
                 contextLifetime: ServiceLifetime.Scoped, optionsLifetime: ServiceLifetime.Singleton);
 
-            // The ZeroAlloc.ORM stores (sessions, memory, skills, charters) and AgentSessionCrashRecovery open their
-            // connections from one data source, as AddApplicationDatabase registers it in a real host.
+            // The ZeroAlloc.ORM stores (sessions, memory, skills, charters, tasks) and AgentSessionCrashRecovery open
+            // their connections from one data source, as AddApplicationDatabase registers it in a real host.
             builder.Services.TryAddSingleton(_ => Npgsql.NpgsqlDataSource.Create(ConnectionString));
             builder.Services.TryAddSingleton<DaedalusDb>();
 

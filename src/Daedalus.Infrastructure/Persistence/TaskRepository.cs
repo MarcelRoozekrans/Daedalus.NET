@@ -1,29 +1,33 @@
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
-using Daedalus.Domain.Entities;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.Tasks;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.ORM;
 using ZeroAlloc.Results;
 using Task = Daedalus.Domain.Entities.Task;
-using TaskStatus = Daedalus.Domain.Entities.TaskStatus;
 
 namespace Daedalus.Infrastructure.Persistence;
 
 /// <summary>
-///     Task repository with distributed locking support.
+///     Stores tasks on ZeroAlloc.ORM, one pooled connection per call.
 /// </summary>
-public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogger<TaskRepository> logger)
+/// <remarks>
+///     <see cref="UpdateAsync"/> and <see cref="DeleteAsync"/> are guarded by the <c>xmin</c> the task was read with,
+///     so a save of a task another write changed since is refused with <see cref="TaskRunGuard.ChangedUnderneath"/>.
+///     A save does not read the new <c>xmin</c> back into the instance: re-read a task with
+///     <see cref="GetByIdAsync"/> after <see cref="AddAsync"/> or <see cref="UpdateAsync"/> before its next guarded
+///     save, or that save is refused as changed underneath (ruling R58).
+/// </remarks>
+public sealed partial class TaskRepository(DaedalusDb db, ILogger<TaskRepository> logger)
     : ITaskRepository
 {
     public async Task<Result<Task>> GetByIdAsync(Guid id, CancellationToken ct)
     {
         try
         {
-            var task = await dbContext.Tasks
-                .AsNoTracking()
-                .Include(t => t.Executions)
-                .FirstOrDefaultAsync(t => t.Id == id, ct)
-                .ConfigureAwait(false);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var task = await new TaskSql(connection).FindAsync(id, ct).ConfigureAwait(false);
 
             return task is not null
                 ? Result<Task>.Success(task)
@@ -40,8 +44,8 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
     {
         try
         {
-            dbContext.Tasks.Add(task);
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            await new TaskSql(connection).InsertAsync(task, ct).ConfigureAwait(false);
             return Result<Task>.Success(task);
         }
         catch (Exception ex)
@@ -51,17 +55,20 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         }
     }
 
+    /// <summary>
+    ///     Writes the columns the task's domain methods change, when the row still has the <c>xmin</c> the task was read
+    ///     with; otherwise, a row changed or deleted since, answers <see cref="TaskRunGuard.ChangedUnderneath"/>.
+    /// </summary>
     public async Task<Result> UpdateAsync(Task task, CancellationToken ct)
     {
         try
         {
-            dbContext.Tasks.Update(task);
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            await new TaskSql(connection).UpdateAsync(task, ct).ConfigureAwait(false);
             return Result.Success();
         }
-        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(e => e.Entity is Task))
+        catch (ZeroAllocOrmConcurrencyException)
         {
-            DetachTasks(ex);
             return Result.Failure(TaskRunGuard.ChangedUnderneath(task.Id));
         }
         catch (Exception ex)
@@ -71,22 +78,27 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         }
     }
 
+    /// <summary>
+    ///     Deletes the task instance that was read: a task no longer stored answers "Task with ID {id} not found"; one
+    ///     changed or deleted after this check, or changed since the caller read it, such as one that gained a run,
+    ///     is refused with <see cref="TaskRunGuard.ChangedUnderneath"/>. The database cascade removes its executions.
+    /// </summary>
     public async Task<Result> DeleteAsync(Task task, CancellationToken ct)
     {
         try
         {
-            // Delete the instance the caller read, so the row version it carries is the original value. A task that
-            // gained a run after that read is refused rather than deleted. Setting the state marks this entity only,
-            // and the database cascade removes its executions.
-            dbContext.Entry(task).State = EntityState.Deleted;
-            var saved = await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-            return saved > 0
-                ? Result.Success()
-                : Result.Failure($"Task with ID {task.Id} not found");
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var sql = new TaskSql(connection);
+            if (!await sql.ExistsAsync(task.Id, ct).ConfigureAwait(false))
+            {
+                return Result.Failure($"Task with ID {task.Id} not found");
+            }
+
+            await sql.DeleteAsync(task, ct).ConfigureAwait(false);
+            return Result.Success();
         }
-        catch (DbUpdateConcurrencyException ex) when (ex.Entries.Any(e => e.Entity is Task))
+        catch (ZeroAllocOrmConcurrencyException)
         {
-            DetachTasks(ex);
             return Result.Failure(TaskRunGuard.ChangedUnderneath(task.Id));
         }
         catch (Exception ex)
@@ -96,30 +108,16 @@ public sealed partial class TaskRepository(ApplicationDbContext dbContext, ILogg
         }
     }
 
-    /// <summary>Detaches the tasks of a lost race, so the context holds no stale copy; other entries stay tracked.</summary>
-    private static void DetachTasks(DbUpdateConcurrencyException ex)
-    {
-        foreach (var entry in ex.Entries.Where(e => e.Entity is Task))
-        {
-            entry.State = EntityState.Detached;
-        }
-    }
-
     /// <summary>
-    ///     Gets all tasks belonging to a specific project for dependency resolution.
+    ///     Gets all tasks belonging to a specific project for dependency resolution, without their executions.
     /// </summary>
     public async Task<Result<IReadOnlyList<Task>>> GetByProjectIdAsync(Guid projectId, CancellationToken ct)
     {
         try
         {
-            var tasks = await dbContext.Tasks
-                .AsNoTracking()
-                .Where(t => t.ProjectId == projectId)
-                .OrderBy(t => t.CreatedAt)
-                .ToListAsync(ct)
-                .ConfigureAwait(false);
-
-            return Result<IReadOnlyList<Task>>.Success((IReadOnlyList<Task>)tasks);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var tasks = await new TaskSql(connection).ListByProjectAsync(projectId, ct).ConfigureAwait(false);
+            return Result<IReadOnlyList<Task>>.Success(tasks);
         }
         catch (Exception ex)
         {

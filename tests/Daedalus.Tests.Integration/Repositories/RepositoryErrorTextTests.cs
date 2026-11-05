@@ -1,10 +1,12 @@
 using System.Data.Common;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using ZeroAlloc.Results;
 using SystemTask = System.Threading.Tasks.Task;
 
@@ -13,7 +15,8 @@ namespace Daedalus.Tests.Integration.Repositories;
 /// <summary>
 ///     A repository's failure text is shown to callers, by <c>POST /api/tasks/{id}/manufacture</c> among others, so it must
 ///     never carry an exception's message: the exception is logged with the entity id, and the text is generic. Every
-///     database command here throws a <see cref="DbException"/> whose message is a recognisable secret.
+///     database command here throws a <see cref="DbException"/> whose message is a recognisable secret; for the task
+///     repository, every connection open does.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
@@ -31,7 +34,7 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
 
     /// <summary>
     ///     Red, run for <c>task.GetById</c>: put <c>{ex.Message}</c> back into its failure text; the text carries the secret.
-    ///     Red, run for <c>task.Add</c>: put the inner exception's message back; the text carries the secret.
+    ///     Red, run for <c>task.Add</c>: put the exception's message back; the text carries the secret.
     ///     Red, run for <c>project.GetById</c>: put <c>{ex.Message}</c> back; the text carries the secret.
     ///     Red, run for <c>task.Delete</c>: drop its log call; no Error entry carries the exception.
     /// </summary>
@@ -44,7 +47,8 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
             .AddInterceptors(new ThrowingCommands())
             .Options;
         await using var db = new ApplicationDbContext(options);
-        var tasks = new TaskRepository(db, _taskLog);
+        await using var failingSource = FailingDataSource();
+        var tasks = new TaskRepository(new DaedalusDb(failingSource), _taskLog);
         var projects = new ProjectRepository(db, _projectLog);
         var task = IntegrationTestFactory.CreateTask();
         var project = IntegrationTestFactory.CreateProject();
@@ -68,6 +72,19 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
         var logged = _taskLog.Entries.Concat(_projectLog.Entries).Should().ContainSingle(e => e.Level == LogLevel.Error).Subject;
         logged.Exception.Should().NotBeNull();
         logged.Exception!.GetBaseException().Should().BeOfType<SecretDbException>();
+    }
+
+    /// <summary>
+    ///     Phase 3.5: the task repository runs on ZeroAlloc.ORM, outside EF's interceptors, so its database fails where
+    ///     it opens: every physical connection throws <see cref="SecretDbException"/> before any command runs.
+    /// </summary>
+    private NpgsqlDataSource FailingDataSource()
+    {
+        var builder = new NpgsqlDataSourceBuilder(fixture.ConnectionString);
+        builder.UsePhysicalConnectionInitializer(
+            _ => throw new SecretDbException(),
+            _ => throw new SecretDbException());
+        return builder.Build();
     }
 
     /// <summary>Throws <see cref="SecretDbException"/> before every reader, scalar and non-query command.</summary>

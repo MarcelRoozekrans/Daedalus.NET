@@ -29,7 +29,7 @@ public class TaskExecutionQueryServiceIntegrationTests(PostgresFixture fixture) 
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync();
 
-        _sut = new TaskExecutionQueryService(_dbContext);
+        _sut = new TaskExecutionQueryService(fixture.Db);
     }
 
     public async Task DisposeAsync()

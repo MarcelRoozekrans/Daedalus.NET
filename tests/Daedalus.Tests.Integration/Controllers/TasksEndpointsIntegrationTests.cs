@@ -37,7 +37,7 @@ public class TasksEndpointsIntegrationTests(PostgresFixture fixture) : IAsyncLif
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync();
 
-        _taskQueryService = new TaskQueryService(_dbContext, new DisabledWorkflowRunStatusReader());
+        _taskQueryService = new TaskQueryService(fixture.Db, new DisabledWorkflowRunStatusReader());
     }
 
     public async Task DisposeAsync()

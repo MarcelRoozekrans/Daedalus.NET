@@ -3,8 +3,9 @@ using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Npgsql;
+using ZeroAlloc.Results;
 using SystemTask = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Repositories;
@@ -54,12 +55,14 @@ public sealed class TaskConcurrencyTests(PostgresFixture fixture) : IAsyncLifeti
     private static void Rename(Daedalus.Domain.Entities.Task task) =>
         task.UpdateMetadata("Renamed", "d", Priority.Low, "p", Complexity.Low).IsSuccess.Should().BeTrue();
 
-    /// <summary>Red: remove the xmin concurrency token from <c>TaskConfiguration</c>; the stale save wins and the run is null.</summary>
+    /// <summary>
+    ///     Red: in <c>TaskSql.UpdateAsync</c>, pass the row version re-read just before the write instead of the one the
+    ///     task carries; the stale save wins and the run is null.
+    /// </summary>
     [Fact]
     public async SystemTask A_stale_update_is_a_conflict_and_keeps_the_attached_run()
     {
-        await using var db = NewContext();
-        var repository = new TaskRepository(db, _logger);
+        var repository = new TaskRepository(fixture.Db, _logger);
         var stale = (await repository.GetByIdAsync(_taskId, CancellationToken.None)).Value;
         Rename(stale);
 
@@ -72,15 +75,14 @@ public sealed class TaskConcurrencyTests(PostgresFixture fixture) : IAsyncLifeti
     }
 
     /// <summary>
-    ///     Reads through <c>GetByIdAsync</c> (no tracking), as the delete handler does, then attaches a run underneath.
-    ///     Red: re-read a fresh copy in <c>DeleteAsync</c> instead of deleting the instance passed in; the row and its
-    ///     run are deleted although the guard saw a task without one.
+    ///     Reads through <c>GetByIdAsync</c>, as the delete handler does, then attaches a run underneath.
+    ///     Red: in <c>TaskSql.DeleteAsync</c>, pass the row version re-read just before the delete; the row and its run
+    ///     are deleted although the guard saw a task without one.
     /// </summary>
     [Fact]
     public async SystemTask A_delete_after_a_run_was_attached_is_a_conflict_and_keeps_the_task()
     {
-        await using var db = NewContext();
-        var repository = new TaskRepository(db, _logger);
+        var repository = new TaskRepository(fixture.Db, _logger);
         var read = (await repository.GetByIdAsync(_taskId, CancellationToken.None)).Value;
 
         await AttachRunUnderneathAsync();
@@ -91,21 +93,37 @@ public sealed class TaskConcurrencyTests(PostgresFixture fixture) : IAsyncLifeti
         (await StoredRunAsync()).Should().Be(_runId);
     }
 
-    /// <summary>Red: drop the <c>e.Entity is Task</c> filter from the catch; a conflict of another entity reads as a task conflict.</summary>
+    /// <summary>
+    ///     Phase 3.5: a database failure of the update or the delete is not a lost race, so it is not reported as a
+    ///     conflict. A trigger fails both statements with P0001. Red: catch every exception as
+    ///     <c>ChangedUnderneath</c> in <c>UpdateAsync</c> and <c>DeleteAsync</c>; both read as task conflicts.
+    /// </summary>
     [Fact]
-    public async SystemTask A_concurrency_failure_of_another_entity_is_not_reported_as_a_task_conflict()
+    public async SystemTask A_database_failure_is_not_reported_as_a_task_conflict()
     {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql(fixture.ConnectionString)
-            .AddInterceptors(new ConcurrencyFailureWithoutEntries())
-            .Options;
-        await using var db = new ApplicationDbContext(options);
-        var repository = new TaskRepository(db, _logger);
+        var repository = new TaskRepository(fixture.Db, _logger);
         var task = (await repository.GetByIdAsync(_taskId, CancellationToken.None)).Value;
         Rename(task);
-
-        var updated = await repository.UpdateAsync(task, CancellationToken.None);
-        var deleted = await repository.DeleteAsync(task, CancellationToken.None);
+        await ExecuteAsync(
+            """
+            CREATE FUNCTION refuse_task_write() RETURNS trigger AS $$
+            BEGIN
+                RAISE EXCEPTION 'task write refused' USING ERRCODE = 'P0001';
+            END $$ LANGUAGE plpgsql;
+            CREATE TRIGGER refuse_task_write BEFORE UPDATE OR DELETE ON "Tasks"
+                FOR EACH ROW EXECUTE FUNCTION refuse_task_write();
+            """);
+        Result updated;
+        Result deleted;
+        try
+        {
+            updated = await repository.UpdateAsync(task, CancellationToken.None);
+            deleted = await repository.DeleteAsync(task, CancellationToken.None);
+        }
+        finally
+        {
+            await ExecuteAsync("""DROP TRIGGER refuse_task_write ON "Tasks"; DROP FUNCTION refuse_task_write();""");
+        }
 
         updated.IsFailure.Should().BeTrue();
         TaskRunGuard.IsConflict(updated.Error).Should().BeFalse();
@@ -113,21 +131,22 @@ public sealed class TaskConcurrencyTests(PostgresFixture fixture) : IAsyncLifeti
         TaskRunGuard.IsConflict(deleted.Error).Should().BeFalse();
     }
 
-    private sealed class ConcurrencyFailureWithoutEntries : SaveChangesInterceptor
+    private async SystemTask ExecuteAsync(string sql)
     {
-        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
-            DbContextEventData eventData,
-            InterceptionResult<int> result,
-            CancellationToken cancellationToken = default) =>
-            throw new DbUpdateConcurrencyException("lost the race", []);
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
     }
 
-    /// <summary>Red: reset the token to 0 before <c>Update</c> in <c>UpdateAsync</c>, as a no-tracking read that loses it would; an unchanged save conflicts.</summary>
+    /// <summary>
+    ///     Red: pass 0 as the row version to the update in <c>TaskSql.UpdateAsync</c>, as a read that loses it would; an
+    ///     unchanged save conflicts.
+    /// </summary>
     [Fact]
     public async SystemTask An_unchanged_task_still_saves()
     {
-        await using var db = NewContext();
-        var repository = new TaskRepository(db, _logger);
+        var repository = new TaskRepository(fixture.Db, _logger);
         var task = (await repository.GetByIdAsync(_taskId, CancellationToken.None)).Value;
         Rename(task);
 

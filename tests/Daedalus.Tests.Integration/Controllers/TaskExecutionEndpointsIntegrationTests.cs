@@ -43,7 +43,7 @@ public class TaskExecutionEndpointsIntegrationTests(PostgresFixture fixture) : I
             await _dbContext.SaveChangesAsync();
         }
 
-        _executionQueryService = new TaskExecutionQueryService(_dbContext);
+        _executionQueryService = new TaskExecutionQueryService(fixture.Db);
     }
 
     public async Task DisposeAsync()

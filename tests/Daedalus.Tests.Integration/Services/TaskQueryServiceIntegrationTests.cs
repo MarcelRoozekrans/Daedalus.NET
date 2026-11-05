@@ -30,7 +30,7 @@ public class TaskQueryServiceIntegrationTests(PostgresFixture fixture) : IAsyncL
         _dbContext.Projects.Add(project);
         await _dbContext.SaveChangesAsync();
 
-        _sut = new TaskQueryService(_dbContext, new DisabledWorkflowRunStatusReader());
+        _sut = new TaskQueryService(fixture.Db, new DisabledWorkflowRunStatusReader());
     }
 
     public async SystemTask DisposeAsync()

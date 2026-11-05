@@ -1,5 +1,3 @@
-#pragma warning disable S1144 // EF Core sets RowVersion via reflection (unused private setter is required)
-
 using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
@@ -96,6 +94,102 @@ public sealed class Task : AggregateRoot<Guid>
     ///     stay in the workflow run history. The task's status is derived from this run when the task is read.
     /// </summary>
     public Guid? WorkflowRunId { get; private set; }
+
+    private Task()
+    {
+    }
+
+    /// <summary>
+    ///     Rebuilds a stored task, for persistence only: it sets every value as given, validates nothing and raises no
+    ///     domain event, so a row <see cref="Create"/> would refuse today still loads.
+    /// </summary>
+    /// <param name="id">The task's id.</param>
+    /// <param name="taskId">The task identifier string.</param>
+    /// <param name="projectId">The parent project id.</param>
+    /// <param name="title">The title.</param>
+    /// <param name="description">The description.</param>
+    /// <param name="priority">The priority.</param>
+    /// <param name="status">The stored status.</param>
+    /// <param name="phase">The phase.</param>
+    /// <param name="parallelGroup">The parallel group.</param>
+    /// <param name="estimatedComplexity">The estimated complexity.</param>
+    /// <param name="prompt">The prompt.</param>
+    /// <param name="completionPromise">The completion promise of the retired task loop.</param>
+    /// <param name="maxIterations">The maximum iterations of the retired task loop.</param>
+    /// <param name="currentSessionId">The session executing the task, if any.</param>
+    /// <param name="result">The final result, if any.</param>
+    /// <param name="iterationCount">The number of iterations completed.</param>
+    /// <param name="createdAt">When the task was created.</param>
+    /// <param name="completedAt">When the task completed or failed, if it did.</param>
+    /// <param name="learnings">The accumulated learnings.</param>
+    /// <param name="learningsUpdatedAt">When the learnings were last updated, if ever.</param>
+    /// <param name="dependencies">The task ids this task depends on.</param>
+    /// <param name="filesToModify">The file paths this task modifies.</param>
+    /// <param name="workflowRunId">The current manufacture run, if any.</param>
+    /// <param name="rowVersion">The row's <c>xmin</c> as it was read.</param>
+    /// <param name="executions">The execution records of the retired task loop.</param>
+    /// <returns>The task.</returns>
+    public static Task Rehydrate(
+        Guid id,
+        string taskId,
+        Guid projectId,
+        string title,
+        string description,
+        Priority priority,
+        TaskStatus status,
+        string phase,
+        int parallelGroup,
+        Complexity estimatedComplexity,
+        string prompt,
+        string completionPromise,
+        int maxIterations,
+        Guid? currentSessionId,
+        string? result,
+        int iterationCount,
+        DateTime createdAt,
+        DateTime? completedAt,
+        string learnings,
+        DateTime? learningsUpdatedAt,
+        IEnumerable<string> dependencies,
+        IEnumerable<string> filesToModify,
+        Guid? workflowRunId,
+        uint rowVersion,
+        IEnumerable<TaskExecution> executions)
+    {
+        ArgumentNullException.ThrowIfNull(dependencies);
+        ArgumentNullException.ThrowIfNull(filesToModify);
+        ArgumentNullException.ThrowIfNull(executions);
+
+        var task = new Task
+        {
+            Id = id,
+            TaskId = taskId,
+            ProjectId = projectId,
+            Title = title,
+            Description = description,
+            Priority = priority,
+            Status = status,
+            Phase = phase,
+            ParallelGroup = parallelGroup,
+            EstimatedComplexity = estimatedComplexity,
+            Prompt = prompt,
+            CompletionPromise = completionPromise,
+            MaxIterations = maxIterations,
+            CurrentSessionId = currentSessionId,
+            Result = result,
+            IterationCount = iterationCount,
+            CreatedAt = createdAt,
+            CompletedAt = completedAt,
+            Learnings = learnings,
+            LearningsUpdatedAt = learningsUpdatedAt,
+            WorkflowRunId = workflowRunId,
+            RowVersion = rowVersion,
+        };
+        task._dependencies.AddRange(dependencies);
+        task._filesToModify.AddRange(filesToModify);
+        task._executions.AddRange(executions);
+        return task;
+    }
 
     /// <summary>
     ///     Creates a new task within a project.
@@ -363,4 +457,3 @@ public sealed class Task : AggregateRoot<Guid>
         return ZeroAlloc.Results.Result.Success();
     }
 }
-#pragma warning restore S1144

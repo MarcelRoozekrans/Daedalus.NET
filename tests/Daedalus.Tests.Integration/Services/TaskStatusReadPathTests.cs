@@ -61,7 +61,7 @@ public sealed class TaskStatusReadPathTests(PostgresFixture fixture) : IAsyncLif
     [Fact]
     public async SystemTask Task_query_GetAll_derives_the_status_and_skips_runless_tasks()
     {
-        var page = await new TaskQueryService(_db, _runs).GetAllAsync();
+        var page = await new TaskQueryService(fixture.Db, _runs).GetAllAsync();
 
         AssertDerived(page.Items);
         page.Items.Single(d => d.Id == _runless.Id).WorkflowRunId.Should().BeNull();
@@ -72,7 +72,7 @@ public sealed class TaskStatusReadPathTests(PostgresFixture fixture) : IAsyncLif
     [Fact]
     public async SystemTask Task_query_GetById_derives_the_status()
     {
-        var dto = await new TaskQueryService(_db, _runs).GetByIdAsync(_awaiting.Id);
+        var dto = await new TaskQueryService(fixture.Db, _runs).GetByIdAsync(_awaiting.Id);
 
         dto!.Status.Should().Be((int)TaskStatus.AwaitingApproval);
         dto.WorkflowRunId.Should().Be(_awaiting.WorkflowRunId);

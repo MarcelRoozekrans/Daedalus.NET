@@ -26,7 +26,7 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
         var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
 
         _dbContext = new ApplicationDbContext(options);
-        _repository = new TaskRepository(_dbContext, _logger);
+        _repository = new TaskRepository(fixture.Db, _logger);
 
         // Clean database at end of each test, not start (see DisposeAsync)
         await SystemTask.CompletedTask;
@@ -68,6 +68,8 @@ public class TaskRepositoryTests(PostgresFixture fixture) : IAsyncLifetime
             .Build();
 
         await _repository.AddAsync(task, CancellationToken.None);
+        // Phase 3.5, ruling R58: a save does not read the new xmin back, so the task is re-read before its guarded save.
+        task = (await _repository.GetByIdAsync(task.Id, CancellationToken.None)).Value;
         task.UpdateMetadata("Renamed", "New description", Priority.High, "Backend", Complexity.High)
             .IsSuccess.Should().BeTrue();
 
