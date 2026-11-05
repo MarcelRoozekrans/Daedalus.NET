@@ -14,8 +14,8 @@ namespace Daedalus.Domain.Entities;
 ///     <c>Guid</c> primary key (like <see cref="AgentMessage"/>'s surrogate id next to its unique
 ///     (SessionId, Sequence) pair) and the natural key is enforced by a UNIQUE database index on
 ///     (<see cref="ChannelId"/>, <see cref="ConversationId"/>), declared in the baseline
-///     migration. A synthesised string id (e.g. "telegram:123") was considered and rejected: it would make correctness depend on a separator no <see cref="ChannelId"/> value may ever contain,
-///     where a plain composite unique index needs no such argument and matches the codebase's existing precedent for
+///     migration. A synthesised string id (e.g. "telegram:123") was considered and rejected: it would make
+///     correctness depend on a separator no <see cref="ChannelId"/> value may ever contain, where a plain composite unique index needs no such argument and matches the codebase's existing precedent for
 ///     composite natural keys.
 /// </remarks>
 public sealed class ChannelConversation : Entity<Guid>

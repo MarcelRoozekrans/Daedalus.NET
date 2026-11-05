@@ -54,7 +54,8 @@ public sealed class PostgresConversationMapRoundTripTests(PostgresFixture fixtur
 
     /// <summary>
     ///     The aggregate itself: one stored <see cref="ChannelConversation"/> comes back equal in every property,
-    ///     the id and creation time included. Red: leave any column out of the insert or the read, and it differs.
+    ///     the id and creation time included. <c>Entity</c> overrides <c>Equals</c> to compare ids, so the comparison
+    ///     goes member by member. Red: read any column wrongly, and the comparison names it.
     /// </summary>
     [Fact]
     public async Task Stored_aggregate_loads_back_whole()
@@ -66,7 +67,7 @@ public sealed class PostgresConversationMapRoundTripTests(PostgresFixture fixtur
         await sql.UpsertAsync(stored, CancellationToken.None);
         var loaded = await sql.FindAsync("telegram", "482910337", CancellationToken.None);
 
-        loaded.Should().BeEquivalentTo(stored);
+        loaded.Should().BeEquivalentTo(stored, options => options.ComparingByMembers<ChannelConversation>());
         loaded!.CreatedAt.Kind.Should().Be(DateTimeKind.Utc);
     }
 
