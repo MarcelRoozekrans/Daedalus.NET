@@ -323,16 +323,14 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
             ValidateCSharpWriteBindings(options.ToolPolicies, mcpConfigPath);
         }
 
-        // Phase 2.2 Part B: the workflow engine's own NpgsqlDataSource — used by WorkflowOutboxDispatchService's
-        // poller, not by OrmWorkflowStore itself, which opens its own `new NpgsqlConnection(_options.ConnectionString)`
-        // per call (Thalos.NET.Workflow.Orm gives it no seam to accept a shared data source instead). Registered
-        // here anyway so the poller's connections are visible to the same pooling/health surface as everything
-        // else built on Npgsql, deliberately not ApplicationDbContext's connection — the whole point of
-        // Thalos.NET.Workflow.Orm is that it is EF-free (EF Core is Milestone 3's AOT blocker). Same physical
-        // "daedalus" database as ApplicationDbContext — the AppHost declares only one Postgres resource — reached
-        // through a completely separate ADO.NET path. Factory registration (not AddSingleton(instance)) so the
-        // host's container disposes it on shutdown. Gated on Workflow.Enabled — see that option's own remarks
-        // for why a host whose database has none of these tables must not wire any of this at all.
+        // Phase 2.2 Part B: the NpgsqlDataSource WorkflowOutboxDispatchService's poller reads from — not
+        // OrmWorkflowStore itself, which opens its own `new NpgsqlConnection(_options.ConnectionString)` per call
+        // (Thalos.NET.Workflow.Orm gives it no seam to accept a shared data source instead). Phase 3.5, ruling R4: it
+        // is the host's one data source, the same instance AddApplicationDatabase registers for the ZeroAlloc.ORM
+        // stores, so both use TryAdd and whichever runs first wins; both read the "daedalus" connection string.
+        // Factory registration (not AddSingleton(instance)) so the host's container disposes it on shutdown. Gated
+        // on Workflow.Enabled — see that option's own remarks for why a host whose database has none of these tables
+        // must not wire any of this at all; a host that calls AddApplicationDatabase has the data source either way.
         var processesRoot = ResolveContentRoot(options.Workflow.ProcessesRoot, environment);
         var dataRoot = ResolveDataRoot(options.Workflow.DataRoot);
         var standingInstructionsPath = "";
@@ -351,7 +349,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         services.TryAddSingleton(options.Workflow);
         if (options.Workflow.Enabled)
         {
-            services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
+            services.TryAddSingleton(_ => NpgsqlDataSource.Create(connectionString));
         }
 
         // Always registered, engine on or off — see IManufactureRunStarter's own remarks. AddDaedalusWorkflow

@@ -42,6 +42,14 @@
         <!-- OutboxMessageEntity + AddOutboxMessages(): ApplicationDbContext.OnModelCreating maps the outbox table here
              because the model lives in this project; the DI wiring (AddOutbox/.WithEfCore) lives in Daedalus.Agents. -->
         <PackageReference Include="ZeroAlloc.Outbox.EfCore" />
+        <!-- Phase 3.5: the data layer on ZeroAlloc.ORM. Maps and SQL classes live here, under Persistence/Sql, because
+             the generator reads maps from the compilation that holds the queries (ruling R3). Npgsql and the async
+             adapter are direct: DaedalusDb opens pooled connections from the shared NpgsqlDataSource. -->
+        <PackageReference Include="Npgsql" />
+        <PackageReference Include="AdoNet.Async.Adapters" />
+        <PackageReference Include="ZeroAlloc.ORM" />
+        <PackageReference Include="ZeroAlloc.ORM.Generator" />
+        <PackageReference Include="ZeroAlloc.ORM.Linq" />
     </ItemGroup>
 
 </Project>

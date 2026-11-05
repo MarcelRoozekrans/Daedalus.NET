@@ -49,6 +49,10 @@
         <PackageReference Include="OpenTelemetry.Exporter.InMemory"/>
         <PackageReference Include="Thalos.NET.Testing"/>
         <PackageReference Include="ZeroAlloc.TestHelpers"/>
+        <!-- Phase 3.5, Task 1: OrmCapabilityTests declares its own maps and queries, so the ORM generator, a
+             development dependency that Infrastructure does not pass on, runs here too. -->
+        <PackageReference Include="ZeroAlloc.ORM.Generator"/>
+        <PackageReference Include="ZeroAlloc.ORM.Linq"/>
     </ItemGroup>
 
     <ItemGroup>

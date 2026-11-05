@@ -142,14 +142,22 @@
     <!-- 2.3.1 → 2.4.0: floor set by Thalos.NET.Workflow.Orm 0.18.0 -->
     <!-- 2.4.0 → 2.9.0: floor set by Thalos.NET.Workflow.Orm 0.19.0 -->
     <!-- 2.9.0 → 2.10.0: floor set by Thalos.NET.Workflow.Orm 0.20.0 -->
-    <PackageVersion Include="ZeroAlloc.ORM" Version="2.10.0" />
+    <!-- 2.10.0 → 2.13.0 (phase 3.5): Daedalus' own data layer moves off EF Core onto the ORM. ZeroAlloc.ORM.Linq
+         2.13.0 writes the queries as LINQ, translated at build time; its xmin guards, jsonb and array binding are
+         what the store ports need. The generator ships as its own development-dependency package, so every project
+         that declares [Query], [LinqQuery] or a map references ZeroAlloc.ORM.Generator itself. All three move
+         together. -->
+    <PackageVersion Include="ZeroAlloc.ORM" Version="2.13.0" />
+    <PackageVersion Include="ZeroAlloc.ORM.Generator" Version="2.13.0" />
+    <PackageVersion Include="ZeroAlloc.ORM.Linq" Version="2.13.0" />
     <!-- AdoNet.Async.Adapters: floor set by Thalos.NET.Workflow.Orm 0.7.0's own nuspec (1.4.1) — NOT the
          1.4.0 ZeroAlloc.Outbox.Orm 2.6.0 itself declares; Workflow.Orm's direct pin is the higher one and
          wins under CentralPackageTransitivePinningEnabled, so this must be pinned at 1.4.1 or NU1109 fires
          the moment Thalos.NET.Workflow.Orm is referenced. -->
     <!-- 1.4.1 → 1.5.0: floor set by Thalos.NET.Workflow.Orm 0.15.0 -->
     <!-- 1.5.0 → 1.5.2: floor set by Thalos.NET.Workflow.Orm 0.16.0 -->
-    <PackageVersion Include="AdoNet.Async.Adapters" Version="1.5.2" />
+    <!-- 1.5.2 → 1.5.6: floor set by ZeroAlloc.ORM 2.13.0 -->
+    <PackageVersion Include="AdoNet.Async.Adapters" Version="1.5.6" />
     <!-- 1.2.3 → 1.2.4: floor set by Thalos.NET.Abstractions 0.11.1. 1.2.4 → 1.4.0: floor set by ZeroAlloc.Rest 3.3.2.
          1.4.0 → 1.4.1: floor set by Thalos.NET.Abstractions 0.16.0.
          1.4.1 → 1.4.2: floor set by Minos.NET 1.1.0.
