@@ -40,13 +40,13 @@ jobs:
       version: ${{ steps.derive.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           # GitVersion derives the version from history and refuses a shallow clone.
           fetch-depth: 0
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@v6.1.0
         with:
           global-json-file: global.json
 
@@ -83,15 +83,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@v6.1.0
         with:
           global-json-file: global.json
 
       - name: Cache NuGet packages
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
@@ -146,14 +146,14 @@ jobs:
       # ci-baseline's coverage gate: merges the Cobertura files of both test steps and fails below the floor, or when
       # codecov.yml would let a drop in coverage pass quietly.
       - name: Coverage gate
-        uses: MarcelRoozekrans/ci-baseline/actions/coverage-gate@v1
+        uses: MarcelRoozekrans/ci-baseline/actions/coverage-gate@v1.0.0
         with:
           reports: TestResults/**/coverage.cobertura.xml
 
       # The raw Cobertura files of both test steps; Codecov merges them.
       - name: Upload coverage to Codecov
         if: '!cancelled()'
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@v7.1.1
         with:
           use_oidc: true
           files: "TestResults/**/coverage.cobertura.xml"
@@ -180,7 +180,7 @@ jobs:
           echo "### Code Coverage: ${COVERAGE}%" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Coverage Report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: coverage-report
@@ -188,7 +188,7 @@ jobs:
           retention-days: 30
 
       - name: Upload Test Results
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: test-results
@@ -199,7 +199,7 @@ jobs:
       # GIST_TOKEN); an unconfigured badge must not turn CI red.
       - name: Update Coverage Badge
         if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.COVERAGE_GIST_ID != ''
-        uses: schneegans/dynamic-badges-action@v1.7.0
+        uses: schneegans/dynamic-badges-action@v1.9.0
         with:
           auth: ${{ secrets.GIST_TOKEN }}
           gistID: ${{ vars.COVERAGE_GIST_ID }}
@@ -211,7 +211,7 @@ jobs:
           maxColorRange: 100
 
       - name: Test Report
-        uses: dorny/test-reporter@v3
+        uses: dorny/test-reporter@v3.2.0
         if: always()
         with:
           name: Test Results
@@ -237,7 +237,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install the native toolchain
         run: |
@@ -245,7 +245,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends clang zlib1g-dev
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@v6.1.0
         with:
           global-json-file: global.json
 
@@ -254,7 +254,7 @@ jobs:
         run: dotnet workload install wasm-tools
 
       - name: Cache NuGet packages
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         with:
           path: ~/.nuget/packages
           key: nuget-aot-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
@@ -268,7 +268,7 @@ jobs:
 
       - name: Upload the publish log and warning keys
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: aot-analysis-${{ matrix.target }}
           path: ${{ runner.temp }}/aot/
@@ -286,14 +286,14 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.1.0
         with:
-          node-version: 26
+          node-version: 26.13.0
 
       - name: Lint the commits this pull request adds
         run: >
@@ -332,14 +332,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v4.4.1
 
       - name: Log in to GitHub Container Registry
         if: matrix.push && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.8.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -347,7 +347,7 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@v6.2.0
         with:
           images: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
           tags: |
@@ -357,7 +357,7 @@ jobs:
             org.opencontainers.image.version=${{ needs.version.outputs.version }}
 
       - name: Build and push
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -398,7 +398,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -419,10 +419,10 @@ jobs:
           echo "publishing release v$APP_VERSION"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v4.4.1
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.8.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -430,7 +430,7 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@v6.2.0
         with:
           images: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
           tags: |
@@ -443,7 +443,7 @@ jobs:
       # Same Dockerfile, same build arg as the docker job that ran green on this commit; the layer
       # cache makes this a re-tag in practice.
       - name: Build and push the release images
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -459,13 +459,13 @@ jobs:
       # release exists by now: release-please created it with the v<version> tag that the guard above checked.
       - name: Setup .NET SDK
         if: matrix.image == 'daedalus-api'
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@v6.1.0
         with:
           global-json-file: global.json
 
       - name: Attach the SBOM to the GitHub release
         if: matrix.image == 'daedalus-api'
-        uses: MarcelRoozekrans/ci-baseline/actions/sbom@v1
+        uses: MarcelRoozekrans/ci-baseline/actions/sbom@v1.0.0
         with:
           solution: Daedalus.sln
           tag: v${{ env.APP_VERSION }}
