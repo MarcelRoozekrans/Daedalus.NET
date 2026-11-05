@@ -172,58 +172,6 @@ Model:
           Relational:Name: IX_CodeAnalysis_RepositoryUrl
     Annotations: 
       RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
-  EntityType: AgentMemory
-    Properties: 
-      Id (Guid) Required PK Index AfterSave:Throw ValueGenerated.OnAdd
-      AgentId (Guid?) Index
-      CreatedAt (DateTime) Required Index
-      Importance (double) Required
-      IndexPending (bool) Required Index
-      IsArchived (bool) Required Index
-      Kind (string) Required Index MaxLength(32)
-        Annotations: 
-          MaxLength: 32
-      LastRecalledAt (DateTime?)
-      OwnerId (string) Required Index MaxLength(256)
-        Annotations: 
-          MaxLength: 256
-      RecallCount (int) Required
-      Source (string) Required MaxLength(256)
-        Annotations: 
-          MaxLength: 256
-      Text (string) Required
-        Annotations: 
-          Relational:ColumnType: text
-      UpdatedAt (DateTime) Required
-      _tags (_tags, List<string>) Required Element type: string Required
-        Annotations: 
-          ElementType: Element type: string Required
-          Relational:ColumnName: Tags
-          Relational:ColumnType: text[]
-          ValueConverter: 
-          ValueConverterType: 
-    Keys: 
-      Id PK
-    Indexes: 
-      IndexPending
-        Annotations: 
-          Relational:Name: IX_AgentMemory_IndexPending
-      IsArchived
-        Annotations: 
-          Relational:Name: IX_AgentMemory_IsArchived
-      CreatedAt, Id
-        Annotations: 
-          Relational:Name: IX_AgentMemory_CreatedAt_Id
-      OwnerId, AgentId
-        Annotations: 
-          Relational:Name: IX_AgentMemory_Owner_Agent
-      OwnerId, Kind
-        Annotations: 
-          Relational:Name: IX_AgentMemory_Owner_Kind
-    Annotations: 
-      Relational:Schema: 
-      Relational:TableName: AgentMemories
-      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
   EntityType: AgentMessage
     Properties: 
       Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd

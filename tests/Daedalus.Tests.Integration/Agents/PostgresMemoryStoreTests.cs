@@ -1,7 +1,5 @@
 using Daedalus.Agents.Memory;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Thalos;
 using Thalos.Memory;
 using Thalos.Testing;
@@ -22,7 +20,7 @@ public sealed class PostgresMemoryStoreTests(PostgresFixture fixture) : MemorySt
     public Task DisposeAsync() => Task.CompletedTask;
 
     protected override ValueTask<IMemoryStore> CreateStoreAsync(TimeProvider clock) =>
-        new(new PostgresMemoryStore(new FixtureDbContextFactory(fixture), clock));
+        new(new PostgresMemoryStore(fixture.Db, clock));
 
     /// <summary>
     ///     Daedalus-specific: the contract suite never crosses a keyset page (its largest stream is 12 rows), so exercise the
@@ -33,7 +31,7 @@ public sealed class PostgresMemoryStoreTests(PostgresFixture fixture) : MemorySt
     public async Task Stream_keyset_pages_across_batches_with_created_at_ties_while_yielded_rows_leave_the_filter()
     {
         var clock = NewClock();
-        var store = new PostgresMemoryStore(new FixtureDbContextFactory(fixture), clock, streamBatchSize: 3);
+        var store = new PostgresMemoryStore(fixture.Db, clock, streamBatchSize: 3);
         var groups = new List<HashSet<MemoryId>>();
         foreach (var groupSize in new[] { 4, 1, 5 }) // 4 rows share t0, 1 row at t1, 5 rows share t2
         {
@@ -78,11 +76,5 @@ public sealed class PostgresMemoryStoreTests(PostgresFixture fixture) : MemorySt
         (await store.ListAsync(new MemoryQuery { Tags = ["x", "y"] }, CancellationToken.None)).Value.Items.Select(i => i.Text).Should().BeEquivalentTo(["xy"]);
         (await store.ListAsync(new MemoryQuery { Tags = ["x", "z"] }, CancellationToken.None)).Value.Items.Should().BeEmpty();
         (await store.ListAsync(new MemoryQuery { Tags = [" "] }, CancellationToken.None)).Value.Items.Should().BeEmpty("a blank query tag matches nothing, like MemoryQuery.Matches");
-    }
-
-    /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
-    private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => fixture.CreateDbContext();
     }
 }

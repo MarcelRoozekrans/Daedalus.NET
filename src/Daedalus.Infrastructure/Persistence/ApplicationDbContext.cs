@@ -27,7 +27,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<BrainstormMessage> BrainstormMessages => Set<BrainstormMessage>();
     public DbSet<AgentSession> AgentSessions => Set<AgentSession>();
     public DbSet<AgentMessage> AgentMessages => Set<AgentMessage>();
-    public DbSet<AgentMemory> AgentMemories => Set<AgentMemory>();
 
     /// <summary>Recurring autonomous runs; see <see cref="ScheduledRun"/>.</summary>
     public DbSet<ScheduledRun> ScheduledRuns => Set<ScheduledRun>();
@@ -48,7 +47,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     /// </summary>
     internal static readonly (Type Configuration, Action<ModelBuilder> Apply)[] Configurations =
     [
-        Entry(new AgentMemoryConfiguration()),
         Entry(new AgentMessageConfiguration()),
         Entry(new AgentSessionConfiguration()),
         Entry(new AnalysisIterationConfiguration()),

@@ -14,6 +14,8 @@ using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.AgentMemories;
 using Daedalus.Infrastructure.Persistence.Repositories;
 using Daedalus.Infrastructure.Services;
 using Daedalus.Tests.Playwright.Browser.Fixtures;
@@ -387,7 +389,7 @@ public class E2EServerFixture
                 // The real migrations, workflow engine included: the schema Daedalus.Migrations builds in production.
                 await DatabaseSchema.ApplyAsync(ConnectionString, CancellationToken.None).ConfigureAwait(false);
                 await SeedTestDataAsync(dbContext).ConfigureAwait(false);
-                await SeedMemoriesAsync(dbContext).ConfigureAwait(false);
+                await SeedMemoriesAsync(scope.ServiceProvider.GetRequiredService<DaedalusDb>()).ConfigureAwait(false);
             }
 
             var runs = new RunSeeds(app.Services.GetRequiredService<IWorkflowStore>(), app.Services.GetRequiredService<IServiceScopeFactory>());
@@ -671,9 +673,12 @@ public class E2EServerFixture
     ///     invisible. Seeded through the aggregate, so the rows are exactly what
     ///     <see cref="Daedalus.Agents.Memory.PostgresMemoryStore"/> would have written.
     /// </summary>
-    private static async Task SeedMemoriesAsync(ApplicationDbContext dbContext)
+    private static async Task SeedMemoriesAsync(DaedalusDb db)
     {
-        if (await dbContext.AgentMemories.AnyAsync().ConfigureAwait(false))
+        await using var connection = await db.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+        var sql = new AgentMemorySql(connection);
+        var everything = new AgentMemoryFilter([], null, [], [], IncludeArchived: true, IndexPending: null);
+        if (await sql.CountAsync(everything, CancellationToken.None).ConfigureAwait(false) > 0)
         {
             return;
         }
@@ -704,10 +709,8 @@ public class E2EServerFixture
                 throw new InvalidOperationException($"Seeding agent memories failed: {seed.Error}");
             }
 
-            dbContext.AgentMemories.Add(seed.Value);
+            await sql.InsertAsync(seed.Value, CancellationToken.None).ConfigureAwait(false);
         }
-
-        await dbContext.SaveChangesAsync().ConfigureAwait(false);
     }
 
     [OneTimeTearDown]
