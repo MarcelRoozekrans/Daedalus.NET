@@ -1,4 +1,5 @@
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -145,23 +146,15 @@ public sealed class PostgresFixture : IAsyncLifetime
     }
 
     /// <summary>
-    ///     Applies database migrations to the test database.
+    ///     Applies the real migrations to the test database.
     /// </summary>
     private async Task ApplyMigrationsAsync()
     {
         try
         {
-            var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-                .UseNpgsql(ConnectionString)
-                .LogTo(System.Console.WriteLine, LogLevel.Information)
-                .Options;
-
-            using var dbContext = new ApplicationDbContext(options);
-            // Rag.NET's rag_chunks (Thalos memory index) needs the pgvector extension; EnsureCreatedAsync runs no migration SQL
-            await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;");
-            // For tests, create schema directly from model (EnsureCreatedAsync)
-            // In production, use MigrateAsync() with actual migration files
-            await dbContext.Database.EnsureCreatedAsync();
+            // The schema Daedalus.Migrations builds in production: the Daedalus migration source, then the workflow
+            // engine's, not a schema derived from the EF model.
+            await DatabaseSchema.ApplyAsync(ConnectionString, CancellationToken.None);
             System.Console.WriteLine("✓ Database schema created successfully");
         }
         catch (Exception ex)

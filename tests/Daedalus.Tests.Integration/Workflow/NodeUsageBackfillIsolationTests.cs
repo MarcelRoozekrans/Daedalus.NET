@@ -13,8 +13,9 @@ using Task = System.Threading.Tasks.Task;
 namespace Daedalus.Tests.Integration.Workflow;
 
 /// <summary>
-///     The backfill's run query and its per-run isolation, against a minimal <c>workflow_run_event</c> in the shared
-///     database. The table holds only the four columns the query reads; the event bodies come from a fake history.
+///     The backfill's run query and its per-run isolation, against the real <c>workflow_run_event</c> the fixture's
+///     migrations create. The rows hold only the columns the query reads and the table requires; the event bodies come
+///     from a fake history.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class NodeUsageBackfillIsolationTests(PostgresFixture fixture) : IAsyncLifetime
@@ -22,14 +23,9 @@ public sealed class NodeUsageBackfillIsolationTests(PostgresFixture fixture) : I
     private static readonly TurnUsage Usage = new(100, 10, "m");
     private static readonly DateTimeOffset At = new(2026, 10, 10, 12, 0, 0, TimeSpan.Zero);
 
-    public async Task InitializeAsync()
-    {
-        await fixture.DatabaseResetter.ResetAsync();
-        await ExecuteAsync("DROP TABLE IF EXISTS workflow_run_event");
-        await ExecuteAsync("CREATE TABLE workflow_run_event (run_id uuid NOT NULL, seq bigint NOT NULL, from_node text NULL, usage jsonb NULL)");
-    }
+    public async Task InitializeAsync() => await fixture.DatabaseResetter.ResetAsync();
 
-    public async Task DisposeAsync() => await ExecuteAsync("DROP TABLE IF EXISTS workflow_run_event");
+    public async Task DisposeAsync() => await fixture.DatabaseResetter.ResetAsync();
 
     /// <summary>
     ///     A run whose history cannot be read is skipped, and the runs after it are still backfilled.
@@ -41,7 +37,7 @@ public sealed class NodeUsageBackfillIsolationTests(PostgresFixture fixture) : I
         var runs = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
         foreach (var run in runs)
         {
-            await ExecuteAsync($"INSERT INTO workflow_run_event VALUES ('{run}', 2, 'implement', '{{}}')");
+            await AddCompletionAsync(run);
         }
 
         var history = Substitute.For<IWorkflowRunHistory>();
@@ -77,7 +73,8 @@ public sealed class NodeUsageBackfillIsolationTests(PostgresFixture fixture) : I
     {
         var recorded = Guid.NewGuid();
         var pending = Guid.NewGuid();
-        await ExecuteAsync($"INSERT INTO workflow_run_event VALUES ('{recorded}', 2, 'implement', '{{}}'), ('{pending}', 2, 'implement', '{{}}')");
+        await AddCompletionAsync(recorded);
+        await AddCompletionAsync(pending);
         await ExecuteAsync(
             "INSERT INTO \"WorkflowRunRecords\" (\"RunId\", \"Seq\", \"Node\", \"Kind\", \"PrincipalId\", \"PayloadJson\", \"CreatedAt\") " +
             $"VALUES ('{recorded}', 2, 'implement', '{WorkflowRunRecord.NodeUsageKind}', 'host', '{{}}', now())");
@@ -90,6 +87,17 @@ public sealed class NodeUsageBackfillIsolationTests(PostgresFixture fixture) : I
 
         await history.DidNotReceive().ListEventsAsync(recorded, Arg.Any<CancellationToken>());
         await history.Received(1).ListEventsAsync(pending, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>A run and one completion event of it, with the columns the real tables require; the event's usage is empty.</summary>
+    private async Task AddCompletionAsync(Guid run)
+    {
+        await ExecuteAsync(
+            "INSERT INTO workflow_run (id, process, process_version, correlation_key, current_node, current_seq, status, visits) " +
+            $"VALUES ('{run}', 'manufacture', 1, '{run}', 'implement', 2, 'Running', '{{}}')");
+        await ExecuteAsync(
+            "INSERT INTO workflow_run_event (run_id, seq, kind, from_node, to_node, status, usage) " +
+            $"VALUES ('{run}', 2, 'NodeCompleted', 'implement', 'review', 'Running', '{{}}')");
     }
 
     private static WorkflowRunEvent Completion() =>

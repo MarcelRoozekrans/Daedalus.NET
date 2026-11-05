@@ -16,8 +16,8 @@ using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Repositories;
 using Daedalus.Infrastructure.Services;
-using Daedalus.Migrations;
 using Daedalus.Tests.Playwright.Browser.Fixtures;
+using Daedalus.Tests.Shared;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
@@ -27,7 +27,6 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Npgsql;
 using Thalos;
 using Thalos.Memory;
 using Thalos.Workflow;
@@ -385,10 +384,8 @@ public class E2EServerFixture
             using (var scope = app.Services.CreateScope())
             {
                 var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                // Rag.NET's rag_chunks (Thalos memory index) needs the pgvector extension; EnsureCreatedAsync runs no migration SQL
-                await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;").ConfigureAwait(false);
-                await dbContext.Database.EnsureCreatedAsync().ConfigureAwait(false);
-                await MigrateWorkflowEngineAsync(ConnectionString).ConfigureAwait(false);
+                // The real migrations, workflow engine included: the schema Daedalus.Migrations builds in production.
+                await DatabaseSchema.ApplyAsync(ConnectionString, CancellationToken.None).ConfigureAwait(false);
                 await SeedTestDataAsync(dbContext).ConfigureAwait(false);
                 await SeedMemoriesAsync(dbContext).ConfigureAwait(false);
             }
@@ -523,22 +520,6 @@ public class E2EServerFixture
         descriptor.ImplementationType
         ?? descriptor.ImplementationInstance?.GetType()
         ?? descriptor.ImplementationFactory?.Method.ReturnType;
-
-    /// <summary>
-    ///     The workflow engine's raw-SQL schema, through the same step Daedalus.Migrations runs at deploy,
-    ///     <see cref="WorkflowEngineMigrator.ApplyAsync"/>, so the sources and their order cannot drift from it. A refusal
-    ///     fails set-up with the migrator's reason.
-    /// </summary>
-    private static async Task MigrateWorkflowEngineAsync(string connectionString)
-    {
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync().ConfigureAwait(false);
-        var outcome = await WorkflowEngineMigrator.ApplyAsync(connection).ConfigureAwait(false);
-        if (outcome.IsFailure)
-        {
-            throw new InvalidOperationException($"The workflow engine migration was refused: {outcome.Error}");
-        }
-    }
 
     private static void RemoveAndReplace<TService, TImplementation>(IServiceCollection services)
         where TService : class

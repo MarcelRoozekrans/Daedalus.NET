@@ -1,8 +1,6 @@
 using System.Globalization;
-using Daedalus.Infrastructure.Persistence;
-using Daedalus.Migrations;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Shared;
 using Npgsql;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
@@ -16,13 +14,8 @@ namespace Daedalus.Tests.Integration.Migrations;
 ///     and <see cref="OrmWorkflowStore"/> — the actual production code paths, not hand-verified SQL.
 /// </summary>
 /// <remarks>
-///     <c>PostgresFixture</c>'s own shared database builds its schema with <c>EnsureCreatedAsync</c>, not
-///     <c>MigrateAsync</c>, and never runs <see cref="WorkflowOrmMigrations.Postgres"/> at all — these tables
-///     exist nowhere else in the test suite. Without this test, a broken workflow migration (or a broken
-///     <c>Daedalus.Migrations</c> wiring of it) would pass every other test in this solution: exactly the gap
-///     <c>AddScheduledRunRepositoryMigrationTests</c> exists to close for the EF Core chain, mirrored here for the
-///     ORM one. <see cref="RunAsync"/> applies <em>both</em> chains — <c>ApplicationDbContext</c>'s real EF Core
-///     migrations, then the two raw-SQL sources — to the same throwaway database, the same order
+///     <see cref="RunAsync"/> builds a fresh throwaway database with <c>DatabaseSchema.ApplyAsync</c>, which applies
+///     <em>both</em> chains — the Daedalus migration source, then the two raw-SQL sources — in the order
 ///     <c>Daedalus.Migrations/Program.cs</c> runs them in production, so the two outbox tables' coexistence is
 ///     tested rather than reasoned about. See <c>DaedalusAgentsServiceCollectionExtensions.AddDaedalusAgents</c>
 ///     for why <c>EnsureSchemaOnStartup</c> is off there rather than relying on this same sequence at host boot.
@@ -119,24 +112,14 @@ public sealed class WorkflowOrmMigrationTests(PostgresFixture fixture)
         var connectionString = new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { Database = dbName }.ConnectionString;
         try
         {
-            // EF Core's own migration chain first — same order Daedalus.Migrations/Program.cs runs them in
-            // production — so this test exercises the two outbox tables' real coexistence, not just the
-            // workflow engine's tables in isolation. AddAgentMemories needs the pgvector extension installed
-            // before MigrateAsync runs, the same prerequisite AddScheduledRunRepositoryMigrationTests documents.
-            await using (var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(connectionString)))
-            {
-                await db.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector");
-                await db.Database.MigrateAsync();
-            }
+            // The same schema step the fixtures use, which is Daedalus.Migrations' own order: the Daedalus source first,
+            // then the outbox source and the workflow source through WorkflowEngineMigrator, because OrmWorkflowStore
+            // enqueues into the outbox in the same transaction as the workflow tables it writes. The two outbox
+            // tables' coexistence is tested rather than reasoned about.
+            await DatabaseSchema.ApplyAsync(connectionString, CancellationToken.None);
 
             await using var connection = new NpgsqlConnection(connectionString);
             await connection.OpenAsync();
-
-            // Daedalus.Migrations' own step, not a copy of its wiring: the outbox source first, mirroring
-            // WorkflowOrmSchemaInitializer's own ordering, because OrmWorkflowStore enqueues into it in the same
-            // transaction as the workflow tables it writes.
-            var outcome = await WorkflowEngineMigrator.ApplyAsync(connection);
-            outcome.IsSuccess.Should().BeTrue(outcome.IsFailure ? outcome.Error : null);
 
             await assert(connection, connectionString);
         }

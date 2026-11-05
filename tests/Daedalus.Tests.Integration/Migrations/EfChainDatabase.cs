@@ -1,3 +1,4 @@
+using Daedalus.Infrastructure.Persistence.Migrations;
 using Npgsql;
 
 namespace Daedalus.Tests.Integration.Migrations;
@@ -23,6 +24,20 @@ public static class EfChainDatabase
         await ExecuteAsync(connectionString, script, ct);
         return connectionString;
     }
+
+    /// <summary>
+    ///     Undoes the head migration, <c>AddNodeSelectionUniqueIndex</c>, on an EF database, as
+    ///     <c>dotnet ef database update</c> to its predecessor would: its index dropped, its history row deleted. The
+    ///     result is a database whose EF head is not <see cref="DaedalusMigrations.EfHeadMigrationId"/>.
+    /// </summary>
+    /// <param name="connectionString">A database <see cref="CreateAsync"/> returned.</param>
+    /// <param name="ct">Cancels the work.</param>
+    public static Task UndoHeadMigrationAsync(string connectionString, CancellationToken ct) =>
+        ExecuteAsync(
+            connectionString,
+            "DROP INDEX \"UX_WorkflowRunRecords_NodeSelection_RunId_Seq\"; "
+            + "DELETE FROM \"__EFMigrationsHistory\" WHERE \"MigrationId\" = '" + DaedalusMigrations.EfHeadMigrationId + "'",
+            ct);
 
     /// <summary>Creates an empty database.</summary>
     /// <param name="adminConnectionString">A connection string to the server, allowed to create databases.</param>

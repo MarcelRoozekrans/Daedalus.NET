@@ -31,9 +31,10 @@ namespace Daedalus.Tests.Integration.Fixtures;
 /// <param name="workflowEnabled">
 ///     Defaults to <see langword="false"/>, which every existing caller relies on — see the remarks on the
 ///     <c>Thalos:Workflow:Enabled</c> setting below for why that default holds. Pass <see langword="true"/> only
-///     against a <paramref name="connectionString"/> already migrated with Thalos.NET.Workflow.Orm's raw-SQL
-///     migrations (see <c>StartRunEndpointTests</c>), never against the shared <c>PostgresFixture</c> database,
-///     which is built with EF Core's <c>EnsureCreatedAsync</c> and has none of those tables.
+///     against a <paramref name="connectionString"/> migrated with Thalos.NET.Workflow.Orm's raw-SQL
+///     migrations (see <c>StartRunEndpointTests</c>). The shared <c>PostgresFixture</c> database has those tables
+///     too since phase 3.5, but its suites test the Api, not the engine, and the engine's pollers would run
+///     against them for nothing.
 /// </param>
 /// <param name="squadEnabled">
 ///     When supplied, overrides <c>Thalos:Squad:Enabled</c>. <see langword="null"/> (the default) keeps the shipped
@@ -73,14 +74,13 @@ internal sealed class ApiWebApplicationFactory(
         // too late for builder.Configuration.GetConnectionString(...) in the minimal-hosting entry point).
         builder.UseSetting("ConnectionStrings:daedalus", connectionString);
 
-        // PostgresFixture builds this database with EF Core's EnsureCreatedAsync, which creates only the EF model
-        // (including ApplicationDbContext's own outbox table). It never runs Thalos.NET.Workflow.Orm's raw-SQL
-        // migrations, so workflow_run/workflow_run_event/process_definition and the ORM outbox table do not exist
-        // here. Left enabled against that database, WorkflowOutboxDispatchService, WorkflowStrandedRunSweepService
-        // and ProcessDefinitionSyncHostedService would each tick against those missing tables and fail every cycle
-        // with Postgres 42P01 — caught and logged, so silently, for the life of every test that uses this factory.
-        // See WorkflowConfig.Enabled's own remarks, and this constructor's own parameter doc, for the one caller
-        // that opts into the engine against a database it migrated itself.
+        // PostgresFixture builds this database with the real migrations, workflow tables included, so the engine could
+        // run here. It stays off by default: the suites on this factory test the Api, not the engine, and left enabled,
+        // WorkflowOutboxDispatchService, WorkflowStrandedRunSweepService and ProcessDefinitionSyncHostedService would
+        // each tick against the shared database for the life of every test that uses this factory, and the sync
+        // would write process definitions the tests never asked for. Turning the engine on for them is a separate
+        // decision. See WorkflowConfig.Enabled's own remarks, and this constructor's own parameter doc, for the
+        // callers that opt into the engine.
         builder.UseSetting("Thalos:Workflow:Enabled", workflowEnabled ? "true" : "false");
 
         // Local mode, phase 2.5's wiring, by default: these suites test the workflow, not the container, so no host built

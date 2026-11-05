@@ -5,6 +5,7 @@ using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Playwright.Api.Fixtures;
+using Daedalus.Tests.Shared;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
@@ -102,9 +103,8 @@ public class E2EServerFixture
                 .Options;
             await using (var schemaContext = new ApplicationDbContext(schemaOptions))
             {
-                // Rag.NET's rag_chunks (Thalos memory index) needs the pgvector extension; EnsureCreatedAsync runs no migration SQL
-                await schemaContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;").ConfigureAwait(false);
-                await schemaContext.Database.EnsureCreatedAsync().ConfigureAwait(false);
+                // The real migrations, the schema Daedalus.Migrations builds in production, workflow tables included.
+                await DatabaseSchema.ApplyAsync(ConnectionString, CancellationToken.None).ConfigureAwait(false);
                 await SeedTestDataAsync(schemaContext).ConfigureAwait(false);
             }
 
@@ -126,11 +126,12 @@ public class E2EServerFixture
                     // Workflow.Enabled synchronously while Program.cs registers services (same "too late" timing
                     // ApiWebApplicationFactory's ConnectionStrings:daedalus comment describes), so a
                     // ConfigureAppConfiguration value here would not exist yet when the gate is evaluated.
-                    // EnsureCreatedAsync above builds only the EF Core model, never Thalos.NET.Workflow.Orm's
-                    // raw-SQL tables. processes/manufacture.yaml (Task 11) is a real file on Thalos:Workflow's
-                    // ProcessesRoot now, and flows into this host's output the same way skills/*.SKILL.md does -
-                    // left enabled, ProcessDefinitionSyncHostedService.StartAsync has something to sync and fails
-                    // the whole host on 42P01 against a schema with no process_definition table.
+                    // The workflow engine stays off for this suite, as it was when the schema was built from the EF model
+                    // alone: this suite tests the Api's endpoints, not the engine. processes/manufacture.yaml (Task 11)
+                    // is a real file on Thalos:Workflow's ProcessesRoot and flows into this host's output the same way
+                    // skills/*.SKILL.md does, so left enabled, ProcessDefinitionSyncHostedService.StartAsync would sync
+                    // it and the engine's pollers would start against the Api suite's stubbed runtime. The tables exist
+                    // now, so turning it on is a decision for a later change, not a schema gap.
                     builder.UseSetting("Thalos:Workflow:Enabled", "false");
 
                     builder.ConfigureServices(services =>

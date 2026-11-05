@@ -50,6 +50,12 @@
         <ProjectReference Include="..\..\src\Daedalus.Application\Daedalus.Application.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Domain\Daedalus.Domain.csproj"/>
         <ProjectReference Include="..\..\src\Daedalus.Infrastructure\Daedalus.Infrastructure.csproj"/>
+        <!-- E2EServerFixture builds its schema with Shared/DatabaseSchema.cs, which runs Daedalus.Migrations' workflow step. -->
+        <ProjectReference Include="..\..\src\Daedalus.Migrations\Daedalus.Migrations.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Include="..\Shared\DatabaseSchema.cs" Link="Shared\DatabaseSchema.cs"/>
     </ItemGroup>
 
 </Project>

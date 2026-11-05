@@ -56,8 +56,9 @@ silent and destructive, so they are pinned permanently rather than checked once 
 dotnet test tests/Daedalus.Tests.Integration --nologo --filter "FullyQualifiedName~<Name>MigrationTests"
 ```
 
-Note the integration fixture itself uses `EnsureCreatedAsync()`, not migrations: a new `DbSet` is
-available to store/contract tests before its migration exists. The flip side is that between adding the
+Note the integration fixture builds its schema from the real migrations (`DatabaseSchema.ApplyAsync`: the
+Daedalus migration source, then the workflow engine's), not from the EF model with `EnsureCreatedAsync()`.
+A new `DbSet` therefore reaches store/contract tests only once its migration exists. Between adding the
 `DbSet` and scaffolding the migration, every test that calls `MigrateAsync()` fails with EF 10's
 `PendingModelChangesWarning` — expected, and closed by step 2.
 

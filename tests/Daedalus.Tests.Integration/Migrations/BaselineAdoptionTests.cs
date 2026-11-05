@@ -59,12 +59,7 @@ public sealed class BaselineAdoptionTests(PostgresFixture fixture)
     {
         await WithDatabaseAsync(ef: true, async connectionString =>
         {
-            // Undo the head migration, AddNodeSelectionUniqueIndex, as `dotnet ef database update` to its predecessor would.
-            await EfChainDatabase.ExecuteAsync(
-                connectionString,
-                "DROP INDEX \"UX_WorkflowRunRecords_NodeSelection_RunId_Seq\"; "
-                + "DELETE FROM \"__EFMigrationsHistory\" WHERE \"MigrationId\" = '" + DaedalusMigrations.EfHeadMigrationId + "'",
-                CancellationToken.None);
+            await EfChainDatabase.UndoHeadMigrationAsync(connectionString, CancellationToken.None);
 
             var run = async () => await RunAsync(connectionString);
 

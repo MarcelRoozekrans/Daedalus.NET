@@ -296,11 +296,10 @@ public sealed class WorkflowConfig
     ///     duplicate-dispatch risk — <c>WorkflowOutboxDispatchService</c> claims each message under a row-locked
     ///     lease — but whether the Cli may run the engine alongside the Api host is an open owner decision, so the
     ///     setting stays until that is made. Integration tests that boot the real Api host against
-    ///     <c>PostgresFixture</c>'s <c>EnsureCreatedAsync</c> schema — which builds only the EF Core model, never
-    ///     these raw-SQL tables — set this <see langword="false"/> too, via <c>ApiWebApplicationFactory</c>, or
-    ///     every one of the workflow engine's hosted services (the outbox poller, the stranded-run sweep, the
-    ///     process sync) would tick against tables that do not exist and fail every cycle with Postgres error
-    ///     <c>42P01</c>.
+    ///     <c>PostgresFixture</c>'s database set this <see langword="false"/> too, via <c>ApiWebApplicationFactory</c>:
+    ///     those suites test the Api, not the engine, and left enabled every one of the engine's hosted services (the
+    ///     outbox poller, the stranded-run sweep, the process sync) would run against them. The fixture's schema
+    ///     holds the engine's tables since phase 3.5, so this is no longer a missing-table guard.
     /// </summary>
     public bool Enabled { get; set; } = true;
 
