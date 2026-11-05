@@ -55,7 +55,7 @@ stay exactly as they are.
 | 3.2 | Our own reflection out: STJ source-gen, config binding, DI annotations, explicit tool registration, YAML static generator | Refactor | complete (2026-10-24), #409 |
 | 3.3 | Own Anthropic and Ollama clients, `ZeroAlloc.Rest.Anthropic` and `.Ollama`; Thalos keeps the `IChatClient` adapter; the native CLI passes C3, "Application started" moved on to 3.5 | Backend | complete (2026-10-31), #424 |
 | 3.4 | Controllers to minimal APIs, identical contract; 13 controllers. Plan: `docs/superpowers/plans/2026-10-31-phase-3.4-minimal-apis-plan.md` | Refactor | complete (2026-11-04), #427 |
-| 3.5 | EF Core to ZeroAlloc.ORM with ZeroAlloc.Linq, schema and data kept; about 117 statements over 22 files; the native CLI reaches "Application started", moved from 3.3 | Data | pending |
+| 3.5 | EF Core to ZeroAlloc.ORM with ZeroAlloc.Linq, schema and data kept; about 117 statements over 22 files; the native CLI reaches "Application started", moved from 3.3. Plan: `docs/superpowers/plans/2026-11-05-phase-3.5-zeroalloc-orm-plan.md` | Data | active |
 | 3.6 | Native API, CLI and Migrations; native test runs, live proof, measurements | Infra | pending |
 | 3.7 | Blazor WebAssembly AOT | Infra | pending |
 | 3.8 | `ZeroAlloc.Inject` and `ZeroAlloc.Resilience`, out of 3.2 | Refactor | pending |
