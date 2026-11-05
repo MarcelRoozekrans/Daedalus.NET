@@ -34,33 +34,43 @@ public sealed class RoleCharterVersion
     /// <summary>Maximum length of <see cref="ContentHash"/>.</summary>
     public const int MaxContentHashLength = 128;
 
-    private readonly List<string> _skills = [];
-
     /// <summary>Gets the role this is a version of (also this file's own identity in <c>roles/</c>).</summary>
-    public string Role { get; private set; } = string.Empty;
+    public string Role { get; }
 
     /// <summary>Gets the hash of the raw charter file this version's <see cref="Instructions"/> was synced from.</summary>
-    public string ContentHash { get; private set; } = string.Empty;
+    public string ContentHash { get; }
 
     /// <summary>Gets the one-line description as it read at this version.</summary>
-    public string Description { get; private set; } = string.Empty;
+    public string Description { get; }
 
     /// <summary>Gets the charter body, verbatim, as it read at this version — the role's system instructions.</summary>
-    public string Instructions { get; private set; } = string.Empty;
+    public string Instructions { get; }
 
     /// <summary>Gets the role's preferred model as it read at this version, or null for the host default.</summary>
-    public string? Model { get; private set; }
+    public string? Model { get; }
 
     /// <summary>Gets the skill names this role may load, as they read at this version.</summary>
-    public IReadOnlyList<string> Skills => _skills.AsReadOnly();
+    public IReadOnlyList<string> Skills { get; }
 
     /// <summary>Gets the repo-relative path the version was synced from.</summary>
-    public string SourcePath { get; private set; } = string.Empty;
+    public string SourcePath { get; }
 
     /// <summary>Gets when this version was captured (UTC) — the synced charter's own <c>UpdatedAt</c>, not the row's insert time.</summary>
-    public DateTime UpdatedAt { get; private set; }
+    public DateTime UpdatedAt { get; }
 
-    private RoleCharterVersion() { } // EF Core
+    private RoleCharterVersion(
+        string role, string contentHash, string description, string instructions, string? model,
+        IEnumerable<string>? skills, string sourcePath, DateTime updatedAt)
+    {
+        Role = role;
+        ContentHash = contentHash;
+        Description = description;
+        Instructions = instructions;
+        Model = model;
+        Skills = [.. skills ?? []];
+        SourcePath = sourcePath;
+        UpdatedAt = updatedAt;
+    }
 
     /// <summary>Creates a version snapshot from a synced charter's fields.</summary>
     /// <returns>A Result containing the new version or the first validation error.</returns>
@@ -95,19 +105,27 @@ public sealed class RoleCharterVersion
         if (sourcePath.Length > MaxSourcePathLength)
             return Result<RoleCharterVersion>.Failure($"Source path must be at most {MaxSourcePathLength} characters.");
 
-        var version = new RoleCharterVersion
-        {
-            Role = role,
-            ContentHash = contentHash,
-            Description = description,
-            Instructions = instructions,
-            Model = model,
-            SourcePath = sourcePath,
-            UpdatedAt = updatedAt,
-        };
-        version._skills.AddRange(skills ?? []);
-        return Result<RoleCharterVersion>.Success(version);
+        return Result<RoleCharterVersion>.Success(
+            new RoleCharterVersion(role, contentHash, description, instructions, model, skills, sourcePath, updatedAt));
     }
+
+    /// <summary>
+    ///     Rebuilds a stored version from its columns. For persistence only: it sets every value as given and
+    ///     validates nothing, so a row written before a rule of <see cref="Create"/> existed still loads.
+    /// </summary>
+    /// <param name="role">The role this is a version of.</param>
+    /// <param name="contentHash">The hash of the charter file the version was synced from.</param>
+    /// <param name="description">The one-line description.</param>
+    /// <param name="instructions">The charter body.</param>
+    /// <param name="model">The preferred model, or null for the host default.</param>
+    /// <param name="skills">The skill names the role may load.</param>
+    /// <param name="sourcePath">The repo-relative path the version was synced from.</param>
+    /// <param name="updatedAt">When the version was captured.</param>
+    /// <returns>The version the row holds.</returns>
+    public static RoleCharterVersion Rehydrate(
+        string role, string contentHash, string description, string instructions, string? model,
+        IEnumerable<string> skills, string sourcePath, DateTime updatedAt) =>
+        new(role, contentHash, description, instructions, model, skills, sourcePath, updatedAt);
 
     /// <summary>Same rule as the Thalos skill/role name: <c>^[a-z][a-z0-9_-]{0,63}$</c>.</summary>
     private static bool IsValidRole(string? role) =>

@@ -2,9 +2,11 @@ using Daedalus.Agents;
 using Daedalus.Agents.Memory;
 using Daedalus.Agents.Workflow;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Thalos.Memory;
 using Thalos.Workflow;
@@ -40,6 +42,7 @@ public sealed class WorkflowCompositionTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.TryAddSingleton<DaedalusDb>();
         services.AddDaedalusAgents(configuration, environment);
         return services.BuildServiceProvider();
     }

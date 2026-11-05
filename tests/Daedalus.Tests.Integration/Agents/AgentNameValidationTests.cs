@@ -1,10 +1,13 @@
 using Daedalus.Agents;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 using Thalos;
 using Task = System.Threading.Tasks.Task;
 
@@ -114,6 +117,10 @@ public sealed class AgentNameValidationTests(PostgresFixture fixture) : IAsyncLi
 
         builder.Services.AddPooledDbContextFactory<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment);
+        // A real host gets the data source and DaedalusDb from AddApplicationDatabase; with the workflow engine off
+        // AddDaedalusAgents registers no data source, and the charter store needs both to resolve.
+        builder.Services.TryAddSingleton(_ => NpgsqlDataSource.Create(fixture.ConnectionString));
+        builder.Services.TryAddSingleton<DaedalusDb>();
         return builder.Build();
     }
 

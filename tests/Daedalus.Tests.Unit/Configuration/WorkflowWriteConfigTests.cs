@@ -4,9 +4,11 @@ using Daedalus.Agents.Git;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Workflow;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Thalos;
 using Thalos.Git.Workspaces;
@@ -55,6 +57,7 @@ public sealed class WorkflowWriteConfigTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.TryAddSingleton<DaedalusDb>();
         return (services, Bind(configuration), configuration, environment);
     }
 

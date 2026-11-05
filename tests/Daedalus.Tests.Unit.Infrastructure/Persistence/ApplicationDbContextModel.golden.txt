@@ -447,60 +447,6 @@ Model:
     Annotations: 
       Relational:TableName: RepositoryConfigurations
       RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
-  EntityType: RoleCharterHead
-    Properties: 
-      Role (string) Required PK AfterSave:Throw MaxLength(64)
-        Annotations: 
-          MaxLength: 64
-      CurrentHash (string) Required MaxLength(128)
-        Annotations: 
-          MaxLength: 128
-      IsActive (bool) Required Index
-      UpdatedAt (DateTime) Required
-    Keys: 
-      Role PK
-    Indexes: 
-      IsActive
-        Annotations: 
-          Relational:Name: IX_RoleCharterHead_IsActive
-    Annotations: 
-      Relational:Schema: 
-      Relational:TableName: RoleCharters
-      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
-  EntityType: RoleCharterVersion
-    Properties: 
-      Role (string) Required PK AfterSave:Throw MaxLength(64)
-        Annotations: 
-          MaxLength: 64
-      ContentHash (string) Required PK AfterSave:Throw MaxLength(128)
-        Annotations: 
-          MaxLength: 128
-      Description (string) Required MaxLength(300)
-        Annotations: 
-          MaxLength: 300
-      Instructions (string) Required
-        Annotations: 
-          Relational:ColumnType: text
-      Model (string) MaxLength(128)
-        Annotations: 
-          MaxLength: 128
-      SourcePath (string) Required MaxLength(1024)
-        Annotations: 
-          MaxLength: 1024
-      UpdatedAt (DateTime) Required
-      _skills (_skills, List<string>) Required Element type: string Required
-        Annotations: 
-          ElementType: Element type: string Required
-          Relational:ColumnName: Skills
-          Relational:ColumnType: text[]
-          ValueConverter: 
-          ValueConverterType: 
-    Keys: 
-      Role, ContentHash PK
-    Annotations: 
-      Relational:Schema: 
-      Relational:TableName: RoleCharterVersions
-      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
   EntityType: ScheduledRun
     Properties: 
       Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd

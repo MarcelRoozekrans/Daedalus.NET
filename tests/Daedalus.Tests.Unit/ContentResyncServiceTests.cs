@@ -1,14 +1,17 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Npgsql;
 using NSubstitute.ExceptionExtensions;
 using Thalos;
 using Thalos.Skills;
@@ -498,6 +501,10 @@ public sealed class ContentResyncServiceRegistrationTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        // With the workflow engine off AddDaedalusAgents registers no data source; a real host gets one, and the
+        // DaedalusDb over it, from AddApplicationDatabase. Nothing connects until a call opens a connection.
+        services.TryAddSingleton(_ => NpgsqlDataSource.Create("Host=registration-test;Database=registration-test"));
+        services.TryAddSingleton<DaedalusDb>();
         services.AddDaedalusAgents(builder.Build(), environment);
         return services.BuildServiceProvider();
     }
