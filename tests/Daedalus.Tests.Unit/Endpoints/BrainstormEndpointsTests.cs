@@ -331,8 +331,9 @@ public sealed class BrainstormEndpointsTests
 
     /// <summary>
     ///     Ruling R83: once the tasks exist, a retry of the generate would create them again, so a failure composed after
-    ///     them answers 400, never 409, even one that quotes a refusal with the conflict marker. Red: map GenerateTasks'
-    ///     failure through <c>WriteFailure</c>; the second case answers 409.
+    ///     them answers 400, never 409. The service answers only the first text; the second, the text before this fix,
+    ///     quotes a refusal with the conflict marker and pins that the route maps no marker to 409. Red: map
+    ///     GenerateTasks' failure through <c>WriteFailure</c>; the second case answers 409.
     /// </summary>
     [Theory]
     [InlineData("Created 2 tasks, but the session could not be marked complete. The tasks exist; do not generate them again.")]

@@ -1,5 +1,6 @@
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
+using Daedalus.Application.Services;
 using Daedalus.Application.Services.Brainstorm;
 using Daedalus.Domain.Entities;
 using Microsoft.Extensions.Logging;
@@ -164,11 +165,11 @@ public class BrainstormServiceSaveFailureTests
     }
 
     /// <summary>
-    ///     A refusal that is not a lost race is not redone and keeps its text after the tasks' count. Red: redo every
-    ///     refusal; the save is attempted three times.
+    ///     A refusal that is not a lost race is not redone, and answers the same do-not-generate-again text, its reason
+    ///     logged (ruling R83). Red: redo every refusal; the save is attempted three times.
     /// </summary>
     [Fact]
-    public async Task Generated_tasks_whose_session_save_fails_otherwise_say_why_without_a_redo()
+    public async Task Generated_tasks_whose_session_save_fails_otherwise_are_not_redone()
     {
         var session = TaskCreationSessionOnEveryRead();
         _repository.UpdateAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
@@ -176,9 +177,26 @@ public class BrainstormServiceSaveFailureTests
 
         var result = await _service.GenerateTasksAsync(session.Id, CancellationToken.None);
 
-        result.Error.Should().Be(
-            "Created 2 tasks, but the session could not be saved: Failed to update brainstorm session x. The cause is logged.");
+        result.Error.Should().Be(CompletionNotSaved);
         await _repository.Received(1).UpdateAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    ///     Ruling R83: once the tasks exist, no failure may invite a retry, which would create them again, so a refusal
+    ///     whose own text says "Please retry." is not echoed: the answer is the do-not-generate-again text, without the
+    ///     conflict marker. Red: quote the refusal after the tasks' count, as before; the answer says "Please retry.".
+    /// </summary>
+    [Fact]
+    public async Task Generated_tasks_whose_session_save_fails_with_a_retry_hint_do_not_echo_it()
+    {
+        var session = TaskCreationSessionOnEveryRead();
+        _repository.UpdateAsync(Arg.Any<BrainstormSession>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Failure("The database was busy. Please retry."));
+
+        var result = await _service.GenerateTasksAsync(session.Id, CancellationToken.None);
+
+        result.Error.Should().Be(CompletionNotSaved);
+        result.Error.Should().NotContainEquivalentOf("retry").And.NotContainEquivalentOf(SaveConflict.Marker);
     }
 
     private const string CompletionNotSaved =

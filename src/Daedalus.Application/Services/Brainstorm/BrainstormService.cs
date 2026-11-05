@@ -26,8 +26,8 @@ public sealed partial class BrainstormService(
     private const int MaxCompletionSaves = 3;
 
     /// <summary>
-    ///     A generate whose completed session lost every save: the tasks exist, so it carries no conflict marker and
-    ///     invites no retry, which would create them again (ruling R83).
+    ///     A generate whose completed session could not be saved, for any reason: the tasks exist, so it carries no
+    ///     conflict marker and invites no retry, which would create them again (ruling R83).
     /// </summary>
     private static readonly CompositeFormat CompletionNotSaved = CompositeFormat.Parse(
         "Created {0} tasks, but the session could not be marked complete. The tasks exist; do not generate them again.");
@@ -226,10 +226,9 @@ public sealed partial class BrainstormService(
 
         var tasks = tasksResult.Value;
         var completed = MarkTasksGenerated(session, tasks.Count);
-        if (completed.IsFailure)
-            return Result<List<TaskDto>>.Failure(completed.Error);
-
-        var saved = await repository.UpdateAsync(session, ct).ConfigureAwait(false);
+        var saved = completed.IsFailure
+            ? completed
+            : await repository.UpdateAsync(session, ct).ConfigureAwait(false);
 
         // The tasks now exist, committed on their own, so a retry of the whole generate would create them again. A save
         // that lost a race is redone on the session as read again, while it is still in TaskCreation: marking it
@@ -248,10 +247,11 @@ public sealed partial class BrainstormService(
 
         if (saved.IsFailure)
         {
-            return Result<List<TaskDto>>.Failure(SaveConflict.IsConflict(saved.Error)
-                ? string.Format(CultureInfo.InvariantCulture, CompletionNotSaved, tasks.Count)
-                : string.Create(CultureInfo.InvariantCulture,
-                    $"Created {tasks.Count} tasks, but the session could not be saved: {saved.Error}"));
+            // Every failure after the tasks exist answers one text; the reason is logged, not echoed, since its text
+            // may invite a retry, which would create the tasks again (ruling R83).
+            LogTasksGeneratedSessionNotSaved(logger, sessionId, tasks.Count, saved.Error);
+            return Result<List<TaskDto>>.Failure(
+                string.Format(CultureInfo.InvariantCulture, CompletionNotSaved, tasks.Count));
         }
 
         LogTasksGenerated(logger, sessionId, tasks.Count);
@@ -319,4 +319,9 @@ public sealed partial class BrainstormService(
     [LoggerMessage(EventId = 203, Level = LogLevel.Information,
         Message = "Brainstorm session {SessionId} generated {TaskCount} tasks from implementation plan")]
     private static partial void LogTasksGenerated(ILogger logger, Guid sessionId, int taskCount);
+
+    [LoggerMessage(EventId = 204, Level = LogLevel.Warning,
+        Message = "Brainstorm session {SessionId} generated {TaskCount} tasks but could not be marked complete: {Reason}")]
+    private static partial void LogTasksGeneratedSessionNotSaved(
+        ILogger logger, Guid sessionId, int taskCount, string reason);
 }
