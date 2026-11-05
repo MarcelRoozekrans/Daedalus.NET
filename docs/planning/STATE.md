@@ -1,8 +1,52 @@
 # Session State
 
-**Last session:** 2026-11-05
+**Last session:** 2026-11-06
 
-## Current Position - phase 3.5 planned and assumptions confirmed (2026-11-05), next: execute Task 1
+## Current Position - phase 3.5 executing (2026-11-06): Tasks 1-17, 3b and 23 done; 18-22 and 24-26 wait on Outbox.Orm
+
+**Milestone 3, phase 3.5, EF Core to ZeroAlloc.ORM.** Branch `phase/3.5-zeroalloc-orm` (pushed, head `1fd0177d`),
+worktree `.claude/worktrees/phase-3.5`. No PR yet (Task 24 opens it as a draft). Release-please stays on hold.
+
+- **Done, each reviewed and pushed:** Tasks 1-17, plus the inserted Task 3b (no test runs EF `MigrateAsync`, ruling C4),
+  and Task 23 (dev-database upgrade proof, R104). Plan steps ticked. Every store except scheduling and the outbox is
+  on ZeroAlloc.ORM; EF maps only `ScheduledRun`, `ScheduledRunExecution` and `OutboxMessageEntity`. #290 closes with
+  the merge (Task 17's `Closes #290`).
+- **SDD ledger:** `.superpowers/sdd/2026-11-05-phase-3.5-zeroalloc-orm-plan/progress.md` (git-ignored, in the worktree)
+  holds every dispatch, review, controller ruling C1-C13 and the per-task commits. `store-task-context.md` there is the
+  shared brief every store task reads; reuse it for Tasks 19-21. Rulings doc: `docs/plans/2026-11-05-phase-3.5-rulings.md`
+  R1-R104.
+- **CI** runs only on PRs to main and `workflow_dispatch`; dispatch `ci.yml` on the branch at checkpoints (C2). Last run
+  on `d3f91964`: Build & Test green, coverage floor 75 holds, Integration 978. `eng/aot/baseline.json`: Api 1316,
+  Cli 609, Migrations 1, Sandbox 0, Web 196.
+- **Owner decisions this session:** coverage floor 75 with an override reason, ratchet tracked in #438; a lost race
+  answers HTTP 409 (Project, CodeAnalysisRequest; Brainstorm followed via the shared `SaveConflict.IsConflict`).
+- **For the owner to look at, not blocking:** R78 (a brainstorm session deleted under an abandon answers 400, EF gave
+  the retry text; unreachable today); R97 (an independent write makes a concurrent guarded analysis save answer 409,
+  nothing lost); results are string errors matched by text (codebase-wide pattern).
+- **Filed:** Daedalus #438 (coverage), #439 (code-analysis orchestrator defects), #440 (flaky AgentPage browser tests);
+  ZeroAlloc.ORM #449 (ZAO102 hides C# errors), #450 (Contains on an array column), #451 (coalesce in setters),
+  #452 (Contains on a nullable column), #453 (string.Length / IsNullOrEmpty), #454 (Average docs).
+
+## Open Decisions
+
+None.
+
+## Blockers
+
+The `ZeroAlloc.Outbox.Orm` release (`docs/plans/2026-11-05-zeroalloc-outbox-orm-handover.md`) for Tasks 18-22; Tasks
+24-26 follow 22 (ruling R8).
+
+## Recommended Next Step
+
+When the Outbox.Orm release is out: in a fresh session, in the worktree, read this file and the SDD ledger, then run
+`superpowers:subagent-driven-development` from Task 18. At Task 18 also check whether ZeroAlloc.ORM #450-#453 shipped
+and swap the sanctioned raw queries back to LINQ (R37, R44, R59, R64) and the per-field memory update (R42, #451).
+Rules: no Co-Authored-By or Claude signature; commit body lines at most 100, no nested parentheses; no local Native
+AOT publish; dotnet build/test one at a time with `DOTNET_USE_POLLING_FILE_WATCHER=1`; push with the explicit refspec
+`phase/3.5-zeroalloc-orm:phase/3.5-zeroalloc-orm`; run every suite incl. both Playwright suites per task; tick plan
+checkboxes; fix review minors in the loop.
+
+## Earlier Position - phase 3.5 planned and assumptions confirmed (2026-11-05), next: execute Task 1
 
 **Milestone 3, phase 3.5, EF Core to ZeroAlloc.ORM.** Branch `phase/3.5-zeroalloc-orm`, worktree
 `.claude/worktrees/phase-3.5`. No PR yet. Release-please stays on hold.
