@@ -2,9 +2,11 @@ using System.Data.Async;
 using System.Text.Json.Nodes;
 using Daedalus.Domain.CodeAnalysis;
 using Daedalus.Domain.Entities;
+using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Integration.Builders;
 using Daedalus.Tests.Integration.Fixtures;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using ZeroAlloc.ORM;
 using ZeroAlloc.ORM.Linq;
@@ -128,11 +130,10 @@ public sealed class OrmCapabilityTests(PostgresFixture fixture) : IAsyncLifetime
             Guid.NewGuid(), "Spike", "Owned columns", FullUrl, 3,
             requirements: "[]", repositoryBranch: "main", commitSha: "abc123").Value;
         var bare = CodeAnalysisRequest.Create(Guid.NewGuid(), "Spike", "Null owned columns", BareUrl, 3, requirements: "[]").Value;
-        await using (var context = fixture.CreateDbContext())
-        {
-            context.CodeAnalysisRequests.AddRange(full, bare);
-            await context.SaveChangesAsync();
-        }
+        // Seeded through the ported repository since Task 15 deleted the EF mapping (ruling R96).
+        var repository = new CodeAnalysisRepository(_db, NullLogger<CodeAnalysisRepository>.Instance);
+        (await repository.CreateAsync(full)).IsSuccess.Should().BeTrue();
+        (await repository.CreateAsync(bare)).IsSuccess.Should().BeTrue();
 
         await using var connection = await _db.OpenAsync(CancellationToken.None);
         var sql = new CapabilitySql(connection);

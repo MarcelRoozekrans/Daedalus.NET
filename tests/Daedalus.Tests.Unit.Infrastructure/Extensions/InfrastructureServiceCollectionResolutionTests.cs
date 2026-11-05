@@ -27,8 +27,8 @@ namespace Daedalus.Tests.Unit.Infrastructure.Extensions;
 ///     </para>
 ///     <para>
 ///         <b>Why no database.</b> The real composition root also calls <c>AddApplicationDatabase</c> and registers
-///         <c>ApplicationDbContext</c>-backed repositories, none of which this graph needs
-///         (<see cref="IRalphLoopOrchestrator"/> depends on <c>ICodeAnalysisRepository</c>, an EF Core repository).
+///         database-backed repositories, none of which this graph needs (<see cref="IRalphLoopOrchestrator"/>
+///         depends on <c>ICodeAnalysisRepository</c>, which needs <c>DaedalusDb</c>).
 ///         Substituting that interface after calling the real extension methods keeps this test in the fast
 ///         unit gate — no Postgres, no Testcontainers, sub-second — while still exercising the exact registration
 ///         calls that broke.
@@ -50,8 +50,8 @@ public sealed class InfrastructureServiceCollectionResolutionTests
         services.AddExternalServices(configuration);
         services.AddCodeAnalysisServices(configuration);
 
-        // ICodeAnalysisRepository needs EF Core's ApplicationDbContext, and IFailurePatternDatabase and
-        // IBrainstormRepository need DaedalusDb; nothing in this test registers either. Only ICodeAnalysisRepository
+        // ICodeAnalysisRepository, IFailurePatternDatabase and IBrainstormRepository need DaedalusDb, which
+        // nothing in this test registers. Only ICodeAnalysisRepository
         // sits on the graph under test (IRalphLoopOrchestrator's constructor); the other two are registered by
         // AddExternalServices but never resolved here, so they are left alone.
         services.AddScoped<ICodeAnalysisRepository>(_ => Substitute.For<ICodeAnalysisRepository>());

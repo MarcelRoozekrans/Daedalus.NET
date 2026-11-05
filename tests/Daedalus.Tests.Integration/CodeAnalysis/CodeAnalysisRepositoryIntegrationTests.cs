@@ -1,35 +1,25 @@
 using Daedalus.Domain.CodeAnalysis;
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace Daedalus.Tests.Integration.CodeAnalysis;
 
 /// <summary>
-///     Integration tests for CodeAnalysisRepository
+///     Integration tests for CodeAnalysisRepository, against the migrated schema of the Postgres fixture (ruling R96).
+///     A request that needs a later status reaches it through the domain methods before it is created, since no
+///     repository method makes those transitions, and every request carries a JSON requirements document, since the
+///     <c>jsonb</c> column refuses the empty string <c>Create</c> stores for none (#428).
 /// </summary>
-[Collection("Database collection")]
-public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
+[Collection(DatabaseCollection.Name)]
+public class CodeAnalysisRepositoryIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
 {
-    private readonly ApplicationDbContext _dbContext;
-    private readonly ILogger<CodeAnalysisRepository> _logger;
-    private readonly CodeAnalysisRepository _repository;
+    private readonly CodeAnalysisRepository _repository =
+        new(fixture.Db, Substitute.For<ILogger<CodeAnalysisRepository>>());
 
-    public CodeAnalysisRepositoryIntegrationTests()
-    {
-        _dbContext = InMemoryDbContextFactory.Create();
-        _logger = Substitute.For<ILogger<CodeAnalysisRepository>>();
-        _repository = new CodeAnalysisRepository(_dbContext, _logger);
-    }
+    public async Task InitializeAsync() => await fixture.DatabaseResetter.ResetAsync();
 
-    public async Task InitializeAsync() => await _dbContext.Database.EnsureCreatedAsync();
-
-    public async Task DisposeAsync()
-    {
-        await _dbContext.Database.EnsureDeletedAsync();
-        await _dbContext.DisposeAsync();
-    }
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public async Task CreateAsync_WithValidRequest_SavesAndReturns()
@@ -71,7 +61,8 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
             "https://github.com/org/repo",
             10,
             AnalysisType.BugFix,
-            "src/test.cs");
+            "src/test.cs",
+            "[]");
         createResult.IsSuccess.Should().BeTrue();
         var request = createResult.Value;
 
@@ -112,7 +103,8 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
             "https://github.com/org/repo1",
             10,
             AnalysisType.Refactor,
-            "src/test1.cs");
+            "src/test1.cs",
+            "[]");
         createResult1.IsSuccess.Should().BeTrue();
         var request1 = createResult1.Value;
 
@@ -123,7 +115,8 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
             "https://github.com/org/repo2",
             10,
             AnalysisType.BugFix,
-            "src/test2.cs");
+            "src/test2.cs",
+            "[]");
         createResult2.IsSuccess.Should().BeTrue();
         var request2 = createResult2.Value;
 
@@ -150,16 +143,16 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
             "https://github.com/org/repo",
             10,
             AnalysisType.Refactor,
-            "src/test.cs");
+            "src/test.cs",
+            "[]");
         createResult.IsSuccess.Should().BeTrue();
         var request = createResult.Value;
 
-        var createdResult = await _repository.CreateAsync(request);
-        var requestId = createdResult.Value.Id;
-
         // Transition through domain state machine: Pending → Ready (required before AnalysisInProgress)
         request.InitializeRepository("/tmp/worktree", "feature/analysis");
-        await _dbContext.SaveChangesAsync();
+
+        var createdResult = await _repository.CreateAsync(request);
+        var requestId = createdResult.Value.Id;
 
         // Act
         await _repository.UpdateStatusAsync(requestId, AnalysisStatus.AnalysisInProgress);
@@ -181,17 +174,17 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
             "https://github.com/org/repo",
             10,
             AnalysisType.Refactor,
-            "src/test.cs");
+            "src/test.cs",
+            "[]");
         createResult.IsSuccess.Should().BeTrue();
         var request = createResult.Value;
-
-        var createdResult = await _repository.CreateAsync(request);
-        var requestId = createdResult.Value.Id;
 
         // Transition through domain state machine: Pending → Ready → AnalysisInProgress
         request.InitializeRepository("/tmp/worktree", "feature/analysis");
         request.StartAnalysis();
-        await _dbContext.SaveChangesAsync();
+
+        var createdResult = await _repository.CreateAsync(request);
+        var requestId = createdResult.Value.Id;
 
         const string prompt = "Optimize the code";
         const string response = "Here's the optimized version...";
@@ -219,17 +212,17 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
             "https://github.com/org/repo",
             10,
             AnalysisType.Refactor,
-            "src/test.cs");
+            "src/test.cs",
+            "[]");
         createResult.IsSuccess.Should().BeTrue();
         var request = createResult.Value;
-
-        var createdResult = await _repository.CreateAsync(request);
-        var requestId = createdResult.Value.Id;
 
         // Transition through domain state machine: Pending → Ready → AnalysisInProgress
         request.InitializeRepository("/tmp/worktree", "feature/analysis");
         request.StartAnalysis();
-        await _dbContext.SaveChangesAsync();
+
+        var createdResult = await _repository.CreateAsync(request);
+        var requestId = createdResult.Value.Id;
 
         // Act
         await _repository.CompleteAsync(requestId, "https://github.com/org/repo/pull/1", "abc123def456");
@@ -254,7 +247,8 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
             "https://github.com/org/repo",
             10,
             AnalysisType.Refactor,
-            "src/test.cs");
+            "src/test.cs",
+            "[]");
         createResult.IsSuccess.Should().BeTrue();
         var request = createResult.Value;
 
@@ -282,7 +276,8 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
             "https://github.com/org/repo",
             10,
             AnalysisType.Refactor,
-            "src/test.cs");
+            "src/test.cs",
+            "[]");
         createResult.IsSuccess.Should().BeTrue();
         var request = createResult.Value;
 
@@ -311,7 +306,8 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
             repoUrl,
             10,
             AnalysisType.Refactor,
-            "src/test1.cs");
+            "src/test1.cs",
+            "[]");
         createResult1.IsSuccess.Should().BeTrue();
         var request1 = createResult1.Value;
 
@@ -322,7 +318,8 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
             "https://github.com/other/repo",
             10,
             AnalysisType.BugFix,
-            "src/test2.cs");
+            "src/test2.cs",
+            "[]");
         createResult2.IsSuccess.Should().BeTrue();
         var request2 = createResult2.Value;
 
@@ -349,7 +346,8 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
             "https://github.com/org/repo1",
             10,
             AnalysisType.Refactor,
-            "src/test1.cs");
+            "src/test1.cs",
+            "[]");
         createResult1.IsSuccess.Should().BeTrue();
         var request1 = createResult1.Value;
 
@@ -360,17 +358,17 @@ public class CodeAnalysisRepositoryIntegrationTests : IAsyncLifetime
             "https://github.com/org/repo2",
             10,
             AnalysisType.BugFix,
-            "src/test2.cs");
+            "src/test2.cs",
+            "[]");
         createResult2.IsSuccess.Should().BeTrue();
         var request2 = createResult2.Value;
-
-        var created1 = await _repository.CreateAsync(request1);
-        await _repository.CreateAsync(request2);
 
         // Transition request1 through domain state machine: Pending → Ready → AnalysisInProgress → Completed
         request1.InitializeRepository("/tmp/worktree", "feature/analysis");
         request1.StartAnalysis();
-        await _dbContext.SaveChangesAsync();
+
+        var created1 = await _repository.CreateAsync(request1);
+        await _repository.CreateAsync(request2);
 
         await _repository.CompleteAsync(created1.Value.Id);
 

@@ -22,8 +22,18 @@ public sealed partial class CodeLocation
     [EqualityMember] public int StartLineForEquality => StartLine ?? 0;
     [EqualityMember] public int EndLineForEquality => EndLine ?? 0;
 
-    // Required by EF Core for owned type materialization
     private CodeLocation() { }
+
+    /// <summary>
+    ///     Rebuilds a stored location, for persistence only: every value is taken as stored and nothing is trimmed or
+    ///     validated.
+    /// </summary>
+    /// <param name="filePath">The file path.</param>
+    /// <param name="startLine">The first line, or null.</param>
+    /// <param name="endLine">The last line, or null.</param>
+    /// <returns>The location as stored.</returns>
+    public static CodeLocation Rehydrate(string filePath, int? startLine, int? endLine) =>
+        new() { FilePath = filePath, StartLine = startLine, EndLine = endLine };
 
     public static Result<CodeLocation> Create(string? filePath, int? startLine = null, int? endLine = null)
     {

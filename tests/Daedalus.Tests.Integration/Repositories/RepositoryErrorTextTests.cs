@@ -23,6 +23,7 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
     private readonly CapturingLogger<ProjectRepository> _projectLog = new();
     private readonly CapturingLogger<BrainstormRepository> _brainstormLog = new();
     private readonly CapturingLogger<RepositoryConfigurationRepository> _repositoryLog = new();
+    private readonly CapturingLogger<CodeAnalysisRepository> _analysisLog = new();
 
     public static TheoryData<string> Operations => new()
     {
@@ -30,6 +31,10 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
         "project.GetById", "project.Add", "project.Update", "project.Delete",
         "brainstorm.GetById", "brainstorm.GetByProjectId", "brainstorm.Add", "brainstorm.Update",
         "repository.GetAll", "repository.GetById", "repository.Add", "repository.Update", "repository.Delete",
+        "analysis.GetById", "analysis.GetPending", "analysis.GetByStatus", "analysis.GetByRepository",
+        "analysis.Create", "analysis.UpdateStatus", "analysis.UpdateIteration", "analysis.RecordValidation",
+        "analysis.Complete", "analysis.Fail", "analysis.Cancel", "analysis.UpdateWorkTreePath",
+        "analysis.UpdateLastPrompt",
     };
 
     /// <summary>
@@ -41,6 +46,8 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
     ///     port; the text carries the secret (ruling R84).
     ///     Red, run for <c>brainstorm.Update</c>: put <c>{ex.Message}</c> back, as before the port; the text carries the
     ///     secret (ruling R79).
+    ///     Red, run for <c>analysis.GetById</c> and the six guarded analysis writes: put the exception's message back, as
+    ///     before the port; the text carries the secret (ruling R94).
     /// </summary>
     [Theory]
     [MemberData(nameof(Operations))]
@@ -51,6 +58,10 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
         var projects = new ProjectRepository(new DaedalusDb(failingSource), _projectLog);
         var brainstorms = new BrainstormRepository(new DaedalusDb(failingSource), _brainstormLog);
         var repositories = new RepositoryConfigurationRepository(new DaedalusDb(failingSource), _repositoryLog);
+        var analyses = new CodeAnalysisRepository(new DaedalusDb(failingSource), _analysisLog);
+        var analysis = Daedalus.Domain.CodeAnalysis.CodeAnalysisRequest.Create(
+            Guid.NewGuid(), "Title", "Description", "https://github.com/org/repo", 3, requirements: "[]").Value;
+        var id = Guid.NewGuid();
         var repository = IntegrationTestFactory.CreateRepositoryConfiguration();
         var session = Daedalus.Domain.Entities.BrainstormSession.Create(Guid.NewGuid()).Value;
         var task = IntegrationTestFactory.CreateTask();
@@ -76,12 +87,28 @@ public sealed class RepositoryErrorTextTests(PostgresFixture fixture)
             "repository.Add" => (await repositories.AddAsync(repository, CancellationToken.None)).Error,
             "repository.Update" => (await repositories.UpdateAsync(repository, CancellationToken.None)).Error,
             "repository.Delete" => (await repositories.DeleteAsync(Guid.NewGuid(), CancellationToken.None)).Error,
+            "analysis.GetById" => (await analyses.GetByIdAsync(id, CancellationToken.None)).Error,
+            "analysis.GetPending" => (await analyses.GetPendingAsync(1, CancellationToken.None)).Error,
+            "analysis.GetByStatus" => (await analyses.GetByStatusAsync(
+                Daedalus.Domain.CodeAnalysis.AnalysisStatus.Pending, CancellationToken.None)).Error,
+            "analysis.GetByRepository" => (await analyses.GetByRepositoryAsync("x", CancellationToken.None)).Error,
+            "analysis.Create" => (await analyses.CreateAsync(analysis, CancellationToken.None)).Error,
+            "analysis.UpdateStatus" => (await analyses.UpdateStatusAsync(
+                id, Daedalus.Domain.CodeAnalysis.AnalysisStatus.Cancelled, CancellationToken.None)).Error,
+            "analysis.UpdateIteration" => (await analyses.UpdateIterationAsync(id, 1, "p", "r", CancellationToken.None)).Error,
+            "analysis.RecordValidation" => (await analyses.RecordValidationAsync(id, "{}", true, CancellationToken.None)).Error,
+            "analysis.Complete" => (await analyses.CompleteAsync(id, null, null, CancellationToken.None)).Error,
+            "analysis.Fail" => (await analyses.FailAsync(id, "reason", CancellationToken.None)).Error,
+            "analysis.Cancel" => (await analyses.CancelAsync(id, CancellationToken.None)).Error,
+            "analysis.UpdateWorkTreePath" => (await analyses.UpdateWorkTreePathAsync(id, "/tmp", CancellationToken.None)).Error,
+            "analysis.UpdateLastPrompt" => (await analyses.UpdateLastPromptAsync(id, "p", "r", CancellationToken.None)).Error,
             _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null),
         };
 
         error.Should().NotContain(Secret).And.NotContain("hunter2");
         error.Should().Contain("The cause is logged.");
-        var logged = _taskLog.Entries.Concat(_projectLog.Entries).Concat(_brainstormLog.Entries).Concat(_repositoryLog.Entries).Should()
+        var logged = _taskLog.Entries.Concat(_projectLog.Entries).Concat(_brainstormLog.Entries).Concat(_repositoryLog.Entries)
+            .Concat(_analysisLog.Entries).Should()
             .ContainSingle(e => e.Level == LogLevel.Error).Subject;
         logged.Exception.Should().NotBeNull();
         logged.Exception!.GetBaseException().Should().BeOfType<SecretDbException>();

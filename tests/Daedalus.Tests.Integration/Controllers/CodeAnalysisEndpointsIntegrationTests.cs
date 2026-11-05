@@ -475,6 +475,55 @@ public sealed class CodeAnalysisEndpointsIntegrationTests : IAsyncLifetime
 
     #endregion
 
+    #region Lost race
+
+    /// <summary>
+    ///     Owner decision of 2026-11-05 (R74, ruling R95): a write whose guarded save lost a race to another write answers
+    ///     409 Conflict with the repository's refusal as its detail, on iterate, finalize and cancel. Red, shown before
+    ///     the mapping: each route answered 400 with the refusal.
+    /// </summary>
+    [Theory(Timeout = 5000)]
+    [InlineData("iterate")]
+    [InlineData("finalize")]
+    [InlineData("cancel")]
+    public async Task A_write_that_lost_a_race_answers_409_with_the_refusal(string route)
+    {
+        // Arrange
+        const string Refusal = "The analysis request was modified by another operation. Please retry.";
+        var entity = CreateTestEntity();
+        _repositoryMock.GetByIdAsync(entity.Id, Arg.Any<CancellationToken>())
+            .Returns(Result<CodeAnalysisRequest>.Success(entity));
+        _repositoryMock.UpdateIterationAsync(
+                entity.Id, Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Failure(Refusal));
+        _repositoryMock.CompleteAsync(entity.Id, null, null, Arg.Any<CancellationToken>())
+            .Returns(Result.Failure(Refusal));
+        _repositoryMock.CancelAsync(entity.Id, Arg.Any<CancellationToken>())
+            .Returns(Result.Failure(Refusal));
+
+        // Act
+        IResult result = route switch
+        {
+            "iterate" => (await CodeAnalysisEndpoints.IterateAnalysis(
+                entity.Id, await BindBody(new IterateAnalysisRequest(entity.Id, "Response")), CreateContext(),
+                _repositoryMock, NullLoggerFactory.Instance, CancellationToken.None)).Result,
+            "finalize" => (await CodeAnalysisEndpoints.FinalizeAnalysis(
+                entity.Id, await BindBody(new FinalizeAnalysisRequest()), CreateContext(), _repositoryMock,
+                NullLoggerFactory.Instance, CancellationToken.None)).Result,
+            "cancel" => (await CodeAnalysisEndpoints.CancelAnalysis(
+                entity.Id, CreateContext(), _repositoryMock, NullLoggerFactory.Instance, CancellationToken.None)).Result,
+            _ => throw new ArgumentOutOfRangeException(nameof(route), route, null),
+        };
+
+        // Assert
+        var problem = result.Should().BeOfType<ApiProblemResult>().Subject;
+        problem.StatusCode.Should().Be(409);
+        problem.ProblemDetails.Title.Should().Be("Conflict");
+        problem.ProblemDetails.Detail.Should().Be(Refusal);
+    }
+
+    #endregion
+
     #region GetNextPending
 
     [Fact(Timeout = 5000)]

@@ -1,5 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using Daedalus.Domain.CodeAnalysis;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence.Configurations;
 using Microsoft.EntityFrameworkCore;
@@ -20,8 +19,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<TaskExecution> TaskExecutions => Set<TaskExecution>();
     public DbSet<ExecutionSession> ExecutionSessions => Set<ExecutionSession>();
     public DbSet<Project> Projects => Set<Project>();
-    public DbSet<CodeAnalysisRequest> CodeAnalysisRequests => Set<CodeAnalysisRequest>();
-    public DbSet<AnalysisIteration> AnalysisIterations => Set<AnalysisIteration>();
     public DbSet<AgentSession> AgentSessions => Set<AgentSession>();
 
     /// <summary>Recurring autonomous runs; see <see cref="ScheduledRun"/>.</summary>
@@ -44,8 +41,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     internal static readonly (Type Configuration, Action<ModelBuilder> Apply)[] Configurations =
     [
         Entry(new AgentSessionConfiguration()),
-        Entry(new AnalysisIterationConfiguration()),
-        Entry(new CodeAnalysisRequestConfiguration()),
         Entry(new ExecutionSessionConfiguration()),
         Entry(new ProjectConfiguration()),
         Entry(new ScheduledRunConfiguration()),

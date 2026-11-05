@@ -28,10 +28,25 @@ public sealed partial class AnalysisOutcome
     [EqualityMember] public string ValidationResultForEquality => ValidationResult ?? string.Empty;
     [EqualityMember] public bool HasFailedValidationForEquality => HasFailedValidation;
 
-    // Required by EF Core for owned type materialization
     private AnalysisOutcome() { }
 
     public static AnalysisOutcome Empty() => new();
+
+    /// <summary>Rebuilds a stored outcome, for persistence only: every value is taken as stored.</summary>
+    /// <param name="pullRequestUrl">The pull request URL, or null.</param>
+    /// <param name="commitShaFinal">The final commit SHA, or null.</param>
+    /// <param name="validationResult">The validation result JSON document, or null.</param>
+    /// <param name="hasFailedValidation">Whether validation failed.</param>
+    /// <returns>The outcome as stored.</returns>
+    public static AnalysisOutcome Rehydrate(
+        string? pullRequestUrl, string? commitShaFinal, string? validationResult, bool hasFailedValidation) =>
+        new()
+        {
+            PullRequestUrl = pullRequestUrl,
+            CommitShaFinal = commitShaFinal,
+            ValidationResult = validationResult,
+            HasFailedValidation = hasFailedValidation
+        };
 
     public AnalysisOutcome WithValidation(string validationResult, bool hasFailed)
     {
