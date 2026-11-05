@@ -1,8 +1,40 @@
 # Session State
 
-**Last session:** 2026-11-04
+**Last session:** 2026-11-05
 
-## Current Position - phase 3.4 complete (2026-11-04), next phase 3.5
+## Current Position - phase 3.5 design approved (2026-11-05), next: the plan
+
+**Milestone 3, phase 3.5, EF Core to ZeroAlloc.ORM.** Branch `phase/3.5-zeroalloc-orm`, worktree
+`.claude/worktrees/phase-3.5`, from `main` `fd97a9b4` (#437 merged). No PR yet. Release-please stays on hold.
+
+- **Design, approved by the owner 2026-11-05:** `docs/superpowers/specs/2026-11-05-phase-3.5-zeroalloc-orm-design.md`.
+  Owner decisions 1 to 6 are in it: start now; Outbox gap 4.5 fixed upstream; #290 fixed with a lost-update-only
+  `xmin` guard plus migration 2 dropping six dead `bytea` columns; `Rehydrate` factories in Domain; no EF rollback
+  (restore a backup instead).
+- **ZeroAlloc state, checked 2026-11-05:** ZeroAlloc.ORM and `ZeroAlloc.ORM.Linq` 2.13.0 released; gaps 4.1 to 4.3
+  released in 2.4.0; 4.4 covered by LINQ `Sql.Xmin` (2.9.0); 4.6 avoided (small migration numbers); 4.5 open.
+- **Outbox handover** for the ZeroAlloc session: `docs/plans/2026-11-05-zeroalloc-outbox-orm-handover.md`. The owner
+  takes it there. Only the outbox tasks (with `ScheduledRunStore`, `ScheduledRunExecutionStore`,
+  `ScheduleReconciler`) and EF removal wait on that release.
+- **Trap:** a worktree branch created from `origin/main` tracks `origin/main`; push with an explicit refspec
+  `phase/3.5-zeroalloc-orm:phase/3.5-zeroalloc-orm`. Upstream is now fixed to the phase branch.
+
+## Open Decisions
+
+None. The plan makes the builder's calls listed at the end of the design.
+
+## Blockers
+
+The Outbox.Orm release, for the outbox tasks only.
+
+## Recommended Next Step
+
+In a fresh session, in the worktree: `start-next-phase` routes to `superpowers:writing-plans` for 3.5 (Surface Data,
+no pre-plan hook). Plan from the design plus the gap audit `docs/plans/2026-10-17-zeroalloc-orm-gap-audit.md`
+(sections 2, 3.4, 5). Split tasks to one store each, transaction partners together, outbox tasks and EF removal
+last. Then `list-phase-assumptions`, then subagent-driven execution.
+
+## Earlier Position - phase 3.4 complete (2026-11-04), next phase 3.5
 
 **Milestone 3.** Phase 3.4, controllers to minimal APIs, merged as #427 (`87c573aa`) and marked complete in ROADMAP.md
 and MILESTONE.md. Renovate #402 closed: `Asp.Versioning.Mvc` left with MVC. Release-please stays on hold.
