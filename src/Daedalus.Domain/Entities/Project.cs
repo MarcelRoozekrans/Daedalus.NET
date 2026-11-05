@@ -1,5 +1,3 @@
-#pragma warning disable CA1819 // Use byte[] instead of property returning array (EF Core concurrency token standard pattern)
-#pragma warning disable S1144 // EF Core sets RowVersion via reflection (unused private setter is required)
 #pragma warning disable CA1054, CA1056 // Repository URL stored as string for EF Core mapping and git CLI consumption
 
 using ZeroAlloc.Results;
@@ -38,10 +36,59 @@ public sealed class Project : AggregateRoot<Guid>
     public DateTime? ModifiedAt { get; private set; }
 
     /// <summary>
-    ///     Gets the concurrency token (row version) for optimistic locking.
-    ///     Prevents lost updates when multiple operations modify project metadata.
+    ///     Gets the row's PostgreSQL <c>xmin</c> as it was read, the concurrency token of a guarded save: a save of a
+    ///     project another write changed since it was read is refused. Zero for a project not read from the database.
     /// </summary>
-    public byte[]? RowVersion { get; private set; }
+    public uint RowVersion { get; private set; }
+
+    private Project()
+    {
+    }
+
+    /// <summary>
+    ///     Rebuilds a stored project, for persistence only: it sets every value as given, validates nothing and raises
+    ///     no domain event, so a row <see cref="Create"/> would refuse today still loads.
+    /// </summary>
+    /// <param name="id">The project's id.</param>
+    /// <param name="version">The version of the project structure.</param>
+    /// <param name="projectName">The project name.</param>
+    /// <param name="description">The description.</param>
+    /// <param name="createdAt">When the project was created.</param>
+    /// <param name="modifiedAt">When the project was last modified, if ever.</param>
+    /// <param name="defaultBranch">The default branch.</param>
+    /// <param name="repositoryUrl">The repository URL, empty when none is set.</param>
+    /// <param name="rowVersion">The row's <c>xmin</c> as it was read.</param>
+    /// <param name="tasks">The project's tasks, empty for a read that loads none.</param>
+    /// <returns>The project.</returns>
+    public static Project Rehydrate(
+        Guid id,
+        string version,
+        string projectName,
+        string description,
+        DateTime createdAt,
+        DateTime? modifiedAt,
+        string defaultBranch,
+        string repositoryUrl,
+        uint rowVersion,
+        IEnumerable<Task> tasks)
+    {
+        ArgumentNullException.ThrowIfNull(tasks);
+
+        var project = new Project
+        {
+            Id = id,
+            Version = version,
+            ProjectName = projectName,
+            Description = description,
+            CreatedAt = createdAt,
+            ModifiedAt = modifiedAt,
+            DefaultBranch = defaultBranch,
+            RepositoryUrl = repositoryUrl,
+            RowVersion = rowVersion,
+        };
+        project._tasks.AddRange(tasks);
+        return project;
+    }
 
     /// <summary>
     ///     Creates a new project.
@@ -210,6 +257,4 @@ public sealed class Project : AggregateRoot<Guid>
         return Result.Success();
     }
 }
-#pragma warning restore S1144
-#pragma warning restore CA1819
 #pragma warning restore CA1054, CA1056

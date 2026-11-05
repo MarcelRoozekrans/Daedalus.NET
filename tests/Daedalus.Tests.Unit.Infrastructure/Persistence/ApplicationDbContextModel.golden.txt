@@ -306,7 +306,6 @@ Model:
         Annotations: 
           MaxLength: 2000
           Relational:DefaultValue: 
-      RowVersion (byte[]) Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
       Version (string) Required MaxLength(50)
         Annotations: 
           MaxLength: 50

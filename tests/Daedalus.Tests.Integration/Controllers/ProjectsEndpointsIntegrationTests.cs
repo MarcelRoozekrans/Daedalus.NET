@@ -43,7 +43,7 @@ public class ProjectsEndpointsIntegrationTests(PostgresFixture fixture) : IAsync
 
         _dbContext = new ApplicationDbContext(options);
 
-        _projectQueryService = new ProjectQueryService(_dbContext, new DisabledWorkflowRunStatusReader());
+        _projectQueryService = new ProjectQueryService(fixture.Db, new DisabledWorkflowRunStatusReader());
     }
 
     public async Task DisposeAsync()

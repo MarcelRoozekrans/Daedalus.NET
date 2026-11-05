@@ -83,7 +83,7 @@ public sealed class TaskStatusReadPathTests(PostgresFixture fixture) : IAsyncLif
     [Fact]
     public async SystemTask Project_query_GetAll_derives_the_status_and_skips_runless_tasks()
     {
-        var page = await new ProjectQueryService(_db, _runs).GetAllAsync(1, 10);
+        var page = await new ProjectQueryService(fixture.Db, _runs).GetAllAsync(1, 10);
 
         AssertDerived(page.Items.Single().Tasks);
         await _runs.Received(2).ReadAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
@@ -93,7 +93,7 @@ public sealed class TaskStatusReadPathTests(PostgresFixture fixture) : IAsyncLif
     [Fact]
     public async SystemTask Project_query_GetWithTasks_derives_the_status()
     {
-        var project = await new ProjectQueryService(_db, _runs).GetWithTasksAsync(_projectId);
+        var project = await new ProjectQueryService(fixture.Db, _runs).GetWithTasksAsync(_projectId);
 
         AssertDerived(project!.Tasks);
     }

@@ -24,7 +24,7 @@ public class ProjectQueryServiceIntegrationTests(PostgresFixture fixture) : IAsy
         var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
 
         _dbContext = new ApplicationDbContext(options);
-        _sut = new ProjectQueryService(_dbContext, new DisabledWorkflowRunStatusReader());
+        _sut = new ProjectQueryService(fixture.Db, new DisabledWorkflowRunStatusReader());
     }
 
     public async SystemTask DisposeAsync()
