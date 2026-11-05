@@ -7,8 +7,10 @@ using Daedalus.Infrastructure.Persistence.Orm.CodeAnalysisRequests;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
+using ZeroAlloc.ORM;
 using SystemTask = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Repositories;
@@ -42,7 +44,9 @@ public sealed class CodeAnalysisRepositoryRoundTripTests(PostgresFixture fixture
 
     public SystemTask DisposeAsync() => SystemTask.CompletedTask;
 
-    private CodeAnalysisRepository Repository() => new(fixture.Db, NullLogger<CodeAnalysisRepository>.Instance);
+    private readonly CapturingLogger _log = new();
+
+    private CodeAnalysisRepository Repository() => new(fixture.Db, _log);
 
     /// <summary>
     ///     A request stored through the repository with every column set, its owned values and two iterations comes back
@@ -138,7 +142,7 @@ public sealed class CodeAnalysisRepositoryRoundTripTests(PostgresFixture fixture
     [MemberData(nameof(GuardedMethods))]
     public async SystemTask A_guarded_save_loses_the_race_with_ModifiedByAnotherOperation(string method)
     {
-        var id = await AddRequestAsync(string.Equals(method, "UpdateStatus", StringComparison.Ordinal) ? AnalysisStatus.Ready : AnalysisStatus.AnalysisInProgress);
+        var id = await AddRequestAsync(StatusFor(method));
 
         var result = await WhileAnotherWriteHoldsTheRowAsync(
             """
@@ -166,13 +170,14 @@ public sealed class CodeAnalysisRepositoryRoundTripTests(PostgresFixture fixture
     ///     method's logged failure (EF's update matched no row and its <c>DbUpdateConcurrencyException</c> fell into the
     ///     method's <c>catch</c>), now with the generic text, not the retry text (ruling R90). Red: answer every
     ///     <c>ZeroAllocOrmConcurrencyException</c> as modified by another operation; the deleted request answers that
-    ///     instead.
+    ///     instead. Red, shown: drop the <c>logError</c> call on the deleted path of <c>SaveGuardedAsync</c>; no Error
+    ///     entry carries the conflict.
     /// </summary>
     [Theory]
     [MemberData(nameof(GuardedMethods))]
     public async SystemTask A_guarded_save_of_a_request_deleted_since_its_load_keeps_todays_error(string method)
     {
-        var id = await AddRequestAsync(string.Equals(method, "UpdateStatus", StringComparison.Ordinal) ? AnalysisStatus.Ready : AnalysisStatus.AnalysisInProgress);
+        var id = await AddRequestAsync(StatusFor(method));
 
         var result = await WhileAnotherWriteHoldsTheRowAsync(
             """DELETE FROM "CodeAnalysisRequests" WHERE "Id" = @id""",
@@ -181,7 +186,34 @@ public sealed class CodeAnalysisRepositoryRoundTripTests(PostgresFixture fixture
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().StartWith("Error ").And.EndWith($"analysis request {id}. The cause is logged.");
+        _log.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error)
+            .Which.Exception.Should().BeOfType<ZeroAllocOrmConcurrencyException>();
         (await Repository().GetByIdAsync(id)).Error.Should().Be($"Analysis request {id} not found");
+    }
+
+    /// <summary>
+    ///     Review focus 3 for the independent writes: a request deleted after the work tree path or the last prompt
+    ///     write loaded it answers the method's logged failure, as EF's update of a deleted row did, with the generic
+    ///     text (R89, R94), and the refused write is logged. Red, shown for both: drop <c>ThrowOnNoRows = true</c> from
+    ///     <c>SetWorkTreePath</c> and <c>SetLastPrompt</c>; the write of no row answers success.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(IndependentMethods))]
+    public async SystemTask An_independent_save_of_a_request_deleted_since_its_load_answers_its_failure(string method)
+    {
+        var id = await AddRequestAsync(AnalysisStatus.Ready);
+
+        var result = await WhileAnotherWriteHoldsTheRowAsync(
+            """DELETE FROM "CodeAnalysisRequests" WHERE "Id" = @id""",
+            id,
+            () => Independent(method, id));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(string.Equals(method, "UpdateWorkTreePath", StringComparison.Ordinal)
+            ? $"Error updating work tree path of analysis request {id}. The cause is logged."
+            : $"Error updating last prompt of analysis request {id}. The cause is logged.");
+        _log.Entries.Should().ContainSingle(e => e.Level == LogLevel.Error)
+            .Which.Exception.Should().BeOfType<ZeroAllocOrmConcurrencyException>();
     }
 
     /// <summary>
@@ -240,9 +272,7 @@ public sealed class CodeAnalysisRepositoryRoundTripTests(PostgresFixture fixture
             SET "Status" = 9, "FailureReason" = 'first writer', "CompletedAt" = @at WHERE "Id" = @id
             """,
             id,
-            () => string.Equals(method, "UpdateWorkTreePath", StringComparison.Ordinal)
-                ? Repository().UpdateWorkTreePathAsync(id, " /tmp/new-tree ")
-                : Repository().UpdateLastPromptAsync(id, " new prompt ", " new response "));
+            () => Independent(method, id));
 
         result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : string.Empty);
         var stored = (await Repository().GetByIdAsync(id)).Value;
@@ -393,6 +423,16 @@ public sealed class CodeAnalysisRepositoryRoundTripTests(PostgresFixture fixture
             Guid.NewGuid(), requestId, number, "branch", "sha", prompt, "response " + number, true, false,
             """{"errors": []}""", 10 * number, 20 * number, "model", _at.AddSeconds(number));
 
+    private static AnalysisStatus StatusFor(string method) =>
+        string.Equals(method, "UpdateStatus", StringComparison.Ordinal)
+            ? AnalysisStatus.Ready
+            : AnalysisStatus.AnalysisInProgress;
+
+    private Task<Result> Independent(string method, Guid id) =>
+        string.Equals(method, "UpdateWorkTreePath", StringComparison.Ordinal)
+            ? Repository().UpdateWorkTreePathAsync(id, " /tmp/new-tree ")
+            : Repository().UpdateLastPromptAsync(id, " new prompt ", " new response ");
+
     private Task<Result> Guarded(string method, Guid id) => method switch
     {
         "UpdateStatus" => Repository().UpdateStatusAsync(id, AnalysisStatus.AnalysisInProgress),
@@ -470,5 +510,21 @@ public sealed class CodeAnalysisRepositoryRoundTripTests(PostgresFixture fixture
         }
 
         await command.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>Records each entry's level and exception.</summary>
+    private sealed class CapturingLogger : ILogger<CodeAnalysisRepository>
+    {
+        public List<(LogLevel Level, Exception? Exception)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, exception));
     }
 }

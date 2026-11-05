@@ -18,9 +18,10 @@ namespace Daedalus.Infrastructure.Persistence;
 ///         <see cref="RecordValidationAsync"/>, <see cref="CompleteAsync"/>, <see cref="FailAsync"/> and
 ///         <see cref="CancelAsync"/>, are guarded by the <c>xmin</c> the request was read with (#290): a request another
 ///         write changed since its load is refused with <see cref="ModifiedByAnotherOperation"/> and nothing is
-///         written; one deleted since answers the method's logged failure. <see cref="UpdateIterationAsync"/> writes the iteration count and inserts the iteration in one
-///         transaction. <see cref="UpdateWorkTreePathAsync"/> and <see cref="UpdateLastPromptAsync"/> are independent:
-///         they write only their own columns, by id, with no version check.
+///         written; one deleted since answers the method's logged failure. <see cref="UpdateIterationAsync"/> writes
+///         the iteration count and inserts the iteration in one transaction. <see cref="UpdateWorkTreePathAsync"/> and
+///         <see cref="UpdateLastPromptAsync"/> are independent: they write only their own columns, by id, with no
+///         version check; a request deleted since their load answers their logged failure.
 ///     </para>
 ///     <para>
 ///         No save reads the new <c>xmin</c> back into an instance (rulings R58, R70): every write here reads the row
