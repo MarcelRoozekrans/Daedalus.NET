@@ -172,35 +172,6 @@ Model:
           Relational:Name: IX_CodeAnalysis_RepositoryUrl
     Annotations: 
       RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
-  EntityType: AgentMessage
-    Properties: 
-      Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
-      ContentJson (string) Required
-        Annotations: 
-          Relational:ColumnType: jsonb
-      CreatedAt (DateTime) Required
-      InputTokens (int?)
-      ModelId (string) MaxLength(128)
-        Annotations: 
-          MaxLength: 128
-      OutputTokens (int?)
-      Role (string) Required MaxLength(32)
-        Annotations: 
-          MaxLength: 32
-      Sequence (int) Required Index
-      SessionId (Guid) Required FK Index
-    Keys: 
-      Id PK
-    Foreign keys: 
-      AgentMessage {'SessionId'} -> AgentSession {'Id'} Required Cascade
-    Indexes: 
-      SessionId, Sequence Unique
-        Annotations: 
-          Relational:Name: IX_AgentMessage_Session_Sequence
-    Annotations: 
-      Relational:Schema: 
-      Relational:TableName: AgentMessages
-      RelationshipDiscoveryConvention:NavigationCandidates: Microsoft.EntityFrameworkCore.Utilities.OrderedDictionary`2[System.Reflection.PropertyInfo,System.ValueTuple`2[System.Type,System.Nullable`1[System.Boolean]]]
   EntityType: AgentSession
     Properties: 
       Id (Guid) Required PK AfterSave:Throw ValueGenerated.OnAdd
@@ -210,7 +181,6 @@ Model:
       OwnerId (string) Required Index MaxLength(256)
         Annotations: 
           MaxLength: 256
-      RowVersion (byte[]) Concurrency BeforeSave:Ignore AfterSave:Ignore ValueGenerated.OnAddOrUpdate
       State (AgentSessionState) Required
         Annotations: 
           ProviderClrType: System.Int32

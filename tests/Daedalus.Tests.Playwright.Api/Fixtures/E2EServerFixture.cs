@@ -134,6 +134,11 @@ public class E2EServerFixture
                     // now, so turning it on is a decision for a later change, not a schema gap.
                     builder.UseSetting("Thalos:Workflow:Enabled", "false");
 
+                    // A host setting, so Program sees it while it registers services: AddApplicationDatabase builds the
+                    // NpgsqlDataSource behind DaedalusDb from it then, before ConfigureAppConfiguration above applies,
+                    // and the ZeroAlloc.ORM stores and AgentSessionCrashRecovery would open the default database.
+                    builder.UseSetting("ConnectionStrings:daedalus", ConnectionString);
+
                     builder.ConfigureServices(services =>
                     {
                         // Remove ALL existing DbContext registrations to avoid conflicts
@@ -147,8 +152,8 @@ public class E2EServerFixture
                         RemoveServicesByType(services, "IScopedDbContextLease");
                         RemoveServicesByType(services, "PooledDbContextFactory");
 
-                        // Singleton consumers (Thalos PostgresAgentSessionStore, AgentSessionCrashRecovery) need
-                        // IDbContextFactory<T>; register it first so DbContextOptions<T> is the singleton both share.
+                        // Singleton consumers need IDbContextFactory<T>; register it first so DbContextOptions<T> is
+                        // the singleton both share.
                         services.AddPooledDbContextFactory<ApplicationDbContext>(options =>
                         {
                             options.UseNpgsql(ConnectionString);

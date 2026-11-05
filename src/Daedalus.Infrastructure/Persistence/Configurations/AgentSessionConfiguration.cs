@@ -5,7 +5,9 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 namespace Daedalus.Infrastructure.Persistence.Configurations;
 
 /// <summary>
-///     EF Core configuration for the AgentSession aggregate root (Thalos session header).
+///     EF Core configuration for the AgentSession aggregate root (Thalos session header). The session store writes
+///     through ZeroAlloc.ORM; this mapping stays only for <c>CostAnalyticsService</c>, which still reads the table
+///     through EF Core until it is ported (ruling R7). The dead <c>bytea</c> <c>"RowVersion"</c> column is not mapped.
 /// </summary>
 internal sealed class AgentSessionConfiguration : IEntityTypeConfiguration<AgentSession>
 {
@@ -29,9 +31,6 @@ internal sealed class AgentSessionConfiguration : IEntityTypeConfiguration<Agent
         builder.Property(s => s.TurnCount).IsRequired();
         builder.Property(s => s.TotalInputTokens).IsRequired();
         builder.Property(s => s.TotalOutputTokens).IsRequired();
-
-        builder.Property(s => s.RowVersion)
-            .IsRowVersion();
 
         builder.HasIndex(s => new { s.OwnerId, s.CreatedAt })
             .HasDatabaseName("IX_AgentSession_Owner_CreatedAt");

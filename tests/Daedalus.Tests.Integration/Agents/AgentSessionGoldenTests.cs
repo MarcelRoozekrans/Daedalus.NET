@@ -1,9 +1,8 @@
 using System.Text.Json;
 using Daedalus.Agents.Sessions;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm.AgentSessions;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Time.Testing;
 using Thalos;
@@ -48,20 +47,20 @@ public sealed class AgentSessionGoldenTests(PostgresFixture fixture) : IAsyncLif
     [Fact]
     public async Task Stored_rows_read_back_as_the_conversation()
     {
-        var store = new PostgresAgentSessionStore(new DbContextFactory(fixture.ConnectionString), new FakeTimeProvider());
+        var store = new PostgresAgentSessionStore(fixture.Db, new FakeTimeProvider());
         var session = await store.CreateAsync(new AgentId(Guid.NewGuid()), "owner-1", CancellationToken.None);
         session.IsSuccess.Should().BeTrue();
 
         var at = new DateTime(2026, 10, 22, 0, 0, 0, DateTimeKind.Utc);
-        await using (var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(fixture.ConnectionString)))
+        await using (var connection = await fixture.Db.OpenAsync(CancellationToken.None))
         {
             var sequence = 0;
-            foreach (var (role, json) in StoredRows)
-            {
-                db.AgentMessages.Add(AgentMessage.Create(session.Value.Id.Value, sequence++, role, json, null, null, null, at).Value);
-            }
+            var rows = StoredRows
+                .Select(row => AgentMessage.Create(session.Value.Id.Value, sequence++, row.Role, row.Json, null, null, null, at).Value)
+                .ToList();
 
-            await db.SaveChangesAsync();
+            (await new AgentSessionSql(connection).AppendAsync(session.Value.Id.Value, rows, CancellationToken.None))
+                .Should().BeTrue();
         }
 
         var loaded = await store.LoadMessagesAsync(session.Value.Id, CancellationToken.None);
@@ -149,9 +148,4 @@ public sealed class AgentSessionGoldenTests(PostgresFixture fixture) : IAsyncLif
         ("assistant", """{"role": "assistant", "contents": [{"text": "Writing it.", "$type": "text"}, {"name": "workspace__write_file", "$type": "functionCall", "callId": "call-1", "arguments": {"path": "<a & 'é' 🚀>", "count": 3}, "informationalOnly": false}]}"""),
         ("tool", """{"role": "tool", "contents": [{"$type": "functionResult", "callId": "call-1", "result": "<a & 'é' 🚀>"}]}"""),
     ];
-
-    private sealed class DbContextFactory(string connectionString) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => new(PostgresFixture.CreateDbContextOptions(connectionString));
-    }
 }

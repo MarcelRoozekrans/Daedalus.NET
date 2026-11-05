@@ -26,8 +26,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Thalos;
@@ -167,17 +167,17 @@ public class E2EServerFixture
             // so _framework, index.html, CSS, and Radzen assets are served
             builder.WebHost.UseStaticWebAssets();
 
-            // Database. Singleton consumers (Thalos PostgresAgentSessionStore, AgentSessionCrashRecovery) need
-            // IDbContextFactory<T>; register it first so DbContextOptions<T> is the singleton both share, and keep the
-            // scoped DbContext's options singleton too (otherwise the factory sees a scoped IDbContextOptionsConfiguration).
+            // Database. Singleton consumers need IDbContextFactory<T>; register it first so DbContextOptions<T> is the
+            // singleton both share, and keep the scoped DbContext's options singleton too (otherwise the factory sees a
+            // scoped IDbContextOptionsConfiguration).
             builder.Services.AddPooledDbContextFactory<ApplicationDbContext>(options =>
                 options.UseNpgsql(ConnectionString));
             builder.Services.AddDbContext<ApplicationDbContext>(options =>
                 options.UseNpgsql(ConnectionString),
                 contextLifetime: ServiceLifetime.Scoped, optionsLifetime: ServiceLifetime.Singleton);
 
-            // The ZeroAlloc.ORM stores (memory, skills, charters) open their connections from one data source, as
-            // AddApplicationDatabase registers it in a real host.
+            // The ZeroAlloc.ORM stores (sessions, memory, skills, charters) and AgentSessionCrashRecovery open their
+            // connections from one data source, as AddApplicationDatabase registers it in a real host.
             builder.Services.TryAddSingleton(_ => Npgsql.NpgsqlDataSource.Create(ConnectionString));
             builder.Services.TryAddSingleton<DaedalusDb>();
 

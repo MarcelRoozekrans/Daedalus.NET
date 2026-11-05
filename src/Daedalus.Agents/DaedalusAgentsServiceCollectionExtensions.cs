@@ -145,8 +145,9 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     without one the index is unavailable — remember stores <c>index_pending</c>, recall adds nothing.
     /// </param>
     /// <remarks>
-    ///     Requires <c>IDbContextFactory&lt;ApplicationDbContext&gt;</c> (see <c>AddApplicationDatabase</c>) and the
-    ///     Infrastructure services behind the knowledge tools (<c>IFailurePatternDatabase</c>) to be registered by the host.
+    ///     Requires <c>IDbContextFactory&lt;ApplicationDbContext&gt;</c> and <c>DaedalusDb</c> (see
+    ///     <c>AddApplicationDatabase</c>) and the Infrastructure services behind the knowledge tools
+    ///     (<c>IFailurePatternDatabase</c>) to be registered by the host.
     ///     Nothing here needs <c>ANTHROPIC_API_KEY</c> at registration time; the provider reads it lazily on first use.
     /// </remarks>
     /// <exception cref="InvalidOperationException">

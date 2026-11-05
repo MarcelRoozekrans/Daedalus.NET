@@ -1,6 +1,3 @@
-#pragma warning disable CA1819 // EF Core concurrency token standard pattern
-#pragma warning disable S1144 // EF Core sets RowVersion via reflection
-
 using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
@@ -35,10 +32,7 @@ public sealed class AgentSession : AggregateRoot<Guid>
     /// <summary>Gets the accumulated output tokens over all turns.</summary>
     public long TotalOutputTokens { get; private set; }
 
-    /// <summary>Gets the concurrency token (row version) for optimistic locking.</summary>
-    public byte[]? RowVersion { get; private set; }
-
-    private AgentSession() { } // EF Core
+    private AgentSession() { }
 
     /// <summary>Creates a new idle session with zero counters.</summary>
     /// <param name="id">The session id (supplied by the adapter; Thalos typed ids are Guid-backed).</param>
@@ -68,6 +62,42 @@ public sealed class AgentSession : AggregateRoot<Guid>
         });
     }
 
+    /// <summary>
+    ///     Rebuilds a stored session as it is, for persistence only: validates nothing and raises no domain events, so a
+    ///     row <see cref="Create"/> would refuse today still loads.
+    /// </summary>
+    /// <param name="id">The session id.</param>
+    /// <param name="agentId">The agent definition id.</param>
+    /// <param name="ownerId">The owner subject.</param>
+    /// <param name="state">The lifecycle state.</param>
+    /// <param name="createdAt">When the session was created (UTC).</param>
+    /// <param name="lastActivityAt">When the session was last touched (UTC).</param>
+    /// <param name="turnCount">The number of completed turns.</param>
+    /// <param name="totalInputTokens">The accumulated input tokens.</param>
+    /// <param name="totalOutputTokens">The accumulated output tokens.</param>
+    /// <returns>The session.</returns>
+    public static AgentSession Rehydrate(
+        Guid id,
+        Guid agentId,
+        string ownerId,
+        AgentSessionState state,
+        DateTime createdAt,
+        DateTime lastActivityAt,
+        int turnCount,
+        long totalInputTokens,
+        long totalOutputTokens) => new()
+        {
+            Id = id,
+            AgentId = agentId,
+            OwnerId = ownerId,
+            State = state,
+            CreatedAt = createdAt,
+            LastActivityAt = lastActivityAt,
+            TurnCount = turnCount,
+            TotalInputTokens = totalInputTokens,
+            TotalOutputTokens = totalOutputTokens,
+        };
+
     /// <summary>Increments the turn counter, accumulates token usage and bumps <see cref="LastActivityAt"/>.</summary>
     /// <param name="inputTokens">Input tokens consumed by the turn.</param>
     /// <param name="outputTokens">Output tokens produced by the turn.</param>
@@ -89,6 +119,3 @@ public sealed class AgentSession : AggregateRoot<Guid>
         LastActivityAt = utcNow;
     }
 }
-
-#pragma warning restore S1144
-#pragma warning restore CA1819

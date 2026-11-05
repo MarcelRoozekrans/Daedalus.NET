@@ -1,6 +1,6 @@
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.AgentSessions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Task = System.Threading.Tasks.Task;
@@ -15,7 +15,7 @@ namespace Daedalus.Agents.Sessions;
 /// </summary>
 /// <remarks>An unreachable database is logged and skipped (never fails host start) so test hosts without a DB still boot.</remarks>
 internal sealed partial class AgentSessionCrashRecovery(
-    IDbContextFactory<ApplicationDbContext> contextFactory,
+    DaedalusDb db,
     TimeProvider clock,
     ILogger<AgentSessionCrashRecovery> logger) : IHostedService
 {
@@ -24,15 +24,10 @@ internal sealed partial class AgentSessionCrashRecovery(
     {
         try
         {
-            await using var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
             var now = clock.GetUtcNow().UtcDateTime;
+            await using var connection = await db.OpenAsync(cancellationToken).ConfigureAwait(false);
 
-            var reset = await db.AgentSessions
-                .Where(s => s.State == AgentSessionState.Running)
-                .ExecuteUpdateAsync(set => set
-                    .SetProperty(s => s.State, AgentSessionState.Idle)
-                    .SetProperty(s => s.LastActivityAt, now), cancellationToken)
-                .ConfigureAwait(false);
+            var reset = await new AgentSessionSql(connection).ResetRunningAsync(now, cancellationToken).ConfigureAwait(false);
 
             if (reset > 0)
             {
