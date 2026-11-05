@@ -451,7 +451,6 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
         await WithScratchDatabaseAsync(async store =>
         {
             var runId = await ParkedAtGateAsync(store, "drop");
-            await DatabaseSchema.ApplyAsync(store.ConnectionString, CancellationToken.None);
 
             await using var scratch = new ScratchDaedalusDb(store.ConnectionString);
             var records = new WorkflowRunRecordStore(scratch.Db);
