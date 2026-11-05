@@ -1,7 +1,6 @@
 using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using Npgsql;
 using Testcontainers.PostgreSql;
 

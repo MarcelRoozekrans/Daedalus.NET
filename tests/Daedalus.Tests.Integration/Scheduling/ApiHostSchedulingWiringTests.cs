@@ -60,8 +60,9 @@ public sealed class ApiHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
         // the engine — left enabled here, every one of these would poll the shared database for the life of each test.
         // This is the other half of that setting: if the override in ApiWebApplicationFactory stopped taking effect
         // (a typo in the setting name, a removed UseSetting call), nothing else would fail loudly — the engine would
-        // simply start polling, silently, exactly the regression this test exists to catch. CliHostSchedulingWiringTests asserts the opposite polarity: that
-        // the *default* (Enabled=true, unset here) wires these services on a host that does not override it.
+        // simply start polling, silently, exactly the regression this test exists to catch.
+        // CliHostSchedulingWiringTests asserts the opposite polarity: that the *default* (Enabled=true, unset here) wires
+        // these services on a host that does not override it.
         var hosted = _factory.Services.GetServices<IHostedService>().ToList();
 
         hosted.Should().NotContain(h => h is WorkflowOutboxDispatchService);

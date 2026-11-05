@@ -11,17 +11,12 @@ var builder = Host.CreateApplicationBuilder(args);
 // Add console logging (minimal for migration tool)
 builder.Services.AddConsoleLogging();
 
-// Add database context (key must match the Aspire database resource name)
-builder.Services.AddApplicationDatabase(
-    builder.Configuration,
-    "daedalus",
-    DatabaseSettings.GetDefaultConnectionString());
-
 var host = builder.Build();
 
 try
 {
     var logger = host.Services.GetRequiredService<ILogger<Program>>();
+    // The key must match the Aspire database resource name.
     var connectionString = builder.Configuration.GetConnectionString("daedalus") ?? DatabaseSettings.GetDefaultConnectionString();
 
     // One connection for both steps, in one process: Daedalus' own migration source first, then the workflow
@@ -54,13 +49,14 @@ try
 
     // Two outbox tables now live in this one database, written and polled by this one process: the channel
     // pipeline's "OutboxMessages" (quoted identifier, mixed case, created by the Daedalus baseline) for the
-    // RepoDigest/channel pipeline, and ZeroAlloc.Outbox.Orm's OutboxMessages (unquoted in its own CREATE TABLE, so
-    // PostgreSQL folds it to lower case: outboxmessages) for the workflow engine below. They differ only in identifier case and quoting, never collide —
-    // PostgreSQL treats "OutboxMessages" and outboxmessages as distinct tables — and each is read by its own poller
-    // (ZeroAlloc.Outbox's OutboxWorkerService for the quoted one, Daedalus.Agents.Workflow.WorkflowOutboxDispatchService
-    // for the unquoted one). See tests/Daedalus.Tests.Integration/Migrations/WorkflowOrmMigrationTests.cs, which
-    // applies both the Daedalus baseline and this file's raw-SQL ones to the same throwaway database and asserts
-    // both tables exist side by side, rather than leaving this coexistence claim reasoned about instead of tested.
+    // RepoDigest/channel pipeline, and ZeroAlloc.Outbox.Orm's OutboxMessages (unquoted in its own CREATE TABLE,
+    // so PostgreSQL folds it to lower case: outboxmessages) for the workflow engine below. They differ only in
+    // identifier case and quoting, never collide — PostgreSQL treats "OutboxMessages" and outboxmessages as
+    // distinct tables — and each is read by its own poller (ZeroAlloc.Outbox's OutboxWorkerService for the
+    // quoted one, Daedalus.Agents.Workflow.WorkflowOutboxDispatchService for the unquoted one). See
+    // tests/Daedalus.Tests.Integration/Migrations/WorkflowOrmMigrationTests.cs, which applies both the Daedalus
+    // baseline and this file's raw-SQL ones to the same throwaway database and asserts both tables exist side
+    // by side, rather than leaving this coexistence claim reasoned about instead of tested.
     logger.LogInformation("Starting workflow engine migration");
 
     // WorkflowEngineMigrator runs the outbox schema first: OrmWorkflowStore enqueues into it in the same
@@ -78,7 +74,6 @@ try
     }
 
     logger.WorkflowEngineMigrationApplied(outcome.Value.UpgradedHistoryRows, outcome.Value.Applied.Count);
-
 
     logger.LogInformation("Workflow engine migration completed successfully");
 }
