@@ -16,7 +16,7 @@
   independent saves, so their `RowVersion` is dropped, not guarded; a lost race on Project and CodeAnalysisRequest
   returns "... was modified by another operation. Please retry."; ScheduleReconciler keeps EF's `xmin` guard, with an
   issue filed for the host-start failure in Task 19; R2-R5 stand: `Rehydrate` public, maps and SQL classes in
-  `Daedalus.Infrastructure/Persistence/Sql`, one `NpgsqlDataSource`, migrations embedded in Infrastructure.
+  `Daedalus.Infrastructure/Persistence/Sql`, now `Persistence/Orm` by R22, one `NpgsqlDataSource`, migrations embedded in Infrastructure.
 - **Execution:** subagent-driven, chosen by the owner.
 - **Rulings doc** `docs/plans/2026-11-05-phase-3.5-rulings.md` does not exist yet; Task 1 creates it.
 - **ZeroAlloc.ORM docs** are in `~/Projects/Prive/ZeroAlloc/ZeroAlloc.ORM` (`git show origin/main:docs/cookbook/linq.md`,
