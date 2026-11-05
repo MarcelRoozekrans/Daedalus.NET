@@ -8,6 +8,7 @@ namespace Daedalus.Infrastructure.Persistence.Migrations;
 ///     Daedalus' own schema migrations, the SQL files embedded beside this class. Migration 1, <c>0001_baseline.sql</c>,
 ///     is the schema EF Core's chain leaves at <see cref="EfHeadMigrationId"/>: a new database runs it, and a database
 ///     EF built at that head records it as applied without running it.
+///     Migration 2, <c>0002_drop_dead_rowversions.sql</c>, drops the six dead <c>bytea</c> <c>"RowVersion"</c> columns (#290).
 /// </summary>
 /// <remarks>
 ///     A database whose EF history ends anywhere else, older or empty, is refused with
