@@ -154,6 +154,11 @@ jobs:
         uses: MarcelRoozekrans/ci-baseline/actions/coverage-gate@v1
         with:
           reports: TestResults/**/coverage.cobertura.xml
+          floor: "75"
+          floor-override-reason: >-
+            Hand-written code measures 75.9%; the 80% floor only passed while about 28k lines of EF-generated
+            migrations counted as covered (R63). Raising it back to 80 is tracked in
+            MarcelRoozekrans/Daedalus.NET#438.
 
       # The raw Cobertura files of both test steps; Codecov merges them.
       - name: Upload coverage to Codecov
