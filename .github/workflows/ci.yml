@@ -281,7 +281,7 @@ jobs:
   # Escape hatch: the `skip-commitlint` label, for a pull request that imports history nobody can
   # rewrite (the one-time adoption of the local main, #236). Not for ordinary work.
   commitlint:
-    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'skip-commitlint')
+    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'skip-commitlint') && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
