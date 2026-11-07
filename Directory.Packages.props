@@ -11,32 +11,32 @@
          2.3.1 → 2.3.2, Validation and Testing: floor set by Minos.NET 1.1.0.
          2.3.2 → 2.3.3, Validation and Testing: floor set by Thalos.NET.Abstractions 0.18.0.
          2.3.3 → 2.3.4, Validation and Testing: floor set by Thalos.NET.Abstractions 0.19.0. -->
-    <ZeroAllocValidationVersion>2.3.4</ZeroAllocValidationVersion>
+    <ZeroAllocValidationVersion>2.5.0</ZeroAllocValidationVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- Aspire (13.1.0 → 13.4.6 fixes MessagePack via StreamJsonRpc). Aspire.Hosting.AppHost is implicit via Aspire.AppHost.Sdk (NU1009) -->
-    <PackageVersion Include="Aspire.Hosting" Version="13.4.6" />
-    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
+    <PackageVersion Include="Aspire.Hosting" Version="13.6.4" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.6.4" />
     <PackageVersion Include="Aspire.Hosting.Keycloak" Version="13.4.6-preview.1.26319.6" />
     <!-- Aspire.Hosting.Testing 13.4.6 (phase 3.3, Task 20): AppHostOllamaWiringTests builds the AppHost model with
          DistributedApplicationTestingBuilder and starts nothing. The CommunityToolkit Ollama hosting package is gone:
          its AddModel wiring named the connection string ollama-nomic-embed-text (#412), so the AppHost runs Ollama as a
          plain container instead. -->
-    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.4.6" />
+    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.6.4" />
     <!-- MessagePack 2.5.302 → 2.5.307 for GHSA-qhrr-8q5h-9q3h (nested arrays can pass buffer length limits; patched in
          2.5.303). It is transitive: Aspire.Hosting → StreamJsonRpc 2.25.29, which still asks for 2.5.302, so the pin
          lifts it under CentralPackageTransitivePinningEnabled. Drop it once StreamJsonRpc depends on a fixed version. -->
     <PackageVersion Include="MessagePack" Version="3.1.12" />
 
     <!-- OpenTelemetry 1.15.0 → 1.17.0 -->
-    <PackageVersion Include="OpenTelemetry" Version="1.17.0" />
+    <PackageVersion Include="OpenTelemetry" Version="1.20.1" />
     <!-- Tests only: an isolated, per-provider exporter, so a wiring test reads what this provider exported. -->
-    <PackageVersion Include="OpenTelemetry.Exporter.InMemory" Version="1.17.0" />
-    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
-    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0" />
+    <PackageVersion Include="OpenTelemetry.Exporter.InMemory" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.20.1" />
 
     <!-- OpenAPI (10.0.3 → 10.0.12 fixes Microsoft.OpenApi 2.0.0; 10.0.13 and 10.0.14 with the ASP.NET Core family below) -->
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
@@ -55,14 +55,14 @@
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
     <!-- 2.2.0 → 2.3.0: floor set by Thalos.NET.Sandbox.Host 0.19.0, whose ModelContextProtocol.AspNetCore 2.3.0
          pins ModelContextProtocol at exactly [2.3.0]. -->
-    <PackageVersion Include="ModelContextProtocol" Version="2.3.0" />
+    <PackageVersion Include="ModelContextProtocol" Version="2.3.1" />
 
     <!-- Analyzers (highest of the former per-project overrides) -->
     <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.19.0.132793" />
     <PackageVersion Include="Meziantou.Analyzer" Version="3.0.317" />
     <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.102" />
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
-    <PackageVersion Include="ZeroAlloc.Analyzers" Version="1.5.3" />
+    <PackageVersion Include="ZeroAlloc.Analyzers" Version="1.12.0" />
 
     <!-- Thalos.NET (nuget.org). 0.10.0 → 0.11.0 across the whole family: Thalos.NET.Workflow/.Orm pin
          Thalos.NET and Thalos.NET.Skills at exactly their own version, and all eighteen packages release
@@ -125,12 +125,12 @@
     <!-- Minos.NET 1.1.0: per-node model and tool selection, phase 2.10. Daedalus.Agents references Minos.NET and
          Minos.NET.SystemOne, the OpenRouter decision client. 1.0.1 → 1.1.0: OpenRouter's per-request zero data
          retention and data-collection deny, Minos.NET#202. -->
-    <PackageVersion Include="Minos.NET" Version="1.1.0" />
-    <PackageVersion Include="Minos.NET.SystemOne" Version="1.1.0" />
+    <PackageVersion Include="Minos.NET" Version="1.9.0" />
+    <PackageVersion Include="Minos.NET.SystemOne" Version="1.9.0" />
 
     <!-- 1.1.11: Flux.Blazor references Microsoft.AspNetCore.Components; 1.1.10 could not build for browser-wasm. -->
-    <PackageVersion Include="ZeroAlloc.Flux" Version="1.1.11" />
-    <PackageVersion Include="ZeroAlloc.Flux.Blazor" Version="1.1.11" />
+    <PackageVersion Include="ZeroAlloc.Flux" Version="1.3.0" />
+    <PackageVersion Include="ZeroAlloc.Flux.Blazor" Version="1.3.0" />
     <!-- ZeroAlloc.ORM 1.7.1 → 2.0.1 (#310): ZeroAlloc.Outbox.Orm 3.0.1 declares >= 2.0.0. 2.0.1 → 2.1.1: floor
          set by Thalos.NET.Workflow.Orm 0.11.1, the version it is built against.
          2.0 rejects a migration version collision instead of skipping it: the outbox schema is versions 1-2
@@ -142,14 +142,14 @@
     <!-- 2.3.1 → 2.4.0: floor set by Thalos.NET.Workflow.Orm 0.18.0 -->
     <!-- 2.4.0 → 2.9.0: floor set by Thalos.NET.Workflow.Orm 0.19.0 -->
     <!-- 2.9.0 → 2.10.0: floor set by Thalos.NET.Workflow.Orm 0.20.0 -->
-    <PackageVersion Include="ZeroAlloc.ORM" Version="2.10.0" />
+    <PackageVersion Include="ZeroAlloc.ORM" Version="2.13.0" />
     <!-- AdoNet.Async.Adapters: floor set by Thalos.NET.Workflow.Orm 0.7.0's own nuspec (1.4.1) — NOT the
          1.4.0 ZeroAlloc.Outbox.Orm 2.6.0 itself declares; Workflow.Orm's direct pin is the higher one and
          wins under CentralPackageTransitivePinningEnabled, so this must be pinned at 1.4.1 or NU1109 fires
          the moment Thalos.NET.Workflow.Orm is referenced. -->
     <!-- 1.4.1 → 1.5.0: floor set by Thalos.NET.Workflow.Orm 0.15.0 -->
     <!-- 1.5.0 → 1.5.2: floor set by Thalos.NET.Workflow.Orm 0.16.0 -->
-    <PackageVersion Include="AdoNet.Async.Adapters" Version="1.5.2" />
+    <PackageVersion Include="AdoNet.Async.Adapters" Version="1.5.6" />
     <!-- 1.2.3 → 1.2.4: floor set by Thalos.NET.Abstractions 0.11.1. 1.2.4 → 1.4.0: floor set by ZeroAlloc.Rest 3.3.2.
          1.4.0 → 1.4.1: floor set by Thalos.NET.Abstractions 0.16.0.
          1.4.1 → 1.4.2: floor set by Minos.NET 1.1.0.
@@ -161,35 +161,35 @@
          3.3.2 → 3.3.3: floor set by Minos.NET.SystemOne 1.1.0.
          3.3.3 → 3.6.0: floor set by ZeroAlloc.Rest.Anthropic and ZeroAlloc.Rest.Ollama 3.6.0, via Thalos.NET.Anthropic
          and Thalos.NET.Ollama 0.20.0; the G2 release adds SSE support and net8.0 targeting. -->
-    <PackageVersion Include="ZeroAlloc.Rest" Version="3.6.0" />
-    <PackageVersion Include="ZeroAlloc.Rest.SystemTextJson" Version="3.6.0" />
+    <PackageVersion Include="ZeroAlloc.Rest" Version="3.6.3" />
+    <PackageVersion Include="ZeroAlloc.Rest.SystemTextJson" Version="3.6.3" />
     <!-- 1.1.11, transitive until now → 1.2.0: floor set by ZeroAlloc.Rest 3.3.2.
          1.2.0 → 1.2.1: floor set by AI.Sentinel 2.3.2, via Thalos.NET.Sentinel 0.16.0.
          1.2.1 → 1.2.4: floor set by AI.Sentinel 3.2.1, via Thalos.NET.Sentinel 0.19.0. -->
-    <PackageVersion Include="ZeroAlloc.Collections" Version="1.2.4" />
+    <PackageVersion Include="ZeroAlloc.Collections" Version="1.2.5" />
     <!-- Phase 2.9: Daedalus.Agents generates [Instrument] proxies. Thalos's own dependency on this package excludes its
          analyzers, so the generator does not flow transitively: Daedalus references it directly. Version: the one
          Thalos.NET.Workflow 0.15.0's nuspec declares.
          1.12.0 → 1.12.2: floor set by Thalos.NET.Workflow 0.16.0.
          1.12.2 → 1.12.5: floor set by Thalos.NET.Abstractions and Thalos.NET.Workflow 0.18.0.
          1.12.5 → 1.12.6: floor set by Thalos.NET.Abstractions and Thalos.NET.Workflow 0.19.0. -->
-    <PackageVersion Include="ZeroAlloc.Telemetry" Version="1.12.6" />
+    <PackageVersion Include="ZeroAlloc.Telemetry" Version="1.12.7" />
     <!-- 2.0.10 → 2.0.12: floor set by Thalos.NET.Abstractions 0.13.0 -->
     <!-- 2.0.12 → 2.1.0: floor set by Thalos.NET.Abstractions 0.15.0 -->
     <!-- 2.1.0 → 2.2.0: floor set by Thalos.NET.Abstractions 0.16.0 -->
     <!-- 2.2.0 → 2.2.2: floor set by Thalos.NET.Abstractions 0.18.0 -->
     <!-- 2.2.2 → 2.2.5: floor set by Thalos.NET.Abstractions 0.19.0 -->
-    <PackageVersion Include="ZeroAlloc.ValueObjects" Version="2.2.5" />
+    <PackageVersion Include="ZeroAlloc.ValueObjects" Version="2.3.1" />
     <!-- 2.4.4 → 2.5.0: floor set by ZeroAlloc.Outbox 4.2.0. 2.5.0 → 2.5.1: floor set by AI.Sentinel 2.3.1, via
          Thalos.NET.Sentinel 0.14.2. 2.5.1 → 2.8.1: floor set by AI.Sentinel 2.3.2, via Thalos.NET.Sentinel 0.16.0.
          2.8.1 → 2.8.5: floor set by AI.Sentinel 3.2.1, via Thalos.NET.Sentinel 0.19.0. -->
-    <PackageVersion Include="ZeroAlloc.Serialisation" Version="2.8.5" />
+    <PackageVersion Include="ZeroAlloc.Serialisation" Version="2.10.0" />
     <!-- 2.1.3 → 2.1.5: floor set by Thalos.NET.Abstractions 0.13.0 -->
     <!-- 2.1.5 → 2.1.8: floor set by Thalos.NET.Abstractions 0.18.0 -->
-    <PackageVersion Include="ZeroAlloc.Authorization" Version="2.1.8" />
+    <PackageVersion Include="ZeroAlloc.Authorization" Version="2.2.1" />
     <PackageVersion Include="ZeroAlloc.Validation" Version="$(ZeroAllocValidationVersion)" />
     <PackageVersion Include="ZeroAlloc.Validation.Testing" Version="$(ZeroAllocValidationVersion)" />
-    <PackageVersion Include="ZeroAlloc.Mapping" Version="1.6.1" />
+    <PackageVersion Include="ZeroAlloc.Mapping" Version="1.6.13" />
     <!-- 5.1.5 → 6.0.2: floor set by Thalos.NET.Abstractions 0.12.0 (5.1.1 → 5.1.5 earlier: floor set by 0.6.0).
          Runtime behaviour change in Daedalus.Application: Mediator 6 opens an Activity span on every dispatch,
          even without WithTelemetry. -->
@@ -198,10 +198,10 @@
          6.1.1 → 6.4.0, Mediator and Generator together: floor set by Thalos.NET.Abstractions 0.15.0.
          6.4.0 → 6.6.0, Mediator and Generator together: floor set by Thalos.NET.Abstractions 0.16.0.
          6.6.0 → 6.6.3, Mediator and Generator together: floor set by Thalos.NET.Abstractions 0.18.0. -->
-    <PackageVersion Include="ZeroAlloc.Mediator" Version="6.6.3" />
-    <PackageVersion Include="ZeroAlloc.Mediator.Generator" Version="6.6.3" />
+    <PackageVersion Include="ZeroAlloc.Mediator" Version="6.6.5" />
+    <PackageVersion Include="ZeroAlloc.Mediator.Generator" Version="6.6.5" />
     <!-- 1.2.2 → 1.3.0: floor set by ZeroAlloc.Mediator 6.1.0. 1.3.0 → 1.4.0: floor set by ZeroAlloc.Validation 2.1.0. -->
-    <PackageVersion Include="ZeroAlloc.Pipeline" Version="1.4.0" />
+    <PackageVersion Include="ZeroAlloc.Pipeline" Version="1.4.4" />
     <!-- 2.7.1 → 3.0.1 (#310), all three together: 3.0 replaces FetchPendingAsync with a lease-based claim,
          row-locked on Postgres, so several hosts can poll one outbox table without dispatching a message twice.
          3.0.1, not 3.0.0: it fixes an EF Core 10 crash in ZeroAlloc.Outbox.EfCore. The EF table's lease columns
@@ -216,7 +216,7 @@
          4.4.3 → 4.4.5: floor set by Thalos.NET.Workflow.Orm 0.18.0.
          4.4.5 → 4.4.6: floor set by Thalos.NET.Workflow.Orm 0.19.0. -->
     <PackageVersion Include="ZeroAlloc.Outbox" Version="4.4.6" />
-    <PackageVersion Include="ZeroAlloc.Outbox.EfCore" Version="4.0.1" />
+    <PackageVersion Include="ZeroAlloc.Outbox.EfCore" Version="4.4.6" />
     <!-- 4.0.1 → 4.2.0: floor set by Thalos.NET.Workflow.Orm 0.14.0. 4.2.0 → 4.4.0: floor set by
          Thalos.NET.Workflow.Orm 0.15.0. 4.4.0 → 4.4.3: floor set by Thalos.NET.Workflow.Orm 0.16.0.
          4.4.3 → 4.4.5: floor set by Thalos.NET.Workflow.Orm 0.18.0.
@@ -246,19 +246,19 @@
     <!-- Phase 2.12: the console's live connection to /hubs/workflow-runs. -->
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.14" />
     <PackageVersion Include="Radzen.Blazor" Version="8.7.5" />
-    <PackageVersion Include="Scalar.AspNetCore" Version="2.12.50" />
+    <PackageVersion Include="Scalar.AspNetCore" Version="2.18.7" />
 
     <!-- EF Core / data. 10.0.2 → 10.0.12 across the family: floor set by ZeroAlloc.Outbox.EfCore 3.0.1, which
          declares Microsoft.EntityFrameworkCore and .Relational >= 10.0.12. Design and InMemory move with them so
          the family stays on one version. -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.14" />
     <!-- transitive pin: aligns Relational (10.0.0 via Npgsql.EFCore) with EFCore.Design (MSB3277) -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.14" />
     <!-- 10.0.1 → 10.0.3: floor set by Rag.NET.VectorStores.PgVector 0.1.0 (via Thalos.NET.Memory.RagNet) -->
     <PackageVersion Include="Npgsql" Version="10.0.3" />
-    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
 
     <!-- Microsoft.Extensions.* (10.0.12: transitive-pinning floor set by Thalos.NET.Abstractions 0.5.0 / Microsoft.Extensions.AI 10.10 / ModelContextProtocol 2.2 / Aspire 13.4.6) -->
     <!-- 10.0.12 → 10.0.13: floor set by Microsoft.AspNetCore.Components.WebAssembly and SignalR.Client 10.0.13.
@@ -279,7 +279,7 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.14" />
     <!-- 10.3.0 → 10.6.0: floor set by Aspire.Hosting.Testing 13.4.6 -->
-    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.6.0" />
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.11.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.14" />
@@ -289,26 +289,26 @@
     <PackageVersion Include="Cronos" Version="0.13.0" />
     <!-- 0.31.0 → 0.32.0: floor set by Thalos.NET.Git.LibGit2Sharp 0.6.0 -->
     <PackageVersion Include="LibGit2Sharp" Version="0.32.0" />
-    <PackageVersion Include="ZLinq" Version="1.5.4" />
+    <PackageVersion Include="ZLinq" Version="1.6.1" />
 
     <!-- Testing -->
     <!-- 9.5.0 → 9.6.0: floor set by Thalos.NET.Testing 0.7.0 (Daedalus.Tests.Integration references it). -->
     <PackageVersion Include="AwesomeAssertions" Version="9.6.0" />
-    <PackageVersion Include="BenchmarkDotNet" Version="0.15.0" />
+    <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
     <PackageVersion Include="Bogus" Version="35.6.5" />
     <PackageVersion Include="coverlet.collector" Version="10.1.0" />
     <!-- 10.10.0 → 10.11.0: floor set by Thalos.NET.Testing 0.18.0 -->
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
-    <PackageVersion Include="Microsoft.Playwright" Version="1.58.0" />
-    <PackageVersion Include="Microsoft.Playwright.NUnit" Version="1.58.0" />
+    <PackageVersion Include="Microsoft.Playwright" Version="1.64.1" />
+    <PackageVersion Include="Microsoft.Playwright.NUnit" Version="1.64.1" />
     <PackageVersion Include="NSubstitute" Version="6.2.0" />
     <PackageVersion Include="NUnit" Version="5.0.0" />
     <PackageVersion Include="NUnit3TestAdapter" Version="6.3.1" />
     <PackageVersion Include="Respawn" Version="7.0.0" />
-    <PackageVersion Include="Spectre.Console.Testing" Version="0.54.0" />
-    <PackageVersion Include="TngTech.ArchUnitNET.xUnit" Version="0.13.2" />
-    <PackageVersion Include="ZeroAlloc.TestHelpers" Version="1.3.2" />
+    <PackageVersion Include="Spectre.Console.Testing" Version="0.57.2" />
+    <PackageVersion Include="TngTech.ArchUnitNET.xUnit" Version="0.13.5" />
+    <PackageVersion Include="ZeroAlloc.TestHelpers" Version="1.9.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
     <!-- Phase 2.6 task B8: the sandbox-mode integration suite skips, rather than fails, without a Linux-container Docker
