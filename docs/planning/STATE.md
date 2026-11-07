@@ -34,7 +34,8 @@ None.
 ## Blockers
 
 The `ZeroAlloc.Outbox.Orm` release (`docs/plans/2026-11-05-zeroalloc-outbox-orm-handover.md`) for Tasks 18-22; Tasks
-24-26 follow 22 (ruling R8).
+24-26 follow 22 (ruling R8). Checked 2026-11-07: latest is 4.4.6 and the handover never reached upstream, so it was
+filed as ZeroAlloc-Net/ZeroAlloc.Outbox#434. Resume at Task 18 once a release closes it.
 
 ## Recommended Next Step
 
