@@ -640,10 +640,7 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
                 o.AddInterceptors(interceptors);
             }
         });
-        services.AddOutbox(o => o.PollingInterval = TimeSpan.FromHours(1))
-            .WithEfCore<ApplicationDbContext>()
-            .AddChannelMessageQueuedOutbox()
-            .WithSystemTextJsonSerializer();
+        services.AddChannelOutboxOver(fixture, o => o.PollingInterval = TimeSpan.FromHours(1));
         services.Configure<ScheduleDiagnosticsOptions>(o =>
         {
             o.StrandedAfter = _strandedAfter;
@@ -700,7 +697,7 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
     private static async Task QueueMessageAsync(ServiceProvider provider, Guid executionId)
     {
         await using var scope = provider.CreateAsyncScope();
-        var writer = scope.ServiceProvider.GetRequiredService<IOutboxWriter<ChannelMessageQueued>>();
+        var writer = scope.ServiceProvider.ChannelWriter<ChannelMessageQueued>();
         await writer.WriteAsync(
             new ChannelMessageQueued("telegram", "482910337", "Three PRs are waiting on you.", executionId),
             ct: CancellationToken.None);

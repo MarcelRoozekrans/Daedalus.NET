@@ -123,18 +123,16 @@ public sealed class ScheduleSweeperServiceTests(PostgresFixture fixture) : IAsyn
         services.AddLogging();
         services.AddSingleton(TimeProvider.System);
         services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
-        services.AddOutbox(o => { })
-            .WithEfCore<ApplicationDbContext>()
-            .AddScheduledRunDueOutbox()
-            .WithSystemTextJsonSerializer();
+        services.AddChannelOutboxOver(fixture);
         services.AddScoped<ScheduledRunStore>();
 
         if (wrapWriter is not null)
         {
             // Registered after AddScheduledRunDueOutbox's own AddTransient: DI resolves the last registration
             // for a service type, so this wins — the same pattern ScheduledRunStoreTests uses.
-            services.AddTransient<IOutboxWriter<ScheduledRunDue>>(sp =>
-                wrapWriter(new ScheduledRunDueOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+            services.WrapChannelWriter<ScheduledRunDue>(
+                (store, serializer) => new ScheduledRunDueOutboxWriter(store, serializer),
+                (real, _) => wrapWriter(real));
         }
 
         var provider = services.BuildServiceProvider();

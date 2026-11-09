@@ -16,7 +16,7 @@ namespace Daedalus.Tests.Integration.Scheduling;
 
 /// <summary>
 ///     <see cref="ScheduleDeliveryActions"/> against a real PostgreSQL database and the real, DI-resolved
-///     <see cref="IOutboxSerializer"/> and <see cref="IOutboxDashboardStore"/> — the same rule
+///     <see cref="IOutboxSerializer"/> and the channel pipeline's <see cref="IOutboxRequeue"/> — the same rule
 ///     <see cref="ScheduleDiagnosticsTests"/> follows for its own outbox reads.
 /// </summary>
 /// <remarks>
@@ -142,13 +142,9 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(timeProvider ?? TimeProvider.System);
-        services.AddDbContext<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
-        services.AddOutbox(o => o.PollingInterval = TimeSpan.FromHours(1))
-            .WithEfCore<ApplicationDbContext>()
-            .AddChannelMessageQueuedOutbox()
-            .WithSystemTextJsonSerializer();
+        services.AddChannelOutboxOver(fixture, o => o.PollingInterval = TimeSpan.FromHours(1));
 
-        // No IOutboxDashboardStore registration of its own: WithEfCore registers it, the same as on the real hosts.
+        // No IOutboxRequeue registration of its own: AddChannelOutbox's WithOrm registers it, as on the real hosts.
         services.Configure<ScheduleDiagnosticsOptions>(o => o.DeadLetterLookback = TimeSpan.FromDays(1));
         services.AddScoped<IScheduleDeliveryActions, ScheduleDeliveryActions>();
 
@@ -189,7 +185,7 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
     private static async Task QueueMessageAsync(ServiceProvider provider, Guid executionId)
     {
         await using var scope = provider.CreateAsyncScope();
-        var writer = scope.ServiceProvider.GetRequiredService<IOutboxWriter<ChannelMessageQueued>>();
+        var writer = scope.ServiceProvider.ChannelWriter<ChannelMessageQueued>();
         await writer.WriteAsync(
             new ChannelMessageQueued("telegram", "482910337", "Three PRs are waiting on you.", executionId),
             ct: CancellationToken.None);

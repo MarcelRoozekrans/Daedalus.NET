@@ -65,6 +65,13 @@ public sealed class PostgresFixture : IAsyncLifetime
     public DaedalusDb Db => _db ?? throw new InvalidOperationException("Container not initialized. Call InitializeAsync first.");
 
     /// <summary>
+    ///     Gets the fixture's one <see cref="NpgsqlDataSource"/>, the one <see cref="Db"/> opens from. A test provider
+    ///     registers this instance, so the container does not dispose it.
+    /// </summary>
+    public NpgsqlDataSource DataSource =>
+        _dataSource ?? throw new InvalidOperationException("Container not initialized. Call InitializeAsync first.");
+
+    /// <summary>
     ///     Builds <see cref="DbContextOptions{TContext}"/> for <paramref name="connectionString"/>. Every test context should
     ///     still come from here so options stay in one place.
     /// </summary>

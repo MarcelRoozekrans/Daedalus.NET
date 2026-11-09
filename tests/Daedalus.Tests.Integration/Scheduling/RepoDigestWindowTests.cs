@@ -9,7 +9,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Scheduling;
@@ -195,13 +194,7 @@ public sealed class RepoDigestWindowTests(PostgresFixture fixture) : IAsyncLifet
         services.Configure<GitHubOptions>(o => o.DefaultLookback = ConfiguredLookback);
         services.AddSingleton<TimeProvider>(_time);
         services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
-        services.AddOutbox(o => { })
-            .WithEfCore<ApplicationDbContext>()
-            .AddRunScoutStepOutbox()
-            .AddRunWriterStepOutbox()
-            .AddDeliverDigestOutbox()
-            .AddChannelMessageQueuedOutbox()
-            .WithSystemTextJsonSerializer();
+        services.AddChannelOutboxOver(fixture);
         services.AddScoped<ScheduledRunExecutionStore>();
 
         var provider = services.BuildServiceProvider();

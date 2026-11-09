@@ -6,7 +6,6 @@ using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Time.Testing;
 using Thalos;
 using ZeroAlloc.Outbox;
@@ -125,19 +124,13 @@ public sealed class ScheduledRunOutboxWorkerTests(PostgresFixture fixture) : IAs
         services.AddLogging();
         services.AddSingleton<TimeProvider>(_time);
         services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
-        services.AddOutbox(o =>
+        services.AddChannelOutboxOver(fixture, o =>
             {
                 o.PollingInterval = _pollingInterval;
                 o.BatchSize = _batchSize;
                 o.MaxAttempts = _maxAttempts;
                 o.RetryBaseDelay = _retryBaseDelay;
-            })
-            .WithEfCore<ApplicationDbContext>()
-            .AddRunScoutStepOutbox()
-            .AddRunWriterStepOutbox()
-            .AddDeliverDigestOutbox()
-            .AddChannelMessageQueuedOutbox()
-            .WithSystemTextJsonSerializer();
+            });
 
         services.AddScoped<ScheduledRunExecutionStore>();
         services.AddSingleton(executor);
@@ -153,12 +146,12 @@ public sealed class ScheduledRunOutboxWorkerTests(PostgresFixture fixture) : IAs
     private static async Task WriteAsync(ServiceProvider provider, RunScoutStep message)
     {
         await using var scope = provider.CreateAsyncScope();
-        var writer = scope.ServiceProvider.GetRequiredService<IOutboxWriter<RunScoutStep>>();
+        var writer = scope.ServiceProvider.ChannelWriter<RunScoutStep>();
         await writer.WriteAsync(message, ct: CancellationToken.None);
     }
 
     private static OutboxWorkerService ResolveWorker(ServiceProvider provider) =>
-        provider.GetServices<IHostedService>().OfType<OutboxWorkerService>().Single();
+        provider.ChannelWorker();
 
     private static async Task WaitUntilAsync(Func<Task<bool>> condition)
     {

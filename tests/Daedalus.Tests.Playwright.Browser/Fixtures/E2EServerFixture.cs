@@ -34,6 +34,7 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Thalos;
 using Thalos.Memory;
 using Thalos.Workflow;
+using ZeroAlloc.Outbox;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Playwright.Browser;
@@ -523,11 +524,27 @@ public class E2EServerFixture
     private static bool IsHostedService(ServiceDescriptor descriptor) =>
         !descriptor.IsKeyedService && descriptor.ServiceType == typeof(IHostedService);
 
-    /// <summary>The type a hosted service registration runs: its implementation type, instance or factory return type.</summary>
+    /// <summary>
+    ///     The type a hosted service registration runs: its implementation type, instance, a named outbox pipeline's
+    ///     worker, or else its factory's return type.
+    /// </summary>
     private static Type? HostedServiceType(ServiceDescriptor descriptor) =>
         descriptor.ImplementationType
         ?? descriptor.ImplementationInstance?.GetType()
+        ?? OutboxPipelineWorkerType(descriptor)
         ?? descriptor.ImplementationFactory?.Method.ReturnType;
+
+    /// <summary>
+    ///     A named ZeroAlloc.Outbox pipeline, such as the channel pipeline, registers its worker through a factory
+    ///     object whose method is declared to return <see cref="IHostedService"/>. The object is the library's pipeline
+    ///     worker factory, which always builds an <see cref="OutboxWorkerService"/>; it is matched by its type name in the
+    ///     library's assembly, so a rename in the library fails set-up through the exactly-once check.
+    /// </summary>
+    private static Type? OutboxPipelineWorkerType(ServiceDescriptor descriptor) =>
+        descriptor.ImplementationFactory?.Target?.GetType() is { Name: "OutboxPipelineWorkerFactory" } factory
+        && factory.Assembly == typeof(OutboxWorkerService).Assembly
+            ? typeof(OutboxWorkerService)
+            : null;
 
     private static void RemoveAndReplace<TService, TImplementation>(IServiceCollection services)
         where TService : class

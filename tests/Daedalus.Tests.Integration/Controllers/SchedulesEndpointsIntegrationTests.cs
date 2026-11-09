@@ -149,7 +149,7 @@ public sealed class SchedulesEndpointsIntegrationTests(PostgresFixture fixture) 
 
         using (var scope = _factory.Services.CreateScope())
         {
-            var writer = scope.ServiceProvider.GetRequiredService<IOutboxWriter<ChannelMessageQueued>>();
+            var writer = scope.ServiceProvider.ChannelWriter<ChannelMessageQueued>();
             await writer.WriteAsync(
                 new ChannelMessageQueued("telegram", "482910337", "Three PRs are waiting on you.", execution.Id),
                 ct: CancellationToken.None);

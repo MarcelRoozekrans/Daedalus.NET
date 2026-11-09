@@ -1,7 +1,9 @@
 using Cronos;
+using Daedalus.Agents.Channels;
 using Daedalus.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ZeroAlloc.Outbox;
 
@@ -16,24 +18,16 @@ namespace Daedalus.Agents.Scheduling;
 ///     <see cref="ClaimAndEnqueueDueAsync"/>'s remarks for the full argument.
 /// </summary>
 /// <remarks>
-///     Scoped, unlike <c>PostgresConversationMap</c> and the other Postgres-backed stores, which are singletons over
-///     <see cref="IDbContextFactory{TContext}"/>. This store writes an outbox row inside its own transaction, and
-///     ZeroAlloc.Outbox.EfCore's <c>EfCoreOutboxStore&lt;TContext&gt;</c> takes <c>ApplicationDbContext</c> straight
-///     from DI and calls <c>Database.UseTransactionAsync(transaction)</c> on it — a call that throws unless that
-///     context's own connection is the exact same object as the transaction's connection. A context minted by
-///     <see cref="IDbContextFactory{TContext}"/> is, by contract, never that object: the factory always returns an
-///     instance "not managed by the DI container," so its connection can never be identical to one resolved through
-///     DI elsewhere. Injecting <see cref="ApplicationDbContext"/> directly instead means this store and the
-///     constructor-injected <see cref="IOutboxWriter{T}"/>'s internal store resolve the *same* scoped instance
-///     (<c>AddDbContextPool&lt;ApplicationDbContext&gt;</c> in <c>AspireExtensions</c> registers it scoped), so they
-///     share one connection and <c>UseTransactionAsync</c> actually succeeds. Callers must resolve this store from
-///     its own <c>IServiceScope</c> per unit of work, one sweep at a time, rather than holding it for the
-///     app's lifetime. Do not "fix" this back to the factory pattern for consistency with the other stores — that
-///     silently reintroduces a transaction that can never enlist.
+///     Scoped: it injects the scoped <see cref="ApplicationDbContext"/>, so callers must resolve this store from its
+///     own <c>IServiceScope</c> per unit of work, one sweep at a time, rather than holding it for the app's lifetime.
+///     The constructor-injected <see cref="IOutboxWriter{T}"/> is the channel pipeline's, keyed by
+///     <see cref="ChannelOutboxServiceCollectionExtensions.PipelineName"/>. It is handed <c>tx.GetDbTransaction()</c>,
+///     and ZeroAlloc.Outbox.Orm's store inserts on that transaction's own connection, so the trigger commits or
+///     rolls back with the sweep; it neither needs nor touches this context.
 /// </remarks>
 public sealed partial class ScheduledRunStore(
     ApplicationDbContext db,
-    IOutboxWriter<ScheduledRunDue> outbox,
+    [FromKeyedServices(ChannelOutboxServiceCollectionExtensions.PipelineName)] IOutboxWriter<ScheduledRunDue> outbox,
     TimeProvider time,
     ILogger<ScheduledRunStore> logger)
 {
@@ -65,11 +59,9 @@ public sealed partial class ScheduledRunStore(
     ///     exclusive at the database level without any explicit row lock: whichever's row-level <c>UPDATE</c>
     ///     reaches Postgres first wins, and the loser's own <c>UPDATE</c> — issued against the now-stale <c>xmin</c>
     ///     it read — affects zero rows once unblocked, which EF Core surfaces as
-    ///     <see cref="DbUpdateConcurrencyException"/>. Because <see cref="IOutboxWriter{T}"/> shares this sweep's
-    ///     own <see cref="ApplicationDbContext"/>, its internal <c>SaveChangesAsync</c> call flushes every tracked
-    ///     change so far — including an earlier row's <c>AdvanceTo</c> — so this exception can surface mid-loop, not
-    ///     only from the trailing <see cref="DbContext.SaveChangesAsync(CancellationToken)"/>; the <c>try</c> below
-    ///     wraps the whole loop for exactly that reason. Either way it is caught and treated as "another sweeper
+    ///     <see cref="DbUpdateConcurrencyException"/> from the trailing
+    ///     <see cref="DbContext.SaveChangesAsync(CancellationToken)"/>. The <c>try</c> below wraps the whole loop, the
+    ///     enqueues included, so any failure in it rolls the sweep back. It is caught and treated as "another sweeper
     ///     already claimed this tick", not an error: it rolls back this sweep's whole transaction (including any
     ///     outbox rows already staged for other due runs in the same batch) and returns 0, exactly as if this sweep
     ///     had found nothing due. Only the contested row will not be found due again - the winner already
@@ -113,12 +105,8 @@ public sealed partial class ScheduledRunStore(
 
                 run.AdvanceTo(next.Value, now, missed);
 
-                // IOutboxWriter<T>.WriteAsync shares this sweep's own ApplicationDbContext (see the class
-                // remarks), so EfCoreOutboxStore's internal SaveChangesAsync call - triggered by THIS write,
-                // for THIS row - flushes every change tracked so far, including the AdvanceTo above. A
-                // concurrency loss on this row's xmin can therefore surface right here, mid-loop, not only
-                // from the trailing SaveChangesAsync below - which is why the catch wraps the whole loop, not
-                // just the tail.
+                // The trigger is inserted on this sweep's transaction (see the class remarks); the AdvanceTo
+                // above is written by the trailing SaveChangesAsync, where a concurrency loss surfaces.
                 await _outbox.WriteAsync(new ScheduledRunDue(run.Id, fireAt), tx.GetDbTransaction(), ct)
                     .ConfigureAwait(false);
                 fired++;
@@ -135,11 +123,10 @@ public sealed partial class ScheduledRunStore(
         }
         finally
         {
-            // Rows advanced earlier in this loop are still tracked as Unchanged (their database rows just rolled
-            // back), the losing row is still tracked as Modified, and any OutboxMessageEntity staged by the last
-            // WriteAsync is still tracked as Added - none of that reflects reality once the transaction is gone.
+            // Every row advanced or disabled in this loop is still tracked as Modified, the losing one included -
+            // none of that reflects reality once the transaction is gone.
             // A caller reusing this scope must not resolve those stale tracked entities by identity on its next
-            // read, or insert a trigger on its next save for an occurrence this sweep never actually claimed. This
+            // read, or write a stale advance on its next save for an occurrence this sweep never claimed. This
             // finally covers every non-committed exit, not only the concurrency catch above: a review of the
             // sibling ScheduledRunExecutionStore found that guarding only the concurrency path left any OTHER
             // exception out of WriteAsync or SaveChangesAsync free to propagate with the tracker still dirty, and

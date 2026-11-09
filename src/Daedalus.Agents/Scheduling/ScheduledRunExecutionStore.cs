@@ -5,6 +5,7 @@ using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services.GitHub;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZeroAlloc.Outbox;
@@ -22,31 +23,24 @@ namespace Daedalus.Agents.Scheduling;
 /// </summary>
 /// <remarks>
 ///     <para>
-///     Scoped, for exactly the reason <see cref="ScheduledRunStore"/> is scoped — see that type's remarks for the
-///     full argument, reproduced here because it binds this store too: this store writes an outbox row inside its
-///     own transaction, and <c>EfCoreOutboxStore&lt;ApplicationDbContext&gt;</c>'s only constructor takes
-///     <see cref="ApplicationDbContext"/> straight from DI and calls <c>Database.UseTransactionAsync(transaction)</c>
-///     on it — a call that throws unless that context's own connection is the exact same object as the
-///     transaction's connection. A context minted by <c>IDbContextFactory&lt;ApplicationDbContext&gt;</c> can never
-///     be that object, so this store injects <see cref="ApplicationDbContext"/> directly instead, sharing the one
-///     scoped instance with the constructor-injected <see cref="IOutboxWriter{T}"/>s. Do not "fix" this back to the
-///     factory pattern for consistency with the other, singleton-over-factory stores — that silently reintroduces a
-///     transaction that can never enlist. Callers must resolve this store from its own <c>IServiceScope</c> per unit
-///     of work, one dispatched message at a time, rather than holding it for the app's lifetime.
+///     Scoped, as <see cref="ScheduledRunStore"/> is: one <see cref="ApplicationDbContext"/> per unit of work.
+///     Callers must resolve this store from its own <c>IServiceScope</c> per unit of work, one dispatched message
+///     at a time, rather than holding it for the app's lifetime. The four writers are the channel pipeline's,
+///     keyed by <see cref="ChannelOutboxServiceCollectionExtensions.PipelineName"/>; each is handed
+///     <c>tx.GetDbTransaction()</c>, and ZeroAlloc.Outbox.Orm's store inserts on that transaction's own connection,
+///     so the outbox row commits or rolls back with the row change. The store does not touch this context, so
+///     nothing is flushed or tracked by an enqueue.
 ///     </para>
 ///     <para>
-///     Because the outbox writers share this store's own <see cref="ApplicationDbContext"/>, their internal
-///     <c>SaveChangesAsync</c> calls can flush this store's own pending changes from inside a method, not only at
-///     the trailing <see cref="DbContext.SaveChangesAsync(CancellationToken)"/> each advance method calls itself.
-///     That is why both <see cref="TryAdvanceAsync"/>'s and <see cref="FailAsync"/>'s <c>try</c>/<c>catch</c> for
-///     <see cref="DbUpdateConcurrencyException"/> wrap the outbox enqueue and the trailing save together, not just
-///     the latter: an earlier version of <see cref="TryAdvanceAsync"/> wrapped only the trailing
-///     <c>SaveChangesAsync</c>, and a full-suite run (not the store's tests in isolation — timing under load made
-///     the difference) reproduced the concurrency exception escaping uncaught from inside the enqueue call
-///     instead. <see cref="FailAsync"/> needs the same shape for the same reason: at-least-once delivery lets a
-///     redelivered step command and its original both fail the same execution concurrently, and without this it
-///     self-heals only by throwing an unhandled exception out of an outbox dispatcher and burning retry budget to
-///     get there. Both methods clear the change tracker in a <c>finally</c> on every path that did not commit —
+///     Both <see cref="TryAdvanceAsync"/>'s and <see cref="FailAsync"/>'s <c>try</c>/<c>catch</c> for
+///     <see cref="DbUpdateConcurrencyException"/> wrap the outbox enqueue and the trailing save together. While the
+///     writers were ZeroAlloc.Outbox.EfCore's, sharing this context, an enqueue's own <c>SaveChangesAsync</c>
+///     flushed the row change, so the concurrency loss could escape from inside the enqueue call; with the ORM
+///     store it surfaces from the trailing save, and the wider <c>try</c> costs nothing. <see cref="FailAsync"/>
+///     needs the same shape: at-least-once delivery lets a redelivered step command and its original both fail the
+///     same execution concurrently, and without the catch it self-heals only by throwing an unhandled exception out
+///     of an outbox dispatcher and burning retry budget to get there. Both methods clear the change tracker in a
+///     <c>finally</c> on every path that did not commit —
 ///     not only the concurrency catch. An earlier version cleared only there, and a review found the gap: any
 ///     <em>other</em> exception out of <c>enqueueNext</c> or <c>SaveChangesAsync</c> — exactly what
 ///     <c>A_failure_to_write_the_channel_message_leaves_the_step_un_advanced</c> provokes — propagated with the
@@ -69,10 +63,10 @@ namespace Daedalus.Agents.Scheduling;
 /// </remarks>
 public sealed partial class ScheduledRunExecutionStore(
     ApplicationDbContext dbContext,
-    IOutboxWriter<RunScoutStep> scoutWriter,
-    IOutboxWriter<RunWriterStep> writerWriter,
-    IOutboxWriter<DeliverDigest> deliverWriter,
-    IOutboxWriter<ChannelMessageQueued> channelWriter,
+    [FromKeyedServices(ChannelOutboxServiceCollectionExtensions.PipelineName)] IOutboxWriter<RunScoutStep> scoutWriter,
+    [FromKeyedServices(ChannelOutboxServiceCollectionExtensions.PipelineName)] IOutboxWriter<RunWriterStep> writerWriter,
+    [FromKeyedServices(ChannelOutboxServiceCollectionExtensions.PipelineName)] IOutboxWriter<DeliverDigest> deliverWriter,
+    [FromKeyedServices(ChannelOutboxServiceCollectionExtensions.PipelineName)] IOutboxWriter<ChannelMessageQueued> channelWriter,
     TimeProvider time,
     IOptions<GitHubOptions> gitHubOptions,
     ILogger<ScheduledRunExecutionStore> logger)
@@ -142,7 +136,7 @@ public sealed partial class ScheduledRunExecutionStore(
         ArgumentNullException.ThrowIfNull(due);
 
         var now = _time.GetUtcNow().UtcDateTime;
-        var db = _db; // injected scoped context, shared with the outbox writers — see the class remarks
+        var db = _db; // the injected scoped context — see the class remarks
         await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
         var committed = false;
 
@@ -206,17 +200,11 @@ public sealed partial class ScheduledRunExecutionStore(
         }
         finally
         {
-            // Same shape as TryAdvanceAsync's and FailAsync's finally, for the same reason: _scoutWriter.WriteAsync
-            // above is EfCoreOutboxStore, which Adds an OutboxMessageEntity to this store's own ApplicationDbContext
-            // and calls SaveChangesAsync itself before this method ever reaches its own tx.CommitAsync. If that
-            // save (or anything after it) throws, the transaction rolls back on dispose, but the outbox entity is
-            // still tracked as Added in this scope's ChangeTracker. Because the worker's DI scope is per batch, not
-            // per message (see the class remarks on why this store's own scope must be per unit of work), that
-            // orphaned Added entity would survive into the next message's dispatch and ride along on the worker's
-            // own, unrelated SaveChangesAsync — inserting a phantom RunScoutStep outside any transaction, pointing
-            // at an execution row that was never created. The other two early-return paths above (unknown schedule,
-            // invalid schedule) never Add anything, so this clear is a no-op there; it only matters on the path
-            // where WriteAsync ran and something after it failed to commit.
+            // Same shape as TryAdvanceAsync's and FailAsync's finally. The schedule is read untracked and the
+            // execution is inserted with raw SQL, and the ORM outbox store tracks nothing in this context, so this
+            // clear is a no-op on every path today. It stays as the guard it was while the writer was
+            // ZeroAlloc.Outbox.EfCore's, whose staged outbox entity could otherwise outlive a rolled-back
+            // transaction in the worker's per-batch scope.
             if (!committed)
             {
                 db.ChangeTracker.Clear();
@@ -278,7 +266,7 @@ public sealed partial class ScheduledRunExecutionStore(
         CancellationToken ct)
     {
         var now = _time.GetUtcNow().UtcDateTime;
-        var db = _db; // injected scoped context, shared with the outbox writers — see the class remarks
+        var db = _db; // the injected scoped context — see the class remarks
         await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
         var committed = false;
 
@@ -302,14 +290,9 @@ public sealed partial class ScheduledRunExecutionStore(
 
             try
             {
-                // enqueueNext is inside this try, not just the trailing SaveChangesAsync below: EfCoreOutboxStore
-                // shares this method's own ApplicationDbContext (see the class remarks), so its internal
-                // SaveChangesAsync call - triggered by THIS enqueue - flushes the mutate() above right here, before
-                // this method ever reaches its own SaveChangesAsync. A concurrency loss on this row's xmin can
-                // therefore surface from enqueueNext, not only from the call below; a full-suite run (not just this
-                // test class in isolation) reproduced exactly that with Two_pollers_racing_one_step_advance_it_exactly_once
-                // throwing DbUpdateConcurrencyException out of enqueueNext when the try/catch only wrapped
-                // SaveChangesAsync, matching ScheduledRunStore.ClaimAndEnqueueDueAsync's own remarks on the same hazard.
+                // enqueueNext is inside this try with the trailing SaveChangesAsync (see the class remarks). The
+                // ORM outbox store inserts on this transaction and flushes nothing, so a concurrency loss on this
+                // row's xmin surfaces from SaveChangesAsync, and the rollback below takes the outbox row with it.
                 await enqueueNext(row, tx, ct).ConfigureAwait(false);
                 await db.SaveChangesAsync(ct).ConfigureAwait(false);
             }
@@ -330,10 +313,10 @@ public sealed partial class ScheduledRunExecutionStore(
         {
             // Every path above except the committed one leaves this method with the transaction gone but some
             // entity still tracked - the read row as Unchanged (row is null branch aside, which tracks nothing),
-            // as Modified (mutate() ran but the save was never reached, or lost the xmin race), or an outbox row
-            // as Added (enqueueNext ran but SaveChangesAsync threw for a reason OTHER than a concurrency loss -
-            // the exact gap review round 3 found: only the concurrency catch used to clear the tracker, so any
-            // other exception out of enqueueNext or SaveChangesAsync - precisely what
+            // or as Modified (mutate() ran but the save was never reached, or lost the xmin race, or
+            // SaveChangesAsync threw for a reason OTHER than a concurrency loss - the exact gap review round 3
+            // found: only the concurrency catch used to clear the tracker, so any other exception out of
+            // enqueueNext or SaveChangesAsync - precisely what
             // A_failure_to_write_the_channel_message_leaves_the_step_un_advanced provokes - propagated with the
             // row still tracked as Modified/Done. A caller reusing this scope (every caller does; the store is
             // scoped per unit of work, not per call) that next reads this same execution by identity would get
@@ -356,7 +339,7 @@ public sealed partial class ScheduledRunExecutionStore(
     public async ValueTask FailAsync(Guid executionId, string error, CancellationToken ct)
     {
         var now = _time.GetUtcNow().UtcDateTime;
-        var db = _db; // injected scoped context, shared with the outbox writers — see the class remarks
+        var db = _db; // the injected scoped context — see the class remarks
         await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
         var committed = false;
 
@@ -388,11 +371,10 @@ public sealed partial class ScheduledRunExecutionStore(
 
             try
             {
-                // Both the enqueue and the trailing save are inside this try, for the same reason TryAdvanceAsync's
-                // is (see the class remarks): EfCoreOutboxStore shares this method's own ApplicationDbContext, so
-                // its internal SaveChangesAsync - triggered by THIS enqueue - can flush the row.Fail(...) mutation
-                // above and raise a concurrency loss from inside the enqueue call, not only from the
-                // SaveChangesAsync below. This is reachable, not theoretical: at-least-once delivery lets a
+                // Both the enqueue and the trailing save are inside this try, as in TryAdvanceAsync (see the class
+                // remarks); the concurrency loss on the row.Fail(...) mutation above surfaces from the
+                // SaveChangesAsync below, and the rollback takes the notice with it. This is reachable, not
+                // theoretical: at-least-once delivery lets a
                 // redelivered step command and its original both fail the same execution concurrently. It
                 // self-heals either way - the loser's own retry no-ops on the row.Step check above, and the winner
                 // already wrote the operator notice, so nobody is left uninformed - but uncaught, that self-healing

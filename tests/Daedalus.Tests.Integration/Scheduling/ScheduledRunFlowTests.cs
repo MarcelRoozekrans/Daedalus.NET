@@ -11,7 +11,6 @@ using Microsoft.Extensions.Time.Testing;
 using Thalos;
 using Thalos.Testing;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Scheduling;
@@ -465,31 +464,28 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
         services.AddLogging();
         services.AddSingleton<TimeProvider>(_time);
         services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
-        services.AddOutbox(o => { })
-            .WithEfCore<ApplicationDbContext>()
-            .AddRunScoutStepOutbox()
-            .AddRunWriterStepOutbox()
-            .AddDeliverDigestOutbox()
-            .AddChannelMessageQueuedOutbox()
-            .WithSystemTextJsonSerializer();
+        services.AddChannelOutboxOver(fixture);
         services.AddScoped<ScheduledRunExecutionStore>();
 
         if (wrapRunWriterStepWriter is not null)
         {
-            services.AddTransient<IOutboxWriter<RunWriterStep>>(sp => wrapRunWriterStepWriter(
-                new RunWriterStepOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+            services.WrapChannelWriter<RunWriterStep>(
+                (store, serializer) => new RunWriterStepOutboxWriter(store, serializer),
+                (real, _) => wrapRunWriterStepWriter(real));
         }
 
         if (wrapDeliverDigestWriter is not null)
         {
-            services.AddTransient<IOutboxWriter<DeliverDigest>>(sp => wrapDeliverDigestWriter(
-                new DeliverDigestOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+            services.WrapChannelWriter<DeliverDigest>(
+                (store, serializer) => new DeliverDigestOutboxWriter(store, serializer),
+                (real, _) => wrapDeliverDigestWriter(real));
         }
 
         if (wrapChannelWriter is not null)
         {
-            services.AddTransient<IOutboxWriter<ChannelMessageQueued>>(sp => wrapChannelWriter(
-                new ChannelMessageQueuedOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+            services.WrapChannelWriter<ChannelMessageQueued>(
+                (store, serializer) => new ChannelMessageQueuedOutboxWriter(store, serializer),
+                (real, _) => wrapChannelWriter(real));
         }
 
         var provider = services.BuildServiceProvider();

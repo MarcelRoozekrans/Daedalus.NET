@@ -47,16 +47,20 @@ try
     // replaced. Running it here — the one place schema changes and this deploy happen as a single step —
     // avoids leaving that race to whichever host instance's EnsureSchemaOnStartup wins at boot.
 
-    // Two outbox tables now live in this one database, written and polled by this one process: the channel
-    // pipeline's "OutboxMessages" (quoted identifier, mixed case, created by the Daedalus baseline) for the
-    // RepoDigest/channel pipeline, and ZeroAlloc.Outbox.Orm's OutboxMessages (unquoted in its own CREATE TABLE,
-    // so PostgreSQL folds it to lower case: outboxmessages) for the workflow engine below. They differ only in
-    // identifier case and quoting, never collide — PostgreSQL treats "OutboxMessages" and outboxmessages as
-    // distinct tables — and each is read by its own poller (ZeroAlloc.Outbox's OutboxWorkerService for the
-    // quoted one, Daedalus.Agents.Workflow.WorkflowOutboxDispatchService for the unquoted one). See
-    // tests/Daedalus.Tests.Integration/Migrations/WorkflowOrmMigrationTests.cs, which applies both the Daedalus
-    // baseline and this file's raw-SQL ones to the same throwaway database and asserts both tables exist side
-    // by side, rather than leaving this coexistence claim reasoned about instead of tested.
+    // Two outbox tables live in this one database, both on ZeroAlloc.Outbox.Orm's store: the channel
+    // pipeline's "OutboxMessages" (quoted identifier, mixed case) for the RepoDigest/channel messages, and
+    // ZeroAlloc.Outbox.Orm's own OutboxMessages (unquoted in its CREATE TABLE, so PostgreSQL folds it to lower
+    // case: outboxmessages) for the workflow engine below. They differ only in identifier case and quoting,
+    // never collide — PostgreSQL treats "OutboxMessages" and outboxmessages as distinct tables — and each is
+    // read by its own poller: the channel pipeline's OutboxWorkerService for the quoted one, with
+    // TableName "OutboxMessages" quoted and QuoteColumns on, and
+    // Daedalus.Agents.Workflow.WorkflowOutboxDispatchService for the unquoted one.
+    // Only the unquoted table comes from OutboxOrmMigrations, run below. The quoted one is the table EF Core
+    // created and the Daedalus baseline migration above now owns, lease columns included, so it needs no
+    // outbox migration of its own; OutboxOrmMigrations.For could not create it anyway, as it takes a plain
+    // identifier only. See tests/Daedalus.Tests.Integration/Migrations/WorkflowOrmMigrationTests.cs, which
+    // applies both the Daedalus baseline and this file's raw-SQL ones to the same throwaway database and
+    // asserts both tables exist side by side, and Channels/ChannelOutboxCarryOverTests, which drive both.
     logger.LogInformation("Starting workflow engine migration");
 
     // WorkflowEngineMigrator runs the outbox schema first: OrmWorkflowStore enqueues into it in the same

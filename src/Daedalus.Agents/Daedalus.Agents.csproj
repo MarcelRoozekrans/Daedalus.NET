@@ -50,11 +50,12 @@
         <PackageReference Include="ZeroAlloc.Results" />
         <PackageReference Include="ZeroAlloc.Telemetry" />
         <PackageReference Include="ZeroAlloc.Outbox" />
+        <!-- ZeroAlloc.Outbox.EfCore: only its EF mapping of the channel table, which ScheduleDiagnostics still
+             reads; no pipeline uses its store. Goes with EF Core. -->
         <PackageReference Include="ZeroAlloc.Outbox.EfCore" />
-        <!-- ZeroAlloc.Outbox.Orm/ZeroAlloc.ORM/AdoNet.Async.Adapters: the workflow store's own outbox table,
-             polled by WorkflowOutboxDispatchService — a hand-rolled poller, not ZeroAlloc.Outbox's AddOutbox(),
-             because this project already runs one OutboxWorkerService against ApplicationDbContext (see that
-             type's remarks for why a second AddOutbox() call would silently break it). -->
+        <!-- ZeroAlloc.Outbox.Orm/ZeroAlloc.ORM/AdoNet.Async.Adapters: the store of the channel pipeline, on the
+             quoted "OutboxMessages" table, and of the workflow engine's own outbox table, polled by
+             WorkflowOutboxDispatchService (see that type's remarks for why it stays hand-rolled). -->
         <PackageReference Include="ZeroAlloc.Outbox.Orm" />
         <PackageReference Include="ZeroAlloc.ORM" />
         <PackageReference Include="AdoNet.Async.Adapters" />

@@ -211,10 +211,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         services.AddScoped<ScheduleReconciler>();
         services.AddHostedService<ScheduleReconcilerHostedService>();
 
-        // Durable outbound chat delivery: writer + EF Core store + poller for ChannelMessageQueued; see
-        // AddChannelOutbox for the chosen polling/batch/retry values. AddDaedalusChannels Replaces the
-        // library default with ChannelMessageQueuedDispatcher. Nothing writes to this outbox in phase 1.4 —
-        // it is durability laid down for 1.5 proactive pushes. See the design doc, section 9.
+        // Durable outbound chat and scheduling delivery: the named channel pipeline, its writers, its
+        // ZeroAlloc.Outbox.Orm store on the "OutboxMessages" table and its poller; see AddChannelOutbox for the
+        // chosen polling/batch/retry values. AddDaedalusChannels Replaces the library default with
+        // ChannelMessageQueuedDispatcher. See the design doc, section 9.
         services.AddChannelOutbox();
 
         // The deadline every detached agent turn runs under: SubagentRunExecutor applies it to the scheduling

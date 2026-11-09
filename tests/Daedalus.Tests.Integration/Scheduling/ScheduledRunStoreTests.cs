@@ -276,10 +276,7 @@ public sealed class ScheduledRunStoreTests(PostgresFixture fixture) : IAsyncLife
         services.AddLogging();
         services.AddSingleton<TimeProvider>(time);
         services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
-        services.AddOutbox(o => { })
-            .WithEfCore<ApplicationDbContext>()
-            .AddScheduledRunDueOutbox()
-            .WithSystemTextJsonSerializer();
+        services.AddChannelOutboxOver(fixture);
         services.AddScoped<ScheduledRunStore>();
 
         if (wrapWriter is not null)
@@ -287,10 +284,9 @@ public sealed class ScheduledRunStoreTests(PostgresFixture fixture) : IAsyncLife
             // Registered after AddScheduledRunDueOutbox's own AddTransient: DI resolves the last registration for
             // a service type, so this wins - the same pattern ChannelOutboxTests uses to override the default
             // dispatcher.
-            services.AddTransient<IOutboxWriter<ScheduledRunDue>>(sp =>
-                wrapWriter(
-                    new ScheduledRunDueOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>()),
-                    sp));
+            services.WrapChannelWriter<ScheduledRunDue>(
+                (store, serializer) => new ScheduledRunDueOutboxWriter(store, serializer),
+                wrapWriter);
         }
 
         var provider = services.BuildServiceProvider();

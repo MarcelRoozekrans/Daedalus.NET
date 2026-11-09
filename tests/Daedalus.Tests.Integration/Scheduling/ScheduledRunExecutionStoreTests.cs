@@ -521,13 +521,7 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
         });
         services.AddSingleton<TimeProvider>(_time);
         services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
-        services.AddOutbox(o => { })
-            .WithEfCore<ApplicationDbContext>()
-            .AddRunScoutStepOutbox()
-            .AddRunWriterStepOutbox()
-            .AddDeliverDigestOutbox()
-            .AddChannelMessageQueuedOutbox()
-            .WithSystemTextJsonSerializer();
+        services.AddChannelOutboxOver(fixture);
         services.AddScoped<ScheduledRunExecutionStore>();
 
         if (wrapChannelWriter is not null)
@@ -537,19 +531,17 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
             // ChannelMessageQueuedOutboxWriter (accessible here via InternalsVisibleTo) is passed in so the
             // wrapped write genuinely enlists in the ambient transaction, the same pattern
             // ScheduledRunStoreTests uses for its own rendezvous.
-            services.AddTransient<IOutboxWriter<ChannelMessageQueued>>(sp =>
-                wrapChannelWriter(
-                    new ChannelMessageQueuedOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>()),
-                    sp));
+            services.WrapChannelWriter<ChannelMessageQueued>(
+                (store, serializer) => new ChannelMessageQueuedOutboxWriter(store, serializer),
+                wrapChannelWriter);
         }
 
         if (wrapWriterStepWriter is not null)
         {
             // Same "registered after, real writer underneath" pattern as wrapChannelWriter above.
-            services.AddTransient<IOutboxWriter<RunWriterStep>>(sp =>
-                wrapWriterStepWriter(
-                    new RunWriterStepOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>()),
-                    sp));
+            services.WrapChannelWriter<RunWriterStep>(
+                (store, serializer) => new RunWriterStepOutboxWriter(store, serializer),
+                wrapWriterStepWriter);
         }
 
         var provider = services.BuildServiceProvider();

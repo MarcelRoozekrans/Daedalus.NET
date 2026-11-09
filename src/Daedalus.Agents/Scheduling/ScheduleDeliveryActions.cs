@@ -1,11 +1,11 @@
 using Daedalus.Agents.Channels;
 using Daedalus.Application.Abstractions;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.ChannelOutbox;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.Scheduling;
@@ -18,9 +18,10 @@ namespace Daedalus.Agents.Scheduling;
 /// </summary>
 /// <remarks>
 ///     <para>
-///     <b>Scoped, for the same reason as <see cref="ScheduleDiagnostics"/>.</b> This type injects
-///     <see cref="ApplicationDbContext"/> directly, so it must share the scope's connection identity with
-///     anything else that touches the outbox in the same request.
+///     <b>Scoped, because the channel pipeline's <see cref="IOutboxRequeue"/> is.</b> The requeue is the
+///     ZeroAlloc.Outbox.Orm store of the pipeline <see cref="ChannelOutboxServiceCollectionExtensions.PipelineName"/>,
+///     registered scoped and keyed by that name. The read opens its own pooled connection and closes it before the
+///     requeue runs.
 ///     </para>
 ///     <para>
 ///     <b>Execution id to outbox row is a scan, not a lookup, for the same reason
@@ -32,21 +33,23 @@ namespace Daedalus.Agents.Scheduling;
 ///     is exactly the window that will find it again here.
 ///     </para>
 ///     <para>
-///     <b><see cref="IOutboxDashboardStore"/> is the intended seam</b> the comment in
-///     <see cref="ScheduleDiagnostics"/> pointed at: it cannot say WHY a message died (no
-///     <c>DeadLetterError</c>), only WHICH one and how to act on it, which is exactly the half this type needs.
+///     <b>The store has no read, so the scan is a query of its own.</b> <see cref="ChannelOutboxSql"/> reads the
+///     candidates from the pipeline's table; the requeue goes through the store's <see cref="IOutboxRequeue"/>, which
+///     moves a dead letter back to pending, due now, with a fresh attempt counter and no lease. It throws when the
+///     message is gone or no longer dead-lettered, such as when a second resend raced this one, and that failure is
+///     reported, not thrown.
 ///     </para>
 /// </remarks>
-/// <param name="db">The scope's context; see the remarks on why it is not a factory.</param>
+/// <param name="db">Opens the connection the candidate scan reads on.</param>
 /// <param name="timeProvider">The only clock this type reads. <c>DateTimeOffset.UtcNow</c> appears nowhere.</param>
-/// <param name="dashboardStore">Requeues the resolved outbox row once it is found.</param>
+/// <param name="requeue">The channel pipeline's requeue, which resends the resolved outbox row once it is found.</param>
 /// <param name="serializer">The same serializer the host registers, so no wire format is assumed here.</param>
 /// <param name="options">Reuses <see cref="ScheduleDiagnosticsOptions"/>'s dead-letter scan bounds.</param>
 /// <param name="logger">Records a skipped, unreadable candidate row.</param>
 public sealed class ScheduleDeliveryActions(
-    ApplicationDbContext db,
+    DaedalusDb db,
     TimeProvider timeProvider,
-    IOutboxDashboardStore dashboardStore,
+    [FromKeyedServices(ChannelOutboxServiceCollectionExtensions.PipelineName)] IOutboxRequeue requeue,
     IOutboxSerializer serializer,
     IOptions<ScheduleDiagnosticsOptions> options,
     ILogger<ScheduleDeliveryActions> logger) : IScheduleDeliveryActions
@@ -63,15 +66,7 @@ public sealed class ScheduleDeliveryActions(
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var since = ScheduleDiagnostics.WindowStart(_options.DeadLetterLookback, now);
 
-        var candidates = await db.OutboxMessages
-            .AsNoTracking()
-            .Where(m => m.TypeName == _channelMessageTypeName
-                        && m.Status == OutboxMessageStatus.DeadLetter
-                        && m.CreatedAt >= since)
-            .OrderByDescending(m => m.CreatedAt)
-            .Take(_options.DeadLetterScanLimit)
-            .Select(m => new { m.Id, m.Payload })
-            .ToListAsync(ct);
+        var candidates = await ReadCandidatesAsync(since, ct).ConfigureAwait(false);
 
         foreach (var candidate in candidates)
         {
@@ -95,7 +90,7 @@ public sealed class ScheduleDeliveryActions(
 
             try
             {
-                await dashboardStore.RequeueAsync(candidate.Id, ct);
+                await requeue.RequeueAsync(new OutboxMessageId(candidate.Id), ct).ConfigureAwait(false);
                 return Result.Success();
             }
             catch (OperationCanceledException)
@@ -111,5 +106,17 @@ public sealed class ScheduleDeliveryActions(
 
         return Result.Failure(
             $"No dead-lettered message was found for execution {executionId}. It may already have been resolved.");
+    }
+
+    /// <summary>
+    ///     The dead-lettered channel messages in the scan window, newest first. The connection is closed before the
+    ///     caller requeues, so the scan holds no connection while the store opens its own.
+    /// </summary>
+    private async Task<IReadOnlyList<ChannelOutboxDeadLetter>> ReadCandidatesAsync(DateTimeOffset since, CancellationToken ct)
+    {
+        await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+        return await new ChannelOutboxSql(connection)
+            .ListDeadLettersAsync(_channelMessageTypeName, since, _options.DeadLetterScanLimit, ct)
+            .ConfigureAwait(false);
     }
 }

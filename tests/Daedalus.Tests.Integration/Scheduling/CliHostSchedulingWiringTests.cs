@@ -205,7 +205,9 @@ public sealed class CliHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
     {
         using var provider = BuildProvider();
 
-        provider.GetRequiredService<IOptions<OutboxOptions>>().Value.LeaseDuration
+        // The channel pipeline is named, so its worker reads the named options, not the unnamed ones.
+        provider.GetRequiredService<IOptionsMonitor<OutboxOptions>>()
+            .Get(ChannelOutboxServiceCollectionExtensions.PipelineName).LeaseDuration
             .Should().Be(ChannelOutboxServiceCollectionExtensions.LeaseDuration)
             .And.Be(TimeSpan.FromMinutes(20));
     }
