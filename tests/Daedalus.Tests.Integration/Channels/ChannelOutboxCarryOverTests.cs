@@ -43,15 +43,21 @@ public sealed class ChannelOutboxCarryOverTests(PostgresFixture fixture) : IAsyn
 
         var pending = Message("pending before the switch");
         var expired = Message("leased by a host that died");
+        var held = Message("leased by a host still working on it");
         var pendingId = await InsertChannelRowAsync(provider, pending, Pending, now.AddMinutes(-3));
         var expiredId = await InsertChannelRowAsync(
             provider, expired, Pending, now.AddMinutes(-2), lockedBy: "old-host", lockedUntil: now.AddMinutes(-1));
+        var heldId = await InsertChannelRowAsync(
+            provider, held, Pending, now.AddMinutes(-1), lockedBy: "old-host", lockedUntil: now.AddMinutes(10));
 
         await RunWorkerUntilAsync(provider, async () =>
             await ChannelStatusAsync(pendingId) == Succeeded && await ChannelStatusAsync(expiredId) == Succeeded);
 
         recording.Messages.Should().BeEquivalentTo(new[] { pending, expired },
-            "each row the EF store left pending, or leased by a host whose lease ran out, is delivered exactly once");
+            "each row the EF store left pending, or leased by a host whose lease ran out, is delivered exactly once, " +
+            "and a row whose lease still runs is not delivered");
+        var heldRow = await ChannelRowAsync(heldId);
+        heldRow.Should().Be((Pending, 0, "old-host"), "a live lease taken under the EF store still holds after the switch");
     }
 
     [Fact]
@@ -61,9 +67,10 @@ public sealed class ChannelOutboxCarryOverTests(PostgresFixture fixture) : IAsyn
         await using var provider = BuildProvider(recording);
         var executionId = Guid.NewGuid();
         var message = new ChannelMessageQueued("telegram", "482910337", "Three PRs are waiting on you.", executionId);
+        var now = DateTimeOffset.UtcNow;
         var id = await InsertChannelRowAsync(
-            provider, message, DeadLetter, DateTimeOffset.UtcNow.AddMinutes(-5), retryCount: 7,
-            deadLetterError: "Telegram returned 429 after 8 attempts");
+            provider, message, DeadLetter, now.AddMinutes(-5), retryCount: 7,
+            deadLetterError: "Telegram returned 429 after 8 attempts", lockedBy: "old-host", lockedUntil: now.AddMinutes(-4));
 
         Result requeued;
         await using (var scope = provider.CreateAsyncScope())
@@ -73,7 +80,8 @@ public sealed class ChannelOutboxCarryOverTests(PostgresFixture fixture) : IAsyn
         }
 
         requeued.IsSuccess.Should().BeTrue(requeued.IsFailure ? requeued.Error : null);
-        (await ChannelStatusAsync(id)).Should().Be(Pending, "a requeue moves the dead letter back to pending");
+        (await ChannelRowAsync(id)).Should().Be((Pending, 0, (string?)null),
+            "a requeue moves the dead letter back to pending with a fresh attempt counter and no lease");
 
         await RunWorkerUntilAsync(provider, async () => await ChannelStatusAsync(id) == Succeeded);
 
@@ -178,6 +186,16 @@ public sealed class ChannelOutboxCarryOverTests(PostgresFixture fixture) : IAsyn
         await using var command = fixture.DataSource.CreateCommand("""SELECT "Status" FROM "OutboxMessages" WHERE "Id" = $1""");
         command.Parameters.Add(new NpgsqlParameter { Value = id });
         return (int)(await command.ExecuteScalarAsync())!;
+    }
+
+    private async Task<(int Status, int RetryCount, string? LockedBy)> ChannelRowAsync(Guid id)
+    {
+        await using var command = fixture.DataSource.CreateCommand(
+            """SELECT "Status", "RetryCount", "LockedBy" FROM "OutboxMessages" WHERE "Id" = $1""");
+        command.Parameters.Add(new NpgsqlParameter { Value = id });
+        await using var reader = await command.ExecuteReaderAsync();
+        (await reader.ReadAsync()).Should().BeTrue("the channel row is still there");
+        return (reader.GetInt32(0), reader.GetInt32(1), await reader.IsDBNullAsync(2) ? null : reader.GetString(2));
     }
 
     private async Task<(int Status, int RetryCount, string? LockedBy)> WorkflowRowAsync(Guid id)

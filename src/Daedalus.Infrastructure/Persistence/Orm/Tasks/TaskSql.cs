@@ -250,14 +250,14 @@ public sealed partial class TaskSql(IAsyncDbConnection connection)
                 e.Id, e.TaskId, e.SessionId, e.IterationNumber, e.Prompt, e.LlmResponse, e.CompletionPromiseFound,
                 e.ExecutedAt, e.ExecutionDuration, e.Error, e.InputTokens, e.ModelId, e.OutputTokens)));
 
-    // Raw, not a LinqQuery: a LINQ chain cannot test a nullable column against an array parameter yet. Swap back to
-    // a LinqQuery once ZeroAlloc.ORM issue 452 ships (ruling R59). A NULL "WorkflowRunId" never matches = ANY.
-    [Query("""
-        SELECT "WorkflowRunId", "Id", "TaskId", "Title"
-        FROM "Tasks"
-        WHERE "WorkflowRunId" = ANY(@runIds)
-        """)]
+    // A NULL "WorkflowRunId" never matches = ANY, as EF's != null filter did (ruling R59).
+    [LinqQuery(nameof(RunLinksQuery))]
     private partial Task<List<TaskRunLinkRow>> RunLinks(Guid[] runIds, CancellationToken ct);
+
+    private static IQuery<TaskRunLinkRow> RunLinksQuery(Guid[] runIds) =>
+        Sql.Table<DomainTask>()
+            .Where(t => runIds.Contains(t.WorkflowRunId!.Value))
+            .Select(t => new TaskRunLinkRow(t.WorkflowRunId, t.Id, t.TaskId, t.Title));
 
     [LinqQuery(nameof(ExecutionsByTaskQuery))]
     private partial Task<(int Total, List<TaskExecutionRow> Page)> ExecutionsByTask(

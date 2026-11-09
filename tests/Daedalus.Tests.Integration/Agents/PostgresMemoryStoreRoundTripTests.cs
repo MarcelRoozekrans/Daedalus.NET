@@ -150,8 +150,9 @@ public sealed class PostgresMemoryStoreRoundTripTests(PostgresFixture fixture) :
     }
 
     /// <summary>
-    ///     An update writes only what it supplies: an archive flag flipped between the read and the write stands when
-    ///     the update sets the index flag. Red: write every column and the archive flag goes back.
+    ///     An update writes only what it supplies: text, tags, importance and archive flag changed between the read and
+    ///     the write stand when the update sets the index flag. Red: write any of those columns unconditionally and its
+    ///     value goes back.
     /// </summary>
     [Fact]
     public async Task Update_writes_only_the_supplied_fields()
@@ -161,7 +162,10 @@ public sealed class PostgresMemoryStoreRoundTripTests(PostgresFixture fixture) :
         var record = Record() with { IsArchived = false, IndexPending = true };
         (await store.CreateAsync(record, CancellationToken.None)).IsSuccess.Should().BeTrue();
         clock.OnNextRead = () => new PostgresMemoryStore(fixture.Db, TimeProvider.System)
-            .UpdateAsync(record.Id, new MemoryUpdate { IsArchived = true }, CancellationToken.None)
+            .UpdateAsync(
+                record.Id,
+                new MemoryUpdate { Text = "rewritten by the other writer", Tags = ["other"], Importance = 0.9, IsArchived = true },
+                CancellationToken.None)
             .AsTask().GetAwaiter().GetResult();
 
         (await store.UpdateAsync(record.Id, new MemoryUpdate { IndexPending = false }, CancellationToken.None))
@@ -170,6 +174,9 @@ public sealed class PostgresMemoryStoreRoundTripTests(PostgresFixture fixture) :
         var stored = (await store.GetAsync(record.Id, CancellationToken.None)).Value;
         stored.IndexPending.Should().BeFalse();
         stored.IsArchived.Should().BeTrue("the other writer's archive flag was not part of this update");
+        stored.Text.Should().Be("rewritten by the other writer", "nor was its text");
+        stored.Tags.Should().Equal(["other"], "nor were its tags");
+        stored.Importance.Should().Be(0.9, "nor was its importance");
     }
 
     /// <summary>

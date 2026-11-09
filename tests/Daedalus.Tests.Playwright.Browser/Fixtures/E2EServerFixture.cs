@@ -535,14 +535,15 @@ public class E2EServerFixture
         ?? descriptor.ImplementationFactory?.Method.ReturnType;
 
     /// <summary>
-    ///     A named ZeroAlloc.Outbox pipeline, such as the channel pipeline, registers its worker through a factory
-    ///     object whose method is declared to return <see cref="IHostedService"/>. The object is the library's pipeline
-    ///     worker factory, which always builds an <see cref="OutboxWorkerService"/>; it is matched by its type name in the
-    ///     library's assembly, so a rename in the library fails set-up through the exactly-once check.
+    ///     A named ZeroAlloc.Outbox pipeline, such as the channel pipeline, registers its worker as an unkeyed
+    ///     <see cref="IHostedService"/> through a factory object whose method is declared to return the interface. The
+    ///     only hosted service ZeroAlloc.Outbox's assembly registers is <see cref="OutboxWorkerService"/>, so a factory
+    ///     object from that assembly is matched as one, by assembly alone. A second worker counts as a second
+    ///     <see cref="OutboxWorkerService"/> and fails the exactly-once check.
     /// </summary>
     private static Type? OutboxPipelineWorkerType(ServiceDescriptor descriptor) =>
-        descriptor.ImplementationFactory?.Target?.GetType() is { Name: "OutboxPipelineWorkerFactory" } factory
-        && factory.Assembly == typeof(OutboxWorkerService).Assembly
+        IsHostedService(descriptor)
+        && descriptor.ImplementationFactory?.Target?.GetType().Assembly == typeof(OutboxWorkerService).Assembly
             ? typeof(OutboxWorkerService)
             : null;
 

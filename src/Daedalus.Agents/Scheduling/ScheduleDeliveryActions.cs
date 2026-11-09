@@ -46,7 +46,7 @@ namespace Daedalus.Agents.Scheduling;
 /// <param name="serializer">The same serializer the host registers, so no wire format is assumed here.</param>
 /// <param name="options">Reuses <see cref="ScheduleDiagnosticsOptions"/>'s dead-letter scan bounds.</param>
 /// <param name="logger">Records a skipped, unreadable candidate row.</param>
-public sealed class ScheduleDeliveryActions(
+public sealed partial class ScheduleDeliveryActions(
     DaedalusDb db,
     TimeProvider timeProvider,
     [FromKeyedServices(ChannelOutboxServiceCollectionExtensions.PipelineName)] IOutboxRequeue requeue,
@@ -77,9 +77,7 @@ public sealed class ScheduleDeliveryActions(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex,
-                    "Skipping a dead-lettered {TypeName} row whose payload could not be deserialized while resolving a resend for execution {ExecutionId}.",
-                    _channelMessageTypeName, executionId);
+                LogUnreadableCandidate(logger, ex, _channelMessageTypeName, executionId);
                 continue;
             }
 
@@ -99,7 +97,7 @@ public sealed class ScheduleDeliveryActions(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Requeue failed for execution {ExecutionId}, outbox message {MessageId}.", executionId, candidate.Id);
+                LogRequeueFailed(logger, ex, executionId, candidate.Id);
                 return Result.Failure($"Requeue failed: {ex.Message}");
             }
         }
@@ -119,4 +117,12 @@ public sealed class ScheduleDeliveryActions(
             .ListDeadLettersAsync(_channelMessageTypeName, since, _options.DeadLetterScanLimit, ct)
             .ConfigureAwait(false);
     }
+
+    [LoggerMessage(EventId = 458, Level = LogLevel.Warning,
+        Message = "Skipping a dead-lettered {TypeName} row whose payload could not be deserialized while resolving a resend for execution {ExecutionId}.")]
+    private static partial void LogUnreadableCandidate(ILogger logger, Exception exception, string typeName, Guid executionId);
+
+    [LoggerMessage(EventId = 459, Level = LogLevel.Warning,
+        Message = "Requeue failed for execution {ExecutionId}, outbox message {MessageId}.")]
+    private static partial void LogRequeueFailed(ILogger logger, Exception exception, Guid executionId, Guid messageId);
 }

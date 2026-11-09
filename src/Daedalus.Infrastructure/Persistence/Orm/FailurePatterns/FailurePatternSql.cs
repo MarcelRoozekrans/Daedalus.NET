@@ -70,15 +70,18 @@ public sealed partial class FailurePatternSql(IAsyncDbConnection connection)
             .Take(limit)
             .Select(e => new ErrorExecutionRow(e.TaskId, e.IterationNumber, e.Error!, e.ExecutedAt));
 
-    // Raw, not a LinqQuery: the LINQ chain has no string length or IsNullOrEmpty yet, and the non-empty response is
-    // the point of the lookup. Swap back to a LinqQuery once ZeroAlloc.ORM issue 453 ships (ruling R64).
-    [Query("""
-        SELECT "IterationNumber", "LlmResponse"
-        FROM "TaskExecutions"
-        WHERE "TaskId" = @taskId AND "IterationNumber" > @afterIteration AND "Error" IS NULL
-              AND length("LlmResponse") > 0
-        ORDER BY "IterationNumber", "Id"
-        LIMIT 1
-        """)]
+    // The response must be non-empty: the column is NOT NULL, so length > 0 is the test (ruling R64).
+    [LinqQuery(nameof(ResolutionQuery))]
     private partial Task<ResolutionExecutionRow?> Resolution(Guid taskId, int afterIteration, CancellationToken ct);
+
+    private static IQuery<ResolutionExecutionRow> ResolutionQuery(Guid taskId, int afterIteration) =>
+        Sql.Table<TaskExecution>()
+            .Where(e => e.TaskId == taskId
+                && e.IterationNumber > afterIteration
+                && e.Error == null
+                && e.LlmResponse.Length > 0)
+            .OrderBy(e => e.IterationNumber)
+            .ThenBy(e => e.Id)
+            .Take(1)
+            .Select(e => new ResolutionExecutionRow(e.IterationNumber, e.LlmResponse));
 }

@@ -88,12 +88,11 @@ public sealed partial class AgentMemorySql(IAsyncDbConnection connection)
 
     /// <summary>
     ///     Writes the fields of an update that was applied to <paramref name="memory"/> with
-    ///     <see cref="AgentMemory.Update"/>, and only those: one statement per supplied field, in one transaction so
-    ///     they commit together. A content field also stamps the memory's <c>UpdatedAt</c>, once, in its own statement; the index flag alone does
-    ///     not, as in the aggregate. The recall counter and the last recall time are never written, so a recall that
+    ///     <see cref="AgentMemory.Update"/>, and only those: one statement that sets each supplied column and leaves
+    ///     every other one at its stored value. A content field also stamps the memory's <c>UpdatedAt</c>; the index
+    ///     flag alone does not, as in the aggregate. The recall counter and the last recall time are never written, so a recall that
     ///     lands between the caller's read and this write stands. Nothing is written when no field was supplied. A
-    ///     memory deleted since it was read throws <c>ZeroAllocOrmConcurrencyException</c> from the first statement,
-    ///     and the transaction rolls back.
+    ///     memory deleted since it was read throws <c>ZeroAllocOrmConcurrencyException</c>.
     /// </summary>
     /// <param name="memory">The memory after the update, holding the new values and the new <c>UpdatedAt</c>.</param>
     /// <param name="text">Whether the text was supplied.</param>
@@ -113,38 +112,10 @@ public sealed partial class AgentMemorySql(IAsyncDbConnection connection)
             return;
         }
 
-        await using var tx = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
-        if (text)
-        {
-            await SetText(memory.Id, memory.Text, tx, ct).ConfigureAwait(false);
-        }
-
-        if (tags)
-        {
-            await SetTags(memory.Id, [.. memory.Tags], tx, ct).ConfigureAwait(false);
-        }
-
-        if (importance)
-        {
-            await SetImportance(memory.Id, memory.Importance, tx, ct).ConfigureAwait(false);
-        }
-
-        if (isArchived)
-        {
-            await SetArchived(memory.Id, memory.IsArchived, tx, ct).ConfigureAwait(false);
-        }
-
-        if (text || tags || importance || isArchived)
-        {
-            await SetUpdatedAt(memory.Id, memory.UpdatedAt, tx, ct).ConfigureAwait(false);
-        }
-
-        if (indexPending)
-        {
-            await SetIndexPending(memory.Id, memory.IndexPending, tx, ct).ConfigureAwait(false);
-        }
-
-        await tx.CommitAsync(ct).ConfigureAwait(false);
+        var content = text || tags || importance || isArchived;
+        await WriteUpdate(
+            memory.Id, text, memory.Text, tags, [.. memory.Tags], importance, memory.Importance, isArchived,
+            memory.IsArchived, content, memory.UpdatedAt, indexPending, memory.IndexPending, ct).ConfigureAwait(false);
     }
 
     /// <summary>Deletes the memory with <paramref name="id"/>.</summary>
@@ -243,55 +214,26 @@ public sealed partial class AgentMemorySql(IAsyncDbConnection connection)
                 m.Id, m.OwnerId, m.AgentId, m.Kind, m.Text, m.Tags, m.Source, m.Importance, m.CreatedAt, m.UpdatedAt,
                 m.LastRecalledAt, m.RecallCount, m.IsArchived, m.IndexPending));
 
-    [LinqCommand(nameof(SetTextQuery), ThrowOnNoRows = true)]
-    private partial Task<int> SetText(Guid id, string text, IAsyncDbTransaction tx, CancellationToken ct);
+    // One statement: each column keeps its stored value unless its flag is set (ruling R42).
+    [LinqCommand(nameof(WriteUpdateQuery), ThrowOnNoRows = true)]
+    private partial Task<int> WriteUpdate(
+        Guid id, bool setText, string text, bool setTags, string[] tags, bool setImportance, double importance,
+        bool setArchived, bool isArchived, bool setUpdatedAt, DateTime updatedAt, bool setIndexPending,
+        bool indexPending, CancellationToken ct);
 
-    private static int SetTextQuery(Guid id, string text) =>
+    private static int WriteUpdateQuery(
+        Guid id, bool setText, string text, bool setTags, string[] tags, bool setImportance, double importance,
+        bool setArchived, bool isArchived, bool setUpdatedAt, DateTime updatedAt, bool setIndexPending,
+        bool indexPending) =>
         Sql.Table<AgentMemory>()
             .Where(m => m.Id == id)
-            .ExecuteUpdate(set => set.SetProperty(m => m.Text, text));
-
-    [LinqCommand(nameof(SetTagsQuery), ThrowOnNoRows = true)]
-    private partial Task<int> SetTags(Guid id, string[] tags, IAsyncDbTransaction tx, CancellationToken ct);
-
-    private static int SetTagsQuery(Guid id, string[] tags) =>
-        Sql.Table<AgentMemory>()
-            .Where(m => m.Id == id)
-            .ExecuteUpdate(set => set.SetProperty(m => m.Tags, tags));
-
-    [LinqCommand(nameof(SetImportanceQuery), ThrowOnNoRows = true)]
-    private partial Task<int> SetImportance(
-        Guid id, double importance, IAsyncDbTransaction tx, CancellationToken ct);
-
-    private static int SetImportanceQuery(Guid id, double importance) =>
-        Sql.Table<AgentMemory>()
-            .Where(m => m.Id == id)
-            .ExecuteUpdate(set => set.SetProperty(m => m.Importance, importance));
-
-    [LinqCommand(nameof(SetArchivedQuery), ThrowOnNoRows = true)]
-    private partial Task<int> SetArchived(
-        Guid id, bool isArchived, IAsyncDbTransaction tx, CancellationToken ct);
-
-    private static int SetArchivedQuery(Guid id, bool isArchived) =>
-        Sql.Table<AgentMemory>()
-            .Where(m => m.Id == id)
-            .ExecuteUpdate(set => set.SetProperty(m => m.IsArchived, isArchived));
-
-    [LinqCommand(nameof(SetUpdatedAtQuery), ThrowOnNoRows = true)]
-    private partial Task<int> SetUpdatedAt(Guid id, DateTime updatedAt, IAsyncDbTransaction tx, CancellationToken ct);
-
-    private static int SetUpdatedAtQuery(Guid id, DateTime updatedAt) =>
-        Sql.Table<AgentMemory>()
-            .Where(m => m.Id == id)
-            .ExecuteUpdate(set => set.SetProperty(m => m.UpdatedAt, updatedAt));
-
-    [LinqCommand(nameof(SetIndexPendingQuery), ThrowOnNoRows = true)]
-    private partial Task<int> SetIndexPending(Guid id, bool indexPending, IAsyncDbTransaction tx, CancellationToken ct);
-
-    private static int SetIndexPendingQuery(Guid id, bool indexPending) =>
-        Sql.Table<AgentMemory>()
-            .Where(m => m.Id == id)
-            .ExecuteUpdate(set => set.SetProperty(m => m.IndexPending, indexPending));
+            .ExecuteUpdate(set => set
+                .SetProperty(m => m.Text, m => setText ? text : m.Text)
+                .SetProperty(m => m.Tags, m => setTags ? tags : m.Tags)
+                .SetProperty(m => m.Importance, m => setImportance ? importance : m.Importance)
+                .SetProperty(m => m.IsArchived, m => setArchived ? isArchived : m.IsArchived)
+                .SetProperty(m => m.UpdatedAt, m => setUpdatedAt ? updatedAt : m.UpdatedAt)
+                .SetProperty(m => m.IndexPending, m => setIndexPending ? indexPending : m.IndexPending));
 
     [LinqCommand(nameof(DeleteQuery))]
     private partial Task<int> Delete(Guid id, CancellationToken ct);
