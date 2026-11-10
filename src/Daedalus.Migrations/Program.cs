@@ -25,6 +25,18 @@ try
     await using var connection = new NpgsqlConnection(connectionString);
     await connection.OpenAsync();
 
+    // The history table first, before any runner. A table from before ZeroAlloc.ORM 2.2.0 scoped versions by
+    // source holds the Daedalus, outbox and workflow rows unscoped, and a runner upgrading it assigns every row to
+    // its own source and refuses the rest: the Daedalus runner would refuse an EF database that carries the
+    // outbox and workflow rows of an earlier Daedalus.Migrations run with a misleading cause. See
+    // PreScopingMigrationHistory.
+    var upgrade = await PreScopingMigrationHistory.UpgradeAsync(connection, WorkflowEngineMigrator.Sources);
+    if (upgrade.IsFailure)
+    {
+        logger.WorkflowEngineMigrationRefused(upgrade.Error);
+        Environment.Exit(1);
+    }
+
     logger.LogInformation("Starting database migration");
     try
     {
@@ -67,17 +79,9 @@ try
     // transaction as the workflow tables it writes, starting with the very first StartAsync call, so neither
     // table can be missing. That mirrors WorkflowOrmSchemaInitializer's own ordering in
     // Thalos.NET.Workflow.Orm, which this replaces with an explicit step rather than relying on
-    // EnsureSchemaOnStartup at host boot. Before either source runs, it attributes the rows of a history table
-    // from before ZeroAlloc.ORM scoped versions by source to the source that wrote each one: both sources
-    // shared that table, and the runner's own upgrade refuses it from either. See PreScopingMigrationHistory.
-    var outcome = await WorkflowEngineMigrator.ApplyAsync(connection);
-    if (outcome.IsFailure)
-    {
-        logger.WorkflowEngineMigrationRefused(outcome.Error);
-        Environment.Exit(1);
-    }
-
-    logger.WorkflowEngineMigrationApplied(outcome.Value.UpgradedHistoryRows, outcome.Value.Applied.Count);
+    // EnsureSchemaOnStartup at host boot.
+    var applied = await WorkflowEngineMigrator.ApplyAsync(connection);
+    logger.WorkflowEngineMigrationApplied(upgrade.Value, applied.Count);
 
     logger.LogInformation("Workflow engine migration completed successfully");
 }

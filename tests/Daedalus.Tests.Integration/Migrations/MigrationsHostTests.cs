@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using Daedalus.Infrastructure.Persistence.Migrations;
+using Daedalus.Migrations;
 using Daedalus.Tests.Integration.Fixtures;
+using Npgsql;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Migrations;
@@ -32,6 +34,63 @@ public sealed class MigrationsHostTests(PostgresFixture fixture)
             (await ReadAsync(connectionString, "SELECT table_name FROM information_schema.tables "
                 + "WHERE table_schema = 'public' AND table_name IN ('workflow_run', 'outboxmessages', 'OutboxMessages') ORDER BY 1"))
                 .Should().Equal("OutboxMessages", "outboxmessages", "workflow_run");
+        });
+    }
+
+    [Fact]
+    public async Task Migrations_host_upgrades_an_ef_database_with_a_pre_scoping_history_table()
+    {
+        await WithEfDatabaseAsync(undoHead: false, async connectionString =>
+        {
+            await using (var connection = new NpgsqlConnection(connectionString))
+            {
+                await connection.OpenAsync();
+                await PreScopingMigrationHistoryUpgradeTests.BuildLegacyDatabaseAsync(
+                    connection, PreScopingMigrationHistoryUpgradeTests.LegacyRows, withSchema: true);
+            }
+
+            var (exitCode, output) = await RunHostAsync(connectionString);
+
+            // Red: call PreScopingMigrationHistory.UpgradeAsync after DaedalusMigrations.CreateRunner in Program.cs, as
+            // WorkflowEngineMigrator.ApplyAsync did. The Daedalus runner finds the unscoped table first, assigns
+            // every row to its own source and exits 1 with a conflict that names rows no Daedalus migration owns.
+            exitCode.Should().Be(0, output);
+
+            // Red: attribute every row to sources[0] in PreScopingMigrationHistory.Attribute.
+            (await ReadAsync(connectionString, "SELECT source || ' ' || count(*) FROM __zaorm_migrations "
+                + "WHERE version < 1010 AND source <> '" + DaedalusMigrations.SourceName + "' GROUP BY source ORDER BY source"))
+                .Should().Equal("Thalos.Workflow.Orm.Migrations 9", "ZeroAlloc.Outbox.Orm 2");
+            (await ReadAsync(connectionString, "SELECT version || ' ' || name FROM __zaorm_migrations WHERE source = '"
+                + DaedalusMigrations.SourceName + "' ORDER BY version")).Should().Equal("1 baseline", "2 drop_dead_rowversions");
+        });
+    }
+
+    [Fact]
+    public async Task Migrations_host_keeps_live_channel_outbox_rows_of_a_scoped_ef_database()
+    {
+        await WithEfDatabaseAsync(undoHead: false, async connectionString =>
+        {
+            await using (var connection = new NpgsqlConnection(connectionString))
+            {
+                await connection.OpenAsync();
+                await WorkflowEngineMigrator.ApplyAsync(connection);
+            }
+
+            await EfChainDatabase.ExecuteAsync(
+                connectionString,
+                "INSERT INTO \"OutboxMessages\" (\"Id\", \"TypeName\", \"Payload\", \"Status\", \"RetryCount\", \"NextRetryAt\", \"CreatedAt\") "
+                + "VALUES (gen_random_uuid(), 'Digest', '\\x01', 0, 0, now(), now()), (gen_random_uuid(), 'Digest', '\\x02', 0, 0, now(), now())",
+                CancellationToken.None);
+
+            var (exitCode, output) = await RunHostAsync(connectionString);
+
+            // Red: make the baseline or the drop-dead-rowversions migration recreate the "OutboxMessages" table, or let
+            // the history upgrade attribute an already scoped table's rows again.
+            exitCode.Should().Be(0, output);
+            (await ReadAsync(connectionString, "SELECT \"TypeName\" || ' ' || \"Status\" FROM \"OutboxMessages\""))
+                .Should().Equal("Digest 0", "Digest 0");
+            (await ReadAsync(connectionString, "SELECT source || ' ' || count(*) FROM __zaorm_migrations GROUP BY source ORDER BY source"))
+                .Should().Contain("ZeroAlloc.Outbox.Orm 2");
         });
     }
 
