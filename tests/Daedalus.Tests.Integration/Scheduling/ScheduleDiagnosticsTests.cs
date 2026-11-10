@@ -57,10 +57,10 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
 {
     private static readonly DateTime _now = new(2026, 9, 18, 7, 30, 0, DateTimeKind.Utc);
 
-    // Nowhere near ScheduleDiagnosticsOptions' own 15-minute and 30-day defaults, on purpose.
     private const string _npgsqlSourceName = "Npgsql";
     private const string RestrictedRole = "diagnostics_reader";
 
+    // Nowhere near ScheduleDiagnosticsOptions' own 15-minute and 30-day defaults, on purpose.
     private static readonly TimeSpan _strandedAfter = TimeSpan.FromMinutes(11);
     private static readonly TimeSpan _deadLetterLookback = TimeSpan.FromHours(37);
 
@@ -664,25 +664,38 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
         // Another connection sends commands while the overview runs; they are in no trace of the counter's.
         using var noise = new CancellationTokenSource();
         var noiseTask = SendUnrelatedCommandsAsync(noise.Token);
-        var overview = await OverviewAsync(provider);
+        IReadOnlyList<RunDiagnosis> overview;
+        int noiseCommands;
+        try
+        {
+            overview = await OverviewAsync(provider);
+        }
+        finally
+        {
+            await noise.CancelAsync();
+            noiseCommands = await noiseTask;
+        }
 
-        await noise.CancelAsync();
-        await noiseTask;
-
+        noiseCommands.Should().BePositive("a noise task that sent nothing would make the isolation check pass for no reason");
         overview.Should().HaveCount(scheduleCount);
         return counter.Count;
     }
 
-    /// <summary>Sends commands on the fixture's data source from a different trace until cancelled.</summary>
-    private async Task SendUnrelatedCommandsAsync(CancellationToken ct)
+    /// <summary>Sends commands on the fixture's data source from a different trace until cancelled, at least one; returns how many.</summary>
+    private async Task<int> SendUnrelatedCommandsAsync(CancellationToken ct)
     {
         await Task.Yield();
         Activity.Current = null;
-        while (!ct.IsCancellationRequested)
+        var sent = 0;
+        do
         {
             await using var command = fixture.DataSource.CreateCommand("SELECT 1");
             await command.ExecuteScalarAsync(CancellationToken.None);
+            sent++;
         }
+        while (!ct.IsCancellationRequested);
+
+        return sent;
     }
 
     private static async Task<IReadOnlyList<RunDiagnosis>> OverviewAsync(ServiceProvider provider)
@@ -913,7 +926,7 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
         private static readonly ActivitySource _source = new(SourceName);
 
         private readonly ActivityListener _listener;
-        private readonly Activity _parent;
+        private readonly Activity? _parent;
         private int _count;
 
         public CommandCounter(string npgsqlSourceName = "Npgsql")
@@ -928,8 +941,11 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
                 ActivityStopped = activity =>
                 {
                     // Commands only: a CONNECT span appears whenever the pool opens a new physical connection.
+                    // The parent is null until the listener is registered and the parent started; a span another
+                    // test stops in that window is not ours.
                     if (activity.Kind == ActivityKind.Client
-                        && activity.TraceId == _parent!.TraceId
+                        && _parent is { } parent
+                        && activity.TraceId == parent.TraceId
                         && activity.GetTagItem("db.query.text") is not null)
                     {
                         Interlocked.Increment(ref _count);
@@ -945,7 +961,7 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
 
         public void Dispose()
         {
-            _parent.Dispose();
+            _parent?.Dispose();
             _listener.Dispose();
         }
     }
