@@ -49,7 +49,7 @@ graph TB
     end
 
     AnthropicApi[("Anthropic API<br/>(Claude models)")]
-    Postgres[("PostgreSQL<br/>(EF Core)")]
+    Postgres[("PostgreSQL<br/>(ZeroAlloc.ORM)")]
     Keycloak["Keycloak<br/>(OIDC identity provider)"]
     Ollama["Ollama container<br/>(local embedding generation,<br/>nomic-embed-text pulled at start)"]
     GitHub["GitHub<br/>(repositories)"]
@@ -57,7 +57,7 @@ graph TB
 
     Web -->|HTTP| Api
     Web -->|OIDC login, token auth| Keycloak
-    Api -->|EF Core| Postgres
+    Api -->|ZeroAlloc.ORM| Postgres
     Api -->|validate JWT| Keycloak
     Api --> Agents
     Cli --> Agents
@@ -162,8 +162,9 @@ completeness, not a project dependency.
 
 ## 3. Domain Model (Entity Relationship)
 
-Enumerated directly from `src/Daedalus.Domain/Entities/`, cross-checked against the EF Core configurations
-in `src/Daedalus.Infrastructure/Persistence/Configurations/` rather than inferred from property names.
+Enumerated directly from `src/Daedalus.Domain/Entities/`, cross-checked against the ZeroAlloc.ORM maps
+in `src/Daedalus.Infrastructure/Persistence/Orm/` and the schema in `Persistence/Migrations/0001_baseline.sql`
+rather than inferred from property names.
 The persisted entities below are the ones this diagram draws (excluding enums and the `Entity`/`AggregateRoot` base classes,
 which are not tables).
 
@@ -373,13 +374,14 @@ erDiagram
     }
 ```
 
-**Only four relationships are enforced as database foreign keys** (verified against
-`ApplicationDbContextModelSnapshot.cs`, all `OnDelete(DeleteBehavior.Cascade)`): `Project → Task`,
-`Task → TaskExecution`, `AgentSession → AgentMessage`, and `BrainstormSession → BrainstormMessage`. Several
+**Only four relationships in this diagram are enforced as database foreign keys** (verified against
+`0001_baseline.sql`, all `ON DELETE CASCADE`): `Project → Task`,
+`Task → TaskExecution`, `AgentSession → AgentMessage`, and `BrainstormSession → BrainstormMessage`. The fifth
+foreign key in the schema, `CodeAnalysisRequest → AnalysisIteration`, belongs to the two entities outside this diagram. Several
 other Guid-typed properties look like foreign keys by name but are not configured as one anywhere — the
 same trap the previous diagram fell into with `GitOperation`. Marked `"not FK-enforced"` above:
 `Task.CurrentSessionId` (no relationship to `ExecutionSession`), `Task.WorkflowRunId` (a workflow run is identified by id in Thalos's tables and in `WorkflowRunRecords`), `ScheduledRunExecution.ScheduleId` (only a
-unique index on `(ScheduleId, OccurrenceAt)`, no `HasOne`/`HasForeignKey`), and `BrainstormSession.ProjectId`
+unique index on `(ScheduleId, OccurrenceAt)`, no foreign key constraint), and `BrainstormSession.ProjectId`
 (indexed, but never wired to `Project` the way `Task.ProjectId` is). `AgentMemory.AgentId` and
 `ChannelConversation.SessionId`/`AgentId` are marked `"external Thalos identity"` because they hold the
 `Guid` backing a Thalos.NET typed id (an agent definition or session living in Thalos's own runtime, not a
@@ -387,7 +389,7 @@ row in any table in this diagram) — there is nothing local for them to be a fo
 
 Two projects outside `src/Daedalus.Domain/Entities/` are out of this diagram's scope by the same
 enumeration rule that dropped `GitOperation`/`GitDiff`: `AnalysisIteration` and `CodeAnalysisRequest` live
-under `Daedalus.Domain/CodeAnalysis/` and have their own EF configurations, but they are not part of the
+under `Daedalus.Domain/CodeAnalysis/` and have their own ZeroAlloc.ORM maps, but they are not part of the
 `Entities/` folder this section enumerates.
 
 ---
@@ -482,7 +484,7 @@ graph TB
 ```
 
 There are no mediator query requests. `TasksEndpoints`'s read endpoints go through `ITaskQueryService`
-(`Daedalus.Api.Services.TaskQueryService`), which queries `ApplicationDbContext` directly with EF Core and derives each
+(`Daedalus.Api.Services.TaskQueryService`), which reads through `TaskSql` over a `DaedalusDb` connection and derives each
 task's status from its run (section 8). The CQRS write side is wired through the mediator; the read side is not.
 
 ---
@@ -630,7 +632,7 @@ graph TB
     end
 
     subgraph "Infrastructure Layer"
-        DBCONTEXT["EF Core DbContext"]
+        ORMSQL["ZeroAlloc.ORM maps<br/>and SQL classes"]
         REPOSITORIES["Repositories"]
         MIGRATION["Database Migrations"]
         PERSISTENCE["PostgreSQL"]
@@ -638,7 +640,7 @@ graph TB
 
     API --> COMMANDS
     API --> QUERYSVC
-    QUERYSVC --> DBCONTEXT
+    QUERYSVC --> ORMSQL
     WEB --> SERVICES
 
     COMMANDS --> SERVICES
@@ -646,7 +648,7 @@ graph TB
     SERVICES --> REPOSITORIES
     SERVICES --> ENTITIES
 
-    REPOSITORIES --> DBCONTEXT
+    REPOSITORIES --> ORMSQL
     ENTITIES --> VALUEOBJECTS
     ENTITIES --> AGGROOT
 
@@ -720,7 +722,7 @@ graph TB
     end
 
     subgraph "Resolved Services"
-        SERVICES["TaskQueryService<br/>TaskRepository<br/>DbContext<br/>ILogger<br/>Configuration"]
+        SERVICES["TaskQueryService<br/>TaskRepository<br/>DaedalusDb<br/>ILogger<br/>Configuration"]
     end
 
     subgraph "Auth Services"
@@ -852,8 +854,8 @@ graph TB
     end
 
     subgraph Data["Data & Persistence"]
-        EFC["Entity Framework Core 10.0.2"]
-        NPGSQL["Npgsql 10.0.3<br/>+ Npgsql.EntityFrameworkCore.PostgreSQL"]
+        ORM["ZeroAlloc.ORM 2.14.0<br/>(source-generated SQL)"]
+        NPGSQL["Npgsql<br/>NpgsqlDataSource"]
         POSTGRES["🐘 PostgreSQL<br/>(pgvector/pgvector:pg16)"]
     end
 
@@ -971,7 +973,7 @@ sequenceDiagram
     participant Handler as Command/Query<br/>Handler
     participant Service as Application<br/>Service
     participant Repo as Repository
-    participant EF as EF Core<br/>DbContext
+    participant EF as ZeroAlloc.ORM<br/>...Sql class
     participant DB as PostgreSQL
 
     Client->>Auth: HTTP Request<br/>+ Bearer Token
@@ -999,7 +1001,7 @@ sequenceDiagram
     Service->>Repo: Query/Execute via<br/>Repository
     activate Repo
 
-    Repo->>EF: DbSet Query<br/>AsNoTracking
+    Repo->>EF: Generated query<br/>on a DaedalusDb connection
     activate EF
 
     EF->>DB: Execute SQL
@@ -1008,7 +1010,7 @@ sequenceDiagram
     DB-->>EF: Result Set
     deactivate DB
 
-    EF-->>Repo: Materialized Entities
+    EF-->>Repo: Row records<br/>rebuilt via Rehydrate
     deactivate EF
 
     Repo-->>Service: IReadOnlyList<T>
@@ -1045,11 +1047,11 @@ graph TB
     end
 
     subgraph "Database Optimization"
-        D1["AsNoTracking()<br/>Read-Only Queries"]
-        D2["DbContext Pooling<br/>Connection Reuse"]
-        D3["Compiled Queries<br/>Frequent Operations"]
-        D4["Split Queries<br/>Avoid Cartesian"]
-        D5["ExecuteUpdateAsync<br/>Bulk Operations"]
+        D1["No change tracking<br/>Rows read straight into records"]
+        D2["NpgsqlDataSource pool<br/>Connection Reuse"]
+        D3["Source-generated SQL<br/>No run-time translation"]
+        D4["Parent and children<br/>as one multi-statement command"]
+        D5["LinqCommand updates<br/>Atomic UPDATE ... WHERE"]
     end
 
     subgraph "API Optimization"
@@ -1112,7 +1114,7 @@ sequenceDiagram
     participant Web as Daedalus.Web<br/>(Agent.razor + AgentApiClient)
     participant Api as Daedalus.Api<br/>AgentSessionsEndpoints<br/>AgentMemoriesEndpoints
     participant RT as Thalos IAgentRuntime<br/>(ThalosAgentRuntime)
-    participant Store as PostgresAgentSessionStore<br/>(Daedalus.Agents → EF Core)
+    participant Store as PostgresAgentSessionStore<br/>(Daedalus.Agents → ZeroAlloc.ORM)
     participant Mem as MemoryContextProvider<br/>→ IMemoryService
     participant Skl as SkillContextProvider<br/>→ SkillCatalogue (per-glob-set cache)
     participant SklStore as PostgresSkillStore<br/>(Skills) + in-process SkillIndex
@@ -1285,7 +1287,7 @@ graph LR
     end
 
     subgraph "Shared Infrastructure"
-        DbCtx["ApplicationDbContext<br/>(AgentSessions, AgentMessages,<br/>AgentMemories, Skills, Tasks, …)"]
+        DbCtx["DaedalusDb + ...Sql classes<br/>(AgentSessions, AgentMessages,<br/>AgentMemories, Skills, Tasks, …)"]
         Ollama["Ollama nomic-embed-text<br/>(768 dims)"]
         PG[("PostgreSQL 16<br/>pgvector/pgvector:pg16")]
     end
@@ -1572,7 +1574,7 @@ opens a fresh `IServiceScope` and calls `ScheduledRunStore.ClaimAndEnqueueDueAsy
 transaction per sweep, not per row — finds every enabled row with `NextRunAt <= now`, advances each to its
 next Cronos-computed occurrence, and enqueues a `ScheduledRunDue` outbox message for the most recent due
 occurrence. A `ScheduledRun` carries an `xmin` concurrency token, so two sweepers racing the same due row are
-mutually exclusive at the database level with no explicit lock: the loser's `DbUpdateConcurrencyException` is
+mutually exclusive at the database level with no explicit lock: the loser's `ZeroAllocOrmConcurrencyException` is
 caught and treated as "another sweeper already claimed this tick" — the whole sweep's transaction rolls back
 and every other due row in the same batch is simply found due again on the next tick, one minute late. A
 tick's own exception is caught and logged, never allowed to escape: letting it escape would stop
@@ -1588,7 +1590,7 @@ already is. This is enforced, not merely documented: `CleanArchitectureTests.No_
 that no project references the package — a namespace-based ArchUnitNET rule would be vacuously true here,
 since the whole point of dropping the package is that nothing loads it, so the test greps `.csproj` files
 directly instead. The test's own failure message records that the decision is reversible: the package now
-ships a zero-setup in-memory store and a public `SchedulingDbContext` migrations could target, so it can slot
+ships a zero-setup in-memory store and a public EF context migrations could target, so it can slot
 back in later if durable job state is ever genuinely needed — "if that is ever wanted, delete this fact
 rather than working around it."
 
@@ -1851,84 +1853,100 @@ graph TD
 
 ---
 
-## 21. Data Access — EF Core, Concurrency, and Migrations
+## 21. Data Access — ZeroAlloc.ORM, Concurrency, and Migrations
 
-Source: `src/Daedalus.Infrastructure/Persistence/` (`ApplicationDbContext`, `Configurations/`) and
-`src/Daedalus.Infrastructure/Migrations/` (24 migrations, `AddMissingTaskColumns` (2026-02-09, the
-earliest by its `[Migration]` timestamp) through `MakeTaskRowVersionXmin` (2026-10-10, the latest)).
-`Daedalus.Migrations` is a small standalone console host
-(`src/Daedalus.Migrations/Program.cs`) whose entire job is `await dbContext.Database.MigrateAsync()` on
-startup; `Daedalus.AppHost` runs it as a managed Aspire project (`AddProject`, not a compile-time
-reference — same pattern as section 2) so the schema is current before `Api` or `Web` accept
-traffic.
+Phase 3.5 replaced EF Core with ZeroAlloc.ORM over Npgsql. There is no `DbContext`, no change tracker and no model
+snapshot. Source: `src/Daedalus.Infrastructure/Persistence/Orm/` (one folder per aggregate) and
+`src/Daedalus.Infrastructure/Persistence/Migrations/` (`DaedalusMigrations` and the embedded `NNNN_<name>.sql` files).
 
-`ApplicationDbContext` exposes **21** `DbSet<T>` properties: the entities drawn in the section 3 ERD, plus
-`CodeAnalysisRequests` and `AnalysisIterations` (real DbSets, but outside section 3's `Entities/`-folder
-scope — see its note), plus `SkillVersions`, `RoleCharterVersions`, `RoleCharters` and `WorkflowRunRecords`,
-plus `OutboxMessages` (`ZeroAlloc.Outbox.EfCore`, section 17/18's delivery and scheduling messages). `AsNoTracking()` is the convention for read-only queries (section 14).
+```mermaid
+graph LR
+    Store["Repository / store"]
+    Db["DaedalusDb<br/>OpenAsync"]
+    Ds[("NpgsqlDataSource<br/>one per host")]
+    Sql["...Sql class<br/>over an open connection"]
+    Gen["Generated queries<br/>LinqQuery, LinqCommand, Command"]
+    Map["TableMap / ColumnMap<br/>row records"]
+    Dom["Domain entity<br/>Rehydrate"]
+    PG[("PostgreSQL")]
 
-### Two concurrency-token generations — not one, despite both being called "the concurrency token"
-
-**This is a verify-the-member finding, not a design opinion.** Six of the nine concurrency-checked
-entities carry a client-side `byte[]? RowVersion` property, mapped with plain `.IsRowVersion()` onto a
-`bytea` column literally named `RowVersion` (`Project`, `ExecutionSession`, `AgentSession`,
-`BrainstormSession`, `CodeAnalysisRequest`, `RepositoryConfiguration`). Issue #290 tracks these remaining six. **On Npgsql this column is
-inert** — Postgres has no built-in auto-updating binary rowversion the way SQL Server does, and nothing
-in this codebase writes a new value into it on every update. The design record for `AgentSession` says so
-directly (`docs/plans/2026-08-16-thalos-net-plan-b.md`): *"`AgentSession.RowVersion` is inert on Npgsql
-(byte[] rowversion is never populated) — the store relies on atomic `ExecuteUpdateAsync` statements
-instead."* `PostgresAgentSessionStore.RecordTurnAsync` has the same fact as a code comment at the call
-site: *"a read-modify-write would [race], because the bytea RowVersion is not DB-generated on
-PostgreSQL."* Its concurrency-critical paths (`RecordTurnAsync`, `TryTransitionAsync`) bypass
-`SaveChangesAsync` entirely in favor of single atomic `UPDATE ... WHERE` statements via
-`ExecuteUpdateAsync`; only the lower-stakes `UpdateStateAsync` still calls `SaveChangesAsync` inside a
-`try`/`catch (DbUpdateConcurrencyException)`, a catch block that in practice can only fire if some other
-write path changes the row's `RowVersion` value — which nothing currently does.
-
-Three entities use the **real** mechanism instead. `ScheduledRun` and `ScheduledRunExecution` (added in phase 1.5,
-section 18) declare a shadow property, and `Task` was moved onto it in phase 2.8 by migration
-`MakeTaskRowVersionXmin`, mapping its `RowVersion` property onto `xmin` (`TaskConfiguration.cs`), so the attach of a
-manufacture run to a task can lose a race and be refused. The two schedule entities: a shadow `uint` property mapped straight onto Postgres's own system
-column, exactly as the brief for this phase describes:
-
-```csharp
-// ScheduledRunConfiguration.cs / ScheduledRunExecutionConfiguration.cs
-builder.Property<uint>("xmin").IsRowVersion().HasColumnName("xmin");
+    Store --> Db --> Ds
+    Store --> Sql --> Gen --> PG
+    Gen --> Map -->|"ToDomain"| Dom
 ```
 
-`xmin` is populated by Postgres itself on every row version — no application code ever sets it — so two
-sweepers racing the same due row (section 18) genuinely get a `DbUpdateConcurrencyException` from a stale
-`xmin`, not a check that can never fail. This is the pattern any new concurrency-sensitive entity should
-follow; the `byte[] RowVersion` columns on the older six entities are a carried-forward historical
-artifact, not a template to copy.
+The pieces, each verified in the code:
+
+- **Maps.** 20 `[TableMap]` classes, one per mapped table, each beside its row records and its `<Aggregate>Sql`
+  class. Domain entities carry no ORM attribute. The enums are stored as their integers, and `DateTime` columns as
+  `timestamptz` (`Orm/AssemblyInfo.cs`).
+- **SQL classes.** `TaskSql`, `ProjectSql` and the others take an open `IAsyncDbConnection` and expose public methods
+  over Domain types. Reads and updates are LINQ over `Sql.Table<T>()`, generated at compile time; inserts are raw
+  `[Command]`s that list every column. A parent and its children read as one command of two statements.
+- **Rehydrate.** A row record becomes an entity through the entity's public `Rehydrate` factory, which validates
+  nothing. `Create` keeps the invariants.
+- **Connections.** `DaedalusDb.OpenAsync` takes a pooled connection from the host's one `NpgsqlDataSource`
+  (`AddApplicationDatabase`, shared with the workflow poller). A store opens one per call and disposes it.
+
+### Guarded saves: one real concurrency token
+
+PostgreSQL's own `xmin` system column is the concurrency token. A map exposes it as the entity's `RowVersion`
+(`[ColumnMap(nameof(Task.RowVersion), Column = "xmin")]` on `Task`, `Project`, `BrainstormSession` and
+`CodeAnalysisRequest`); the scheduling and repository-configuration SQL classes compare it directly. A save is
+**guarded** when it writes values computed from the row it loaded: the update or delete carries the `xmin` it was
+read with, and a row another write changed since throws `ZeroAllocOrmConcurrencyException`. Task, Project,
+BrainstormSession, CodeAnalysisRequest, RepositoryConfiguration, ScheduledRun and ScheduledRunExecution are guarded;
+the repository maps the exception to a failure `Result`, and the scheduling stores read it as "another sweeper already
+won" (section 18).
+
+Saves of independent columns update only those columns with no check, and atomic in-database updates, such as
+`AgentSessionSql`'s counter increments and compare-and-swap transitions, stay single `UPDATE ... WHERE` statements.
+The guard protects against lost updates only.
+
+Before phase 3.5, six entities carried an inert `bytea` `RowVersion` that PostgreSQL never filled, so nothing was
+checked against it (issue #290). The five live aggregates among them now have the real `xmin` guard, and migration 2
+dropped all six columns.
 
 ```mermaid
 graph TB
-    subgraph Inert["Inert byte[] RowVersion (6 entities)"]
-        Old["Project, ExecutionSession,<br/>AgentSession, BrainstormSession,<br/>CodeAnalysisRequest, RepositoryConfiguration"]
-        Bytea[("bytea column<br/>never DB-generated")]
-        Old -->|"IsRowVersion()"| Bytea
-        Old -.->|"concurrency-critical paths<br/>bypass this via ExecuteUpdateAsync"| Bypass["Atomic UPDATE ... WHERE"]
+    subgraph Guarded["Guarded save"]
+        G1["Read row with its xmin"]
+        G2["Domain method computes values"]
+        G3["UPDATE or DELETE<br/>compares the xmin"]
+        G4["ZeroAllocOrmConcurrencyException<br/>when the row changed"]
+        G1 --> G2 --> G3 --> G4
     end
 
-    subgraph Real["Real xmin (3 entities)"]
-        New["ScheduledRun,<br/>ScheduledRunExecution,<br/>Task (phase 2.8)"]
-        Xmin[("Postgres xmin<br/>system column<br/>DB-generated on every write")]
-        New -->|"Property&lt;uint&gt;(\"xmin\").IsRowVersion()"| Xmin
-        Xmin -->|"stale xmin on UPDATE"| Conflict["DbUpdateConcurrencyException<br/>(genuinely thrown)"]
+    subgraph Independent["Independent or atomic"]
+        I1["UPDATE only the columns written"]
+        I2["Counter increment or<br/>compare-and-swap transition"]
     end
 ```
 
 ### Migrations
 
-24 migrations, applied in order by `Daedalus.Migrations` at Aspire startup. The two concurrency
-generations above map to two migration eras: `AddRowVersionConcurrencyTokens` added the inert `bytea`
-columns; `AddScheduledRuns`/`AddScheduledRunExecutions` (2026-09-17) are the first to declare `xmin`
-directly (`type: "xid", rowVersion: true`), followed by `AddFailedAtStep` and
-`AddScheduledRunRepository` extending the same two tables. The latest, `MakeTaskRowVersionXmin` (2026-10-10), moves `Task` onto `xmin` too. Repository patterns for the newer aggregates
-(`ScheduledRunStore`, `ScheduledRunExecutionStore`) lean on the genuine `xmin` conflict to implement
-"loser backs off, winner proceeds" claim semantics (section 18) — a pattern the inert-`RowVersion`
-entities cannot support without `ExecuteUpdateAsync`'s where-clause trick instead.
+The schema is a numbered list of SQL files embedded in `Daedalus.Infrastructure` and applied by ZeroAlloc.ORM's
+`MigrationRunner`, built by `DaedalusMigrations.CreateRunner`. Each applied version is recorded in
+`__zaorm_migrations` under the source `daedalus`, and each migration runs in its own transaction.
+
+| File                              | What it does                                                                  |
+|-----------------------------------|-------------------------------------------------------------------------------|
+| `0001_baseline.sql`               | The schema EF Core's chain left at `20261014090300_AddNodeSelectionUniqueIndex` |
+| `0002_drop_dead_rowversions.sql`  | Drops the six dead `bytea` `"RowVersion"` columns                             |
+
+**Baseline adoption.** A new database runs migration 1. A database EF Core built at exactly that head records it as
+applied without running it, then runs migration 2. A database whose EF history ends anywhere else is refused with
+`ZeroAllocOrmMigrationConflictException` before anything runs, and `Daedalus.Migrations` exits 1.
+`__EFMigrationsHistory` stays, is never written again, and rolling back to an EF Core build is not supported.
+
+`Daedalus.Migrations` (`src/Daedalus.Migrations/Program.cs`) opens one connection to `ConnectionStrings:daedalus`,
+runs `DaedalusMigrations`, then `WorkflowEngineMigrator` for the workflow engine's own sources. `Daedalus.AppHost`
+runs it as a managed Aspire project (`AddProject`, not a compile-time reference — same pattern as section 2) and
+waits for it to complete, so the schema is current before `Api` or `Web` accept traffic.
+
+**Adding migration N+1.** Add `Persistence/Migrations/NNNN_<name>.sql` with the next number, update the table's map,
+row record and insert, extend the expected histories in `tests/Daedalus.Tests.Integration/Migrations/`. Never edit a
+shipped file; the runner keeps no checksum. The full steps are in `skills/daedalus-migrations/SKILL.md`.
 
 ---
 
@@ -1999,13 +2017,13 @@ See `docs/development-guide.md`, "Run sandboxes", for configuration, boot checks
 - **Presentation Layer**: Minimal API endpoints, UI components
 - **Application Layer**: Commands, DTOs, Services. Reads go through query services such as `ITaskQueryService` in `Daedalus.Api`, not mediator queries
 - **Domain Layer**: Entities, Value Objects, Business Logic
-- **Infrastructure Layer**: EF Core, Repositories, Persistence
+- **Infrastructure Layer**: ZeroAlloc.ORM maps and SQL classes, Repositories, SQL migrations
 
 ### 🚀 **Performance First**
 
 - Zero-allocation LINQ (ZLinq) for hot paths
 - Memory pooling for temporary buffers
-- Compiled queries for frequent operations
+- Source-generated SQL for every query, no run-time translation
 - Response compression with Gzip
 
 ### 🛣️ **Railway-Oriented Programming**

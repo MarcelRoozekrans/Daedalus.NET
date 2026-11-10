@@ -2,8 +2,8 @@
 
 .NET 10 / C# 13. One presentation layer, `Daedalus.Api` with `Daedalus.Web`,
 plus the `Daedalus.Cli` host, share `Daedalus.Application` and
-`Daedalus.Infrastructure` over PostgreSQL/EF Core. Work starts when a person
-presses Manufacture on a board task; the Ralph loop and `Daedalus.Console`
+`Daedalus.Infrastructure` over PostgreSQL and ZeroAlloc.ORM (it replaced EF Core in phase 3.5).
+Work starts when a person presses Manufacture on a board task; the Ralph loop and `Daedalus.Console`
 were retired in phase 2.8 (October 2026). Full pattern catalogue and extended examples:
 `docs/development-guide.md`. `.github/copilot-instructions.md` still exists
 but is superseded and may contain stale guidance — treat it as historical,
@@ -15,11 +15,11 @@ not authoritative.
 src/
 ├── Daedalus.Domain/           # Entities, value objects
 ├── Daedalus.Application/      # Mediator requests/handlers, DTOs, repository interfaces
-├── Daedalus.Infrastructure/   # EF Core DbContext, repository impls, migrations
+├── Daedalus.Infrastructure/   # ZeroAlloc.ORM maps and SQL classes, repository impls, SQL migrations
 ├── Daedalus.Api/              # REST minimal API endpoints (src/Daedalus.Api/Endpoints)
 ├── Daedalus.Agents/           # Thalos.NET composition root, manufacture workflow host
 ├── Daedalus.Cli/              # Console-channel host
-├── Daedalus.Migrations/       # EF Core migration runner
+├── Daedalus.Migrations/       # SQL migration runner
 ├── Daedalus.Sandbox/          # Per-run sandbox container host
 ├── Daedalus.ServiceDefaults/  # Shared OpenTelemetry, logging, DB registration
 ├── Daedalus.Web/              # Blazor WebAssembly UI
@@ -142,12 +142,30 @@ is unversioned. The pattern: `docs/development-guide.md`, "API endpoints".
 - `ZLinq`'s `AsValueEnumerable()` for hot-path LINQ — minor, not the default;
   no file under `src/` uses it since phase 2.8, only the benchmarks. Standard
   LINQ is fine elsewhere.
-- `AsNoTracking()` for read-only EF Core queries.
 - Clean Architecture layering (Domain has no dependency on Application/
   Infrastructure/Api) is enforced by ArchUnitNET
   (`TngTech.ArchUnitNET.xUnit`) in
   `tests/Daedalus.Tests.Unit/Architecture/CleanArchitectureTests.cs` and the
   Integration-project counterpart.
+
+## Data layer: ZeroAlloc.ORM, no EF Core
+
+Daedalus' own tables are read and written through ZeroAlloc.ORM over one `NpgsqlDataSource`. There is no
+`DbContext`, no change tracking, no model snapshot and no `dotnet ef`.
+
+- Per aggregate, a folder in `src/Daedalus.Infrastructure/Persistence/Orm/<Aggregate>/` holds the `[TableMap]` class,
+  the row records and a `<Aggregate>Sql` class. The `...Sql` class takes an open connection and exposes the
+  generated queries. Inserts are raw `[Command]`s that list every column.
+- A store opens a connection with `DaedalusDb.OpenAsync` (registered by `AddApplicationDatabase`), builds the
+  `...Sql` class over it and disposes the connection.
+- Domain stays free of ORM attributes. Rows become entities through each entity's public `Rehydrate` factory,
+  documented "for persistence only"; `Create` keeps the invariants.
+- A write that stores values computed from the row it read is guarded by `xmin`: it throws
+  `ZeroAllocOrmConcurrencyException` when the row changed since the read, and the repository turns that into its
+  failure `Result`. Writes of independent columns and atomic in-database updates are not guarded.
+- Schema changes are numbered SQL files, `Persistence/Migrations/NNNN_<name>.sql`, applied by
+  `DaedalusMigrations.CreateRunner`. Never edit a shipped file: add the next number. See
+  `skills/daedalus-migrations/SKILL.md` and `docs/development-guide.md`, "Data layer".
 
 ## Run sandboxes
 

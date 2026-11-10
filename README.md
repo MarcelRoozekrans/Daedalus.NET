@@ -58,7 +58,7 @@ Daedalus has **one presentation layer** (Web) and a CLI host, sharing one Applic
 | **Web** (Blazor WASM)    | `Daedalus.Api` + `Daedalus.Web`             | REST API + browser UI via Radzen components                     |
 | **Agents** (Thalos)      | `Daedalus.Agents` (hosted in `Daedalus.Api`) | Thalos.NET agent stack: sessions, tools, AI.Sentinel, SSE chat, Telegram channel |
 | **CLI** (Thalos channels)| `Daedalus.Cli`                              | Interactive terminal host for Thalos agents (console channel, no browser) |
-| **Shared**               | `Application` + `Infrastructure` + `Domain` | CQRS handlers, EF Core repositories, PostgreSQL persistence     |
+| **Shared**               | `Application` + `Infrastructure` + `Domain` | CQRS handlers, ZeroAlloc.ORM repositories, PostgreSQL persistence |
 
 The Ralph loop and its `Daedalus.Console` worker were retired in phase 2.8 (October 2026): nothing polls the board, and no
 tokens are spent unless a person starts a run.
@@ -243,13 +243,13 @@ src/
 ├── Daedalus.ServiceDefaults/  # Shared OpenTelemetry, logging, DB registration
 ├── Daedalus.Domain/           # Entities, Value Objects, Domain Events
 ├── Daedalus.Application/      # CQRS handlers, DTOs, Interfaces, Abstractions
-├── Daedalus.Infrastructure/   # EF Core DbContext, Repositories, LLM services, External integrations
+├── Daedalus.Infrastructure/   # ZeroAlloc.ORM maps and SQL, Repositories, SQL migrations, LLM services, External integrations
 ├── Daedalus.Agents/           # Thalos.NET composition root: agents from config, Postgres session + memory stores, knowledge tools, DeveloperPolicy
 ├── Daedalus.Api/              # REST minimal API endpoints (incl. /api/agents + SSE), JWT auth, health checks, .mcp.json for Thalos, Telegram channel poller
 ├── Daedalus.Cli/              # Interactive terminal host for Thalos agents (console channel; run by hand, not in AppHost)
 ├── Daedalus.Web/              # Blazor WASM frontend (Radzen components)
 ├── Daedalus.Sandbox/          # Per-run sandbox container host (Dockerfile; built by the AppHost)
-└── Daedalus.Migrations/       # EF Core database migration runner
+└── Daedalus.Migrations/       # SQL database migration runner (DaedalusMigrations, then the workflow engine's)
 
 tests/
 ├── Daedalus.Tests.Unit/              # General unit tests + ArchUnit rules (xUnit)
@@ -293,16 +293,19 @@ cd Daedalus
 # Restore NuGet packages
 dotnet restore
 
-# Restore local .NET tools (EF Core CLI + Aspire CLI)
+# Restore local .NET tools (Aspire CLI + GitVersion)
 dotnet tool restore
 ```
 
 The `.config/dotnet-tools.json` manifest includes:
 
-| Tool         | Version | Purpose                |
-|--------------|---------|------------------------|
-| `dotnet-ef`  | 10.0.0  | EF Core migrations     |
-| `Aspire.Cli` | 13.1.0  | Aspire Dashboard + DCP |
+| Tool               | Version | Purpose                |
+|--------------------|---------|------------------------|
+| `Aspire.Cli`       | 13.1.0  | Aspire Dashboard + DCP |
+| `gitversion.tool`  | 6.8.2   | Version calculation    |
+
+There is no `dotnet-ef`: the data layer moved from EF Core to ZeroAlloc.ORM in phase 3.5, and schema changes are
+plain SQL files (see "Running Migrations Manually").
 
 ### 2. Install Aspire CLI (if not already)
 
@@ -419,11 +422,18 @@ Migrations run automatically via Aspire. To run them manually (e.g., after pulli
 dotnet run --project src/Daedalus.Migrations
 ```
 
-Or via the EF Core CLI:
+It reads the connection string `ConnectionStrings:daedalus` and applies what the database lacks, in order: first
+Daedalus' own migrations (`DaedalusMigrations`), then the workflow engine's. Daedalus' migrations are numbered SQL
+files, `src/Daedalus.Infrastructure/Persistence/Migrations/NNNN_<name>.sql`, embedded in `Daedalus.Infrastructure`
+and recorded in the `__zaorm_migrations` table under the source `daedalus`. To add migration N+1, add the next
+numbered file, update the table's `[TableMap]`, row record and insert, and extend the expected histories in
+`tests/Daedalus.Tests.Integration/Migrations/`; never edit a shipped file. The `daedalus-migrations` skill and
+`docs/development-guide.md`, "Data layer: ZeroAlloc.ORM", carry the full workflow.
 
-```bash
-dotnet ef database update --project src/Daedalus.Infrastructure --startup-project src/Daedalus.Api
-```
+Migration 1 is the schema EF Core's chain left at `20261014090300_AddNodeSelectionUniqueIndex`. A new database runs
+it; a database EF Core built at exactly that head records it as applied without running it; a database at any other
+EF state is refused and the tool exits 1. Rolling back to an EF Core build means restoring a backup taken before the
+upgrade.
 
 ---
 
@@ -843,7 +853,7 @@ transcript archive.
 - **Hosts.** `AddDaedalusAgents` (API and CLI) registers agents **and** memory, owns the Rag.NET schema
   (`EnsureSchemaOnStartup`) and runs the sweeper. `AddDaedalusMemory`, the memory-only registration the Console worker
   used, was deleted with the Console in phase 2.8.
-- **Migration.** `AddAgentMemories` creates `AgentMemories`, copies every `StructuredLearnings` row into it (category and
+- **Migration.** The EF migration `AddAgentMemories` (now folded into `0001_baseline.sql`) created `AgentMemories`, copies every `StructuredLearnings` row into it (category and
   severity become tags, `index_pending = true` so the sweeper embeds them) and drops `StructuredLearnings`. The
   hand-rolled learnings/embedding slice — `ILearningsRepository`, `IEmbeddingService`, `Pgvector.EntityFrameworkCore`
   and every `UseVector()` — is gone.
@@ -875,7 +885,7 @@ Agents get **skills**: procedure documents authored in git that say how this pro
 - **Trust boundary.** Skill bodies come from git, not from model output, so they are **not** passed through
   `IUntrustedContentScanner` the way recalled memories are. Whoever can merge a `SKILL.md` can steer the agent — the
   same trust boundary as merging code. Review skill changes like you review code.
-- **Shipped procedures.** `daedalus-migrations` (adding and applying an EF Core migration here) and `thalos-release`
+- **Shipped procedures.** `daedalus-migrations` (adding and applying a ZeroAlloc.ORM SQL migration here) and `thalos-release`
   (cutting and publishing a Thalos.NET release). Both are procedures this project actually executed by hand.
 - **No API and no UI.** Skills are not per-user data and there is nothing to authorize per row: the repo is the UI.
 
@@ -1330,12 +1340,14 @@ dotnet test tests/Daedalus.Tests.Playwright.Browser
 
 ### Notes for the Thalos agent tests
 
-- Integration tests that touch `ApplicationDbContext` build their options with `PostgresFixture.CreateDbContextOptions()`.
-  The fixture container is `pgvector/pgvector:pg16` and installs the `vector` extension for Rag.NET's `rag_chunks`; no EF
-  registration configures a vector plugin any more (`Pgvector.EntityFrameworkCore` is gone).
+- Integration tests that touch the database open connections through `PostgresFixture.Db` (a `DaedalusDb`) or
+  `PostgresFixture.DataSource`. The fixture container is `pgvector/pgvector:pg16`; it builds its schema with
+  `DatabaseSchema.ApplyAsync`, which creates the `vector` extension for Rag.NET's `rag_chunks` and then runs the same
+  migrations as `Daedalus.Migrations`. No registration configures a vector plugin (`Pgvector.EntityFrameworkCore` is gone).
 - `PostgresMemoryStore` is verified against Thalos' own `MemoryStoreContractTests` (21 facts) on a real Postgres, plus
-  Daedalus facts for keyset streaming and the AND tag filter. The `AddAgentMemories` migration has its own tests
-  (`StructuredLearnings` → `AgentMemories` copy, and that the whole `Down` chain still runs).
+  Daedalus facts for keyset streaming and the AND tag filter. The `AddAgentMemories` EF migration, which
+  copied `StructuredLearnings` into `AgentMemories`, is history: `0001_baseline.sql` creates `AgentMemories` and
+  leaves `StructuredLearnings` out.
 - The Browser suite hosts the WASM app in-process (`E2EServerFixture`, `TestMode` appsettings override) with the real API
   composition root and a scripted `IAgentRuntime` stub — no model, no MCP servers. `AgentPageBrowserTests` writes its
   screenshot to `TestResults/…/regression-screenshots/` by default; set `DAEDALUS_REGRESSION_SCREENSHOTS=1` to write into
@@ -1434,7 +1446,7 @@ The project uses `.editorconfig` for consistent style rules enforced by `dotnet 
 - **Primary Constructors**: C# 12+ primary constructors for dependency injection
 - **Zero-Allocation**: Use ZLinq, `Span<T>`, `ArrayPool<T>`, `stackalloc` in hot paths
 - **Async Best Practices**: Always pass `CancellationToken`, never block on async, use `ConfigureAwait(false)` in libs
-- **EF Core**: `AsNoTracking()` for reads, `ExecuteUpdateAsync()` for bulk ops, DbContext pooling
+- **Data access**: ZeroAlloc.ORM `...Sql` classes over a `DaedalusDb` connection per call; `xmin`-guarded saves for lost updates
 - **Compile-Time Logging**: `[LoggerMessage]` attributes for zero-allocation logging
 - **Testing**: NSubstitute for mocking, AwesomeAssertions for fluent assertions, Bogus for test data
 
@@ -1479,7 +1491,7 @@ Same setup as [Rag.NET](https://github.com/MarcelRoozekrans/Rag.NET) and
 |----------------------------|--------------------------------------------------------------------------------------|
 | Warnings treated as errors | All projects have `TreatWarningsAsErrors=true`. Fix the warning or add to `<NoWarn>` |
 | Missing WASM workload      | Run `dotnet workload install wasm`                                                   |
-| Missing tools              | Run `dotnet tool restore` to get `dotnet-ef` and `aspire` CLI                        |
+| Missing tools              | Run `dotnet tool restore` to get the `aspire` CLI and GitVersion                      |
 
 ### Test Issues
 
