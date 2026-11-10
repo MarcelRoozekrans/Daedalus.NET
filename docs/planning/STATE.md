@@ -2,33 +2,21 @@
 
 **Last session:** 2026-11-10
 
-## Current Position - phase 3.5 close-out (2026-11-10): Tasks 1-26 done; PR #443 still DRAFT, body update and ready pending
+## Current Position - phase 3.5 merged (2026-11-10), next: phase 3.6
 
-**Milestone 3, phase 3.5, EF Core to ZeroAlloc.ORM.** Branch `phase/3.5-zeroalloc-orm`, worktree
-`.claude/worktrees/phase-3.5`. Draft PR #443 (label `native-publish`); release-please stays on hold.
+**Milestone 3, phase 3.5, EF Core to ZeroAlloc.ORM, is complete.** Merged as #443 (squash `9725fb55`, admin merge: the
+required `codecov/project` check compared with main's 88.89%, which counted about 27,600 lines of EF-generated
+migrations; the real figure is 71.86%; one approving review was also required). ROADMAP.md and MILESTONE.md mark it
+complete on branch `chore/complete-phase-3.5`.
 
-- **Done:** every plan task is ticked. Task 24: native publish passes for Api, Cli and Migrations (run 42807190590 on the
-  last head); the downloaded native CLI reaches "Application started" in 179 ms at 84 MiB; the native turn was not
-  tried, no API key on the VM (R136). Task 25: docs rewritten and reviewed. Task 26: local suites green apart from the
-  3 VM-only `RunScopedRoslynRoutingTests`; Release build 0 warnings; whole-branch review on opus found 0 Critical, its
-  Important and Minor findings are fixed (I1 migration history upgrade order, scalar writes) or filed; re-review clean;
-  `pre-push-review` PASS in `docs/pre-push-review-2026-11-10-*.md`. CI on `bc93f908`: all green incl. `aot-analysis` on
-  all five targets and Build & Test with the Browser suite; only `codecov/project` is red (floor, tracked by #438).
-- **Filed:** Daedalus #444 (ScheduleReconciler start failure, R117 stays until it lands), #445 (lost-save detection by
-  text match); comment on #377 (dropped child writes of `Project.AddTask` and `RemoveTask`). Earlier: #438, #439, #440,
-  #442, #293; upstream ZeroAlloc.ORM#466 open.
-- **Not done, needs the owner:** `gh pr edit 443 --body-file` (new body drafted at `.superpowers/sdd/2026-11-05-phase-3.5-zeroalloc-orm-plan/pr-443-body.md`: it adds
-  the native run, review summary, codecov note, owner items and R1-R137) and `gh pr ready 443` were blocked by the
-  auto-mode classifier. Do them, or ask for the permission, then the owner merges. After the merge run
-  `complete-phase` for 3.5, then start 3.6.
-- **For the owner to look at:** R78 (a session deleted under abandon or advance answers 400, not the retry text); R83
-  residual (after three lost saves a session stays in TaskCreation with "do not generate again"); R97 (an independent
-  write makes a concurrent guarded analysis save answer 409); stop every EF-build host before running
-  `Daedalus.Migrations`.
-- **SDD ledger:** `.superpowers/sdd/2026-11-05-phase-3.5-zeroalloc-orm-plan/progress.md` (git-ignored) is kept until the
-  PR merges. Rulings doc `docs/plans/2026-11-05-phase-3.5-rulings.md` R1-R137. Two rulings saved to long-term memory.
-- **Local environment facts:** the Browser suite times out locally under VM load, CI is the judge; do not reinstall
-  Playwright browsers.
+- **Carried into 3.6:** the native turn of the CLI (no API key on the agent VM, R136); the `WithSystemTextJsonSerializer`
+  AOT warning in `ChannelOutboxServiceCollectionExtensions.cs` (use `AddSerializerDispatcher`).
+- **Open issues from 3.5:** #444 (ScheduleReconciler start failure, R117), #445 (lost-save detection by text),
+  #438 (coverage back to 80, Web first; return `codecov.yml` to `auto` is already the state), #377 (dropped child writes),
+  ZeroAlloc.ORM#466.
+- **Owner notes:** R78, R83 and R97 in the rulings; stop every EF-build host before running `Daedalus.Migrations`.
+- **Cleanup:** the phase-3.5 worktree and the git-ignored SDD ledger `.superpowers/sdd/2026-11-05-phase-3.5-zeroalloc-orm-plan/`
+  can go; the rulings doc keeps R1-R137.
 
 ## Open Decisions
 
@@ -36,13 +24,13 @@ None.
 
 ## Blockers
 
-PR #443 body update and ready-for-review need a permission the auto-mode classifier denied.
+None.
 
 ## Recommended Next Step
 
-Update the PR body, mark #443 ready, let the owner merge, then `complete-phase` 3.5 and begin 3.6 (native turn, #444).
-Rules: no Co-Authored-By or Claude signature; commit body lines at most 100, no nested parentheses; no local Native AOT
-publish; push with `phase/3.5-zeroalloc-orm:phase/3.5-zeroalloc-orm`.
+Merge the `chore/complete-phase-3.5` PR, then `start-next-phase`: phase 3.6 (API, CLI and Migrations native in CI with
+zero warnings, suites against the native API, a live run, before and after measurements). Rules: no Co-Authored-By or
+Claude signature; commit body lines at most 100, no nested parentheses; no local Native AOT publish.
 
 ## Earlier Position - phase 3.5 planned and assumptions confirmed (2026-11-05), next: execute Task 1
 
