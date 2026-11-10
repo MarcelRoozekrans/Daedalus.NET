@@ -10,7 +10,7 @@ namespace Daedalus.Tests.Integration.Scheduling;
 ///     Integration tests proving <see cref="ScheduledRunExecution"/> round-trips through Postgres and that the
 ///     unique <c>(ScheduleId, OccurrenceAt)</c> index — the saga's old correlation key, expressed as a database
 ///     constraint — actually rejects a second row for the same occurrence. Ported from EF Core to
-///     <see cref="ScheduledRunExecutionSql"/> in Task 21 (ruling R125); the assertions are the ones EF's tests made.
+///     <see cref="ScheduledRunExecutionSql"/> in Task 21 (ruling R127); the assertions are the ones EF's tests made.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class ScheduledRunExecutionPersistenceTests(PostgresFixture fixture) : IAsyncLifetime

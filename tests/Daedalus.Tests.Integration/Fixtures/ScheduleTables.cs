@@ -7,7 +7,7 @@ namespace Daedalus.Tests.Integration.Fixtures;
 
 /// <summary>
 ///     Seeds and reads the two scheduling tables through the ZeroAlloc.ORM SQL classes, for the tests that used to do
-///     it through <c>ApplicationDbContext</c> before Task 21 deleted that mapping (ruling R125). Not a second code
+///     it through <c>ApplicationDbContext</c> before Task 21 deleted that mapping (ruling R127). Not a second code
 ///     path to the data: every call goes through the same <see cref="ScheduledRunSql"/> and
 ///     <see cref="ScheduledRunExecutionSql"/> the stores use.
 /// </summary>

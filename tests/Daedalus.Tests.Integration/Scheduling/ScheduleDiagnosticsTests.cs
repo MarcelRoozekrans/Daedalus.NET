@@ -58,6 +58,9 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
     private static readonly DateTime _now = new(2026, 9, 18, 7, 30, 0, DateTimeKind.Utc);
 
     // Nowhere near ScheduleDiagnosticsOptions' own 15-minute and 30-day defaults, on purpose.
+    private const string _npgsqlSourceName = "Npgsql";
+    private const string RestrictedRole = "diagnostics_reader";
+
     private static readonly TimeSpan _strandedAfter = TimeSpan.FromMinutes(11);
     private static readonly TimeSpan _deadLetterLookback = TimeSpan.FromHours(37);
 
@@ -66,6 +69,7 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
 
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(_now));
     private readonly List<IAsyncDisposable> _disposables = [];
+    private bool _roleCreated;
 
     public async Task InitializeAsync() => await fixture.DatabaseResetter.ResetAsync();
 
@@ -74,6 +78,18 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
         foreach (var disposable in _disposables)
         {
             await disposable.DisposeAsync();
+        }
+
+        // After the restricted data source: a role with open sessions would linger. Dropped so the shared container
+        // is left as it was found.
+        if (_roleCreated)
+        {
+            await using var command = fixture.DataSource.CreateCommand($"""
+                REVOKE SELECT ON "ScheduledRuns", "ScheduledRunExecutions" FROM {RestrictedRole};
+                REVOKE USAGE ON SCHEMA public FROM {RestrictedRole};
+                DROP ROLE IF EXISTS {RestrictedRole};
+                """);
+            await command.ExecuteNonQueryAsync();
         }
     }
 
@@ -279,7 +295,7 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
 
         // Every read of OutboxMessages fails; reads of the two scheduling tables still succeed. Degrade, never
         // blank: the page keeps reporting the run, and never claims a delivery it could not confirm.
-        await using var provider = BuildProviderWithUnreadableOutbox();
+        await using var provider = await BuildProviderWithUnreadableOutboxAsync();
         var overview = await OverviewAsync(provider);
 
         var diagnosis = overview.Should().ContainSingle().Subject;
@@ -315,10 +331,11 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
         await fixture.DatabaseResetter.ResetAsync();
         var manySchedules = await MeasureOverviewQueriesAsync(scheduleCount: 5);
 
+        oneSchedule.Should().Be(3, "the schedules, their latest executions and the dead letters are three reads; " +
+            "a count of zero would mean the listener sees nothing and this guard checks nothing");
         manySchedules.Should().Be(oneSchedule,
             "the overview takes the latest execution per schedule and one bounded dead-letter fetch; an N+1 " +
             "would grow with the number of schedules and only become visible once there were enough to matter");
-        oneSchedule.Should().BeLessThanOrEqualTo(3, "there are three tables to read: schedules, executions, outbox");
     }
 
     /// <summary>
@@ -516,7 +533,7 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
         execution.Fail("the writer subagent exceeded its token budget", _now.AddMinutes(-30));
         await InsertAsync(execution);
 
-        await using var provider = BuildProviderWithUnreadableOutbox();
+        await using var provider = await BuildProviderWithUnreadableOutboxAsync();
         var overview = await OverviewAsync(provider);
 
         var diagnosis = overview.Should().ContainSingle().Subject;
@@ -641,12 +658,31 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
             await SeedDoneExecutionAsync(schedule, _now.AddHours(-2));
         }
 
-        using var counter = new CommandCounter();
+        using var counter = new CommandCounter(_npgsqlSourceName);
         await using var provider = BuildProvider();
+
+        // Another connection sends commands while the overview runs; they are in no trace of the counter's.
+        using var noise = new CancellationTokenSource();
+        var noiseTask = SendUnrelatedCommandsAsync(noise.Token);
         var overview = await OverviewAsync(provider);
+
+        await noise.CancelAsync();
+        await noiseTask;
 
         overview.Should().HaveCount(scheduleCount);
         return counter.Count;
+    }
+
+    /// <summary>Sends commands on the fixture's data source from a different trace until cancelled.</summary>
+    private async Task SendUnrelatedCommandsAsync(CancellationToken ct)
+    {
+        await Task.Yield();
+        Activity.Current = null;
+        while (!ct.IsCancellationRequested)
+        {
+            await using var command = fixture.DataSource.CreateCommand("SELECT 1");
+            await command.ExecuteScalarAsync(CancellationToken.None);
+        }
     }
 
     private static async Task<IReadOnlyList<RunDiagnosis>> OverviewAsync(ServiceProvider provider)
@@ -674,10 +710,12 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
     ///     a permission error and the scheduling reads still succeed. Dropping the table instead would poison the
     ///     shared container for the rest of the class.
     /// </summary>
-    private ServiceProvider BuildProviderWithUnreadableOutbox() =>
-        BuildProviderCore(_defaultScanLimit, warnings: null, readsOutbox: false);
+    private async Task<ServiceProvider> BuildProviderWithUnreadableOutboxAsync() =>
+        BuildProviderCore(
+            _defaultScanLimit, warnings: null, readsOutbox: false, await RestrictedConnectionStringAsync());
 
-    private ServiceProvider BuildProviderCore(int scanLimit, CapturingLoggerProvider? warnings, bool readsOutbox)
+    private ServiceProvider BuildProviderCore(
+        int scanLimit, CapturingLoggerProvider? warnings, bool readsOutbox, string? restrictedConnectionString = null)
     {
         var services = new ServiceCollection();
         services.AddLogging(b =>
@@ -691,7 +729,7 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
         services.AddChannelOutboxOver(fixture, o => o.PollingInterval = TimeSpan.FromHours(1));
         if (!readsOutbox)
         {
-            var restricted = NpgsqlDataSource.Create(RestrictedConnectionString());
+            var restricted = NpgsqlDataSource.Create(restrictedConnectionString!);
             _disposables.Add(restricted);
             services.AddSingleton(new DaedalusDb(restricted));
         }
@@ -745,13 +783,13 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
     }
 
     /// <summary>
-    ///     The connection string of a role that reads the two scheduling tables and nothing else, created on first use.
-    ///     The role lives in the shared container for its lifetime; creating it twice is a no-op.
+    ///     The connection string of a role that reads the two scheduling tables and nothing else, created on first use
+    ///     and dropped by <see cref="DisposeAsync"/>.
     /// </summary>
-    private string RestrictedConnectionString()
+    private async Task<string> RestrictedConnectionStringAsync()
     {
-        const string Role = "diagnostics_reader";
-        using var command = fixture.DataSource.CreateCommand($"""
+        const string Role = RestrictedRole;
+        await using var command = fixture.DataSource.CreateCommand($"""
             DO $$ BEGIN
                 IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{Role}') THEN
                     CREATE ROLE {Role} LOGIN PASSWORD '{Role}';
@@ -760,7 +798,8 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
             GRANT USAGE ON SCHEMA public TO {Role};
             GRANT SELECT ON "ScheduledRuns", "ScheduledRunExecutions" TO {Role};
             """);
-        command.ExecuteNonQuery();
+        await command.ExecuteNonQueryAsync();
+        _roleCreated = true;
         return new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { Username = Role, Password = Role }
             .ConnectionString;
     }
@@ -864,32 +903,50 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
 
     /// <summary>
     ///     Counts the commands one overview sends, from Npgsql's own activity source, so an N+1 shows up as growth
-    ///     with the schedule count.
+    ///     with the schedule count. The listener is process-wide, so only spans in the trace of a parent activity this
+    ///     counter starts are counted: <see cref="Activity.Current"/> flows through the awaits, and a command another
+    ///     test sends at the same time belongs to another trace.
     /// </summary>
     private sealed class CommandCounter : IDisposable
     {
+        private const string SourceName = "Daedalus.Tests.Integration.CommandCounter";
+        private static readonly ActivitySource _source = new(SourceName);
+
         private readonly ActivityListener _listener;
+        private readonly Activity _parent;
         private int _count;
 
-        public CommandCounter()
+        public CommandCounter(string npgsqlSourceName = "Npgsql")
         {
             _listener = new ActivityListener
             {
-                ShouldListenTo = source => string.Equals(source.Name, "Npgsql", StringComparison.Ordinal),
+                ShouldListenTo = source =>
+                    string.Equals(source.Name, npgsqlSourceName, StringComparison.Ordinal)
+                    || string.Equals(source.Name, SourceName, StringComparison.Ordinal),
                 Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+                SampleUsingParentId = (ref ActivityCreationOptions<string> _) => ActivitySamplingResult.AllData,
                 ActivityStopped = activity =>
                 {
-                    if (activity.Kind == ActivityKind.Client)
+                    // Commands only: a CONNECT span appears whenever the pool opens a new physical connection.
+                    if (activity.Kind == ActivityKind.Client
+                        && activity.TraceId == _parent!.TraceId
+                        && activity.GetTagItem("db.query.text") is not null)
                     {
                         Interlocked.Increment(ref _count);
                     }
                 },
             };
             ActivitySource.AddActivityListener(_listener);
+            _parent = _source.StartActivity("overview")
+                ?? throw new InvalidOperationException("The counter's parent activity was not sampled.");
         }
 
         public int Count => Volatile.Read(ref _count);
 
-        public void Dispose() => _listener.Dispose();
+        public void Dispose()
+        {
+            _parent.Dispose();
+            _listener.Dispose();
+        }
     }
 }
