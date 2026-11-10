@@ -46,7 +46,8 @@ public sealed class ScheduledRunStoreRoundTripTests(PostgresFixture fixture) : I
     ///     A schedule stored through the SQL class, advanced once, with two roles and a repository, comes back equal in
     ///     every property with UTC times, through the reconciler's read and the sweep's; the roles are stored
     ///     comma-joined and the origin by name, as EF Core stored them. Red, shown once: read <c>"ConversationId"</c>
-    ///     into <c>ChannelId</c> in <c>ListConfigQuery</c>, and the comparison names <c>ChannelId</c>.
+    ///     into <c>ChannelId</c> in <c>ListConfigQuery</c>, and the comparison names <c>ChannelId</c>; split the roles
+    ///     in reverse, and the strictly ordered comparison names <c>Roles</c>.
     /// </summary>
     [Fact]
     public async Task Stored_schedule_loads_back_whole()
@@ -134,14 +135,16 @@ public sealed class ScheduledRunStoreRoundTripTests(PostgresFixture fixture) : I
     }
 
     /// <summary>
-    ///     A sweep's guarded disable of a cron with no future occurrence that loses the race claims nothing, and the
-    ///     winner's values stand, the row still enabled. Red: drop <c>Sql.Xmin(r) == version</c> from
-    ///     <c>DisableQuery</c>; the row ends disabled.
+    ///     A sweep's guarded disable of a cron with no future occurrence that loses the race rolls back the whole sweep:
+    ///     a second due row with a valid cron is not claimed and leaves no trigger, and the winner's values stand, the
+    ///     row still enabled. Red: drop <c>Sql.Xmin(r) == version</c> from <c>DisableQuery</c>; the sweep claims the
+    ///     valid row and the impossible one ends disabled.
     /// </summary>
     [Fact]
     public async Task Disable_loses_the_race_and_the_sweep_claims_nothing()
     {
         await InsertAsync(Schedule("impossible-cron", "0 0 30 2 *"));
+        await InsertAsync(Schedule("daily-digest", "0 7 * * *"));
         await using var winner = await HoldUpdateAsync(
             """UPDATE "ScheduledRuns" SET "NextRunAt" = @at WHERE "Name" = 'impossible-cron'""", _seven.AddMinutes(1));
 
@@ -150,10 +153,12 @@ public sealed class ScheduledRunStoreRoundTripTests(PostgresFixture fixture) : I
         await winner.CommitAsync();
         var claimed = await sweep;
 
-        claimed.Should().Be(0);
-        var stored = (await ListConfigAsync()).Single().Run;
+        claimed.Should().Be(0, "the lost disable rolls back the valid row's claim with the rest of the sweep");
+        (await OutboxRowCountAsync()).Should().Be(0);
+        var stored = (await ListConfigAsync()).Single(r => string.Equals(r.Run.Name, "impossible-cron", StringComparison.Ordinal)).Run;
         stored.Enabled.Should().BeTrue("the disable lost the race, so it wrote nothing");
         stored.NextRunAt.Should().Be(_seven.AddMinutes(1));
+        (await ListConfigAsync()).Single(r => string.Equals(r.Run.Name, "daily-digest", StringComparison.Ordinal)).Run.NextRunAt.Should().Be(_seven);
     }
 
     /// <summary>
@@ -224,7 +229,7 @@ public sealed class ScheduledRunStoreRoundTripTests(PostgresFixture fixture) : I
     }
 
     private static Func<EquivalencyOptions<ScheduledRun>, EquivalencyOptions<ScheduledRun>> Members =>
-        o => o.ComparingByMembers<ScheduledRun>();
+        o => o.ComparingByMembers<ScheduledRun>().WithStrictOrdering();
 
     private static ScheduledRun Schedule(string name, string cron) =>
         ScheduledRun.Create(
