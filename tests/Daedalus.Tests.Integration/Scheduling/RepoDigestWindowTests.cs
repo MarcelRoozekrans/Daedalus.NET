@@ -193,7 +193,6 @@ public sealed class RepoDigestWindowTests(PostgresFixture fixture) : IAsyncLifet
         services.AddLogging();
         services.Configure<GitHubOptions>(o => o.DefaultLookback = ConfiguredLookback);
         services.AddSingleton<TimeProvider>(_time);
-        services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         services.AddChannelOutboxOver(fixture);
         services.AddScoped<ScheduledRunExecutionStore>();
 

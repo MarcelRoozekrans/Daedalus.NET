@@ -12,6 +12,7 @@
 
     <ItemGroup>
         <InternalsVisibleTo Include="Daedalus.Tests.Unit.Infrastructure" />
+        <InternalsVisibleTo Include="Daedalus.Tests.Integration" />
     </ItemGroup>
 
     <ItemGroup>

@@ -58,6 +58,27 @@ public sealed partial class ScheduledRunSql(IAsyncDbConnection connection)
         return rows.ConvertAll(row => row.ToVersioned());
     }
 
+    /// <summary>Reads one schedule in the caller's transaction.</summary>
+    /// <param name="id">The schedule's id.</param>
+    /// <param name="tx">The caller's transaction.</param>
+    /// <param name="ct">Cancels the read.</param>
+    /// <returns>The schedule, or <see langword="null"/> if there is none.</returns>
+    public async Task<ScheduledRun?> FindAsync(Guid id, IAsyncDbTransaction tx, CancellationToken ct)
+    {
+        var row = await FindRowInTransaction(id, tx, ct).ConfigureAwait(false);
+        return row?.ToVersioned().Run;
+    }
+
+    /// <summary>Reads one schedule.</summary>
+    /// <param name="id">The schedule's id.</param>
+    /// <param name="ct">Cancels the read.</param>
+    /// <returns>The schedule, or <see langword="null"/> if there is none.</returns>
+    public async Task<ScheduledRun?> FindAsync(Guid id, CancellationToken ct)
+    {
+        var row = await FindRow(id, ct).ConfigureAwait(false);
+        return row?.ToVersioned().Run;
+    }
+
     /// <summary>Reads every schedule whose origin is <see cref="ScheduleOrigin.Config"/>, by id.</summary>
     /// <param name="tx">The caller's transaction.</param>
     /// <param name="ct">Cancels the read.</param>
@@ -121,6 +142,19 @@ public sealed partial class ScheduledRunSql(IAsyncDbConnection connection)
         Guid id, string name, string cron, string trigger, string channelId, string conversationId,
         string principalId, string roles, string origin, DateTime nextRunAt, DateTime? lastRunAt, bool enabled,
         int missedOccurrences, string? repository, IAsyncDbTransaction tx, CancellationToken ct);
+
+    [LinqQuery(nameof(FindRowQuery))]
+    private partial Task<ScheduledRunRow?> FindRowInTransaction(Guid id, IAsyncDbTransaction tx, CancellationToken ct);
+
+    [LinqQuery(nameof(FindRowQuery))]
+    private partial Task<ScheduledRunRow?> FindRow(Guid id, CancellationToken ct);
+
+    private static IQuery<ScheduledRunRow> FindRowQuery(Guid id) =>
+        Sql.Table<StoredScheduledRun>()
+            .Where(r => r.Id == id)
+            .Select(r => new ScheduledRunRow(
+                r.Id, r.Name, r.Cron, r.Trigger, r.ChannelId, r.ConversationId, r.PrincipalId, r.Roles, r.Origin,
+                r.NextRunAt, r.LastRunAt, r.Enabled, r.MissedOccurrences, r.Repository, Sql.Xmin(r)));
 
     [LinqQuery(nameof(ListDueQuery))]
     private partial Task<List<ScheduledRunRow>> ListDue(DateTime now, IAsyncDbTransaction tx, CancellationToken ct);

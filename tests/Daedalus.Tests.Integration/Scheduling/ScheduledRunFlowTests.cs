@@ -443,8 +443,8 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
 
     /// <summary>
     ///     A store resolved from its own scope, wired like production: the real generated
-    ///     <c>IOutboxWriter&lt;T&gt;</c> for each of the four message types shares the scope's single
-    ///     <see cref="ApplicationDbContext"/> with the store itself. Each call builds an entirely separate DI
+    ///     <c>IOutboxWriter&lt;T&gt;</c> for each of the four message types, handed the store's own transaction.
+    ///     Each call builds an entirely separate DI
     ///     container - the same "brand-new store" fiction <c>ScheduledRunExecutionStoreTests</c> uses to model an
     ///     independent process, which is what the restart test relies on.
     /// </summary>
@@ -463,7 +463,6 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<TimeProvider>(_time);
-        services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         services.AddChannelOutboxOver(fixture);
         services.AddScoped<ScheduledRunExecutionStore>();
 

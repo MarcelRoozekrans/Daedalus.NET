@@ -123,7 +123,6 @@ public sealed class ScheduledRunOutboxWorkerTests(PostgresFixture fixture) : IAs
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<TimeProvider>(_time);
-        services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         services.AddChannelOutboxOver(fixture, o =>
             {
                 o.PollingInterval = _pollingInterval;
