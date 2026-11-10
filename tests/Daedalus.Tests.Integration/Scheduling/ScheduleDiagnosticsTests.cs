@@ -1,17 +1,17 @@
 using System.Collections.Concurrent;
-using System.Data.Common;
+using System.Diagnostics;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs.Scheduling;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
+using Npgsql;
 using ZeroAlloc.Outbox;
 using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
@@ -65,10 +65,17 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
     private const int _defaultScanLimit = 100;
 
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(_now));
+    private readonly List<IAsyncDisposable> _disposables = [];
 
     public async Task InitializeAsync() => await fixture.DatabaseResetter.ResetAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public async Task DisposeAsync()
+    {
+        foreach (var disposable in _disposables)
+        {
+            await disposable.DisposeAsync();
+        }
+    }
 
     [Fact]
     public async Task A_schedule_not_yet_due_with_no_execution_is_NotYetDue()
@@ -272,7 +279,7 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
 
         // Every read of OutboxMessages fails; reads of the two scheduling tables still succeed. Degrade, never
         // blank: the page keeps reporting the run, and never claims a delivery it could not confirm.
-        await using var provider = BuildProvider(new ThrowOnOutboxReadInterceptor());
+        await using var provider = BuildProviderWithUnreadableOutbox();
         var overview = await OverviewAsync(provider);
 
         var diagnosis = overview.Should().ContainSingle().Subject;
@@ -312,6 +319,46 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
             "the overview takes the latest execution per schedule and one bounded dead-letter fetch; an N+1 " +
             "would grow with the number of schedules and only become visible once there were enough to matter");
         oneSchedule.Should().BeLessThanOrEqualTo(3, "there are three tables to read: schedules, executions, outbox");
+    }
+
+    /// <summary>
+    ///     Schedule ids are random, so six schedules seeded in no alphabetical order leave an id-ordered read a
+    ///     one in 720 chance of passing. Red, shown once: order by id instead of name.
+    /// </summary>
+    [Fact]
+    public async Task The_overview_lists_every_schedule_by_name()
+    {
+        foreach (var name in new[] { "delta", "alpha", "echo", "charlie", "foxtrot", "bravo" })
+        {
+            await SeedScheduleAsync(name, _now.AddHours(1));
+        }
+
+        await using var provider = BuildProvider();
+        var overview = await OverviewAsync(provider);
+
+        overview.Select(d => d.ScheduleName).Should().Equal("alpha", "bravo", "charlie", "delta", "echo", "foxtrot");
+    }
+
+    /// <summary>
+    ///     Red, shown once each: drop the <c>NOT EXISTS</c> from the raw latest-per-schedule read and the overview
+    ///     returns both executions of a schedule, so the dictionary of latest runs cannot be built; flip its
+    ///     <c>&gt;</c> to <c>&lt;</c> and the older execution is reported.
+    /// </summary>
+    [Fact]
+    public async Task The_overview_reports_the_latest_execution_of_each_schedule()
+    {
+        var weekly = await SeedScheduleAsync("weekly-digest", _now.AddHours(1));
+        var morning = await SeedScheduleAsync("morning-digest", _now.AddHours(1));
+        await SeedDoneExecutionAsync(weekly, _now.AddHours(-30));
+        var weeklyLatest = await SeedDoneExecutionAsync(weekly, _now.AddHours(-3));
+        var morningLatest = await SeedDoneExecutionAsync(morning, _now.AddHours(-2));
+        await SeedDoneExecutionAsync(morning, _now.AddHours(-50));
+
+        await using var provider = BuildProvider();
+        var overview = await OverviewAsync(provider);
+
+        overview.Single(d => d.ScheduleId == morning.Id).ExecutionId.Should().Be(morningLatest.Id);
+        overview.Single(d => d.ScheduleId == weekly.Id).ExecutionId.Should().Be(weeklyLatest.Id);
     }
 
     [Fact]
@@ -469,7 +516,7 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
         execution.Fail("the writer subagent exceeded its token budget", _now.AddMinutes(-30));
         await InsertAsync(execution);
 
-        await using var provider = BuildProvider(new ThrowOnOutboxReadInterceptor());
+        await using var provider = BuildProviderWithUnreadableOutbox();
         var overview = await OverviewAsync(provider);
 
         var diagnosis = overview.Should().ContainSingle().Subject;
@@ -594,8 +641,8 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
             await SeedDoneExecutionAsync(schedule, _now.AddHours(-2));
         }
 
-        var counter = new CommandCountingInterceptor();
-        await using var provider = BuildProvider(counter);
+        using var counter = new CommandCounter();
+        await using var provider = BuildProvider();
         var overview = await OverviewAsync(provider);
 
         overview.Should().HaveCount(scheduleCount);
@@ -610,18 +657,27 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
     }
 
     /// <summary>
-    ///     A provider wired the way production is: a scoped <see cref="ApplicationDbContext"/> shared by the
-    ///     diagnostics service and the real generated <c>IOutboxWriter&lt;ChannelMessageQueued&gt;</c> the seeds
-    ///     use, so the payloads under test are the ones production actually writes.
+    ///     A provider wired the way production is: the diagnostics service over <see cref="DaedalusDb"/>, beside the
+    ///     real generated <c>IOutboxWriter&lt;ChannelMessageQueued&gt;</c> the seeds use, so the payloads under test
+    ///     are the ones production actually writes.
     /// </summary>
-    private ServiceProvider BuildProvider(params IInterceptor[] interceptors) =>
-        BuildProviderCore(_defaultScanLimit, interceptors, warnings: null);
+    private ServiceProvider BuildProvider() =>
+        BuildProviderCore(_defaultScanLimit, warnings: null, readsOutbox: true);
 
     /// <summary>A provider whose dead-letter scan is capped at <paramref name="scanLimit"/> rows, capturing what it logs.</summary>
     private ServiceProvider BuildProviderWithScanLimit(int scanLimit, CapturingLoggerProvider warnings) =>
-        BuildProviderCore(scanLimit, [], warnings);
+        BuildProviderCore(scanLimit, warnings, readsOutbox: true);
 
-    private ServiceProvider BuildProviderCore(int scanLimit, IInterceptor[] interceptors, CapturingLoggerProvider? warnings)
+    /// <summary>
+    ///     A provider whose diagnostics service connects as a database role that may read the two scheduling tables
+    ///     and not <c>OutboxMessages</c>, standing in for an outbox the page cannot reach: the outbox read fails with
+    ///     a permission error and the scheduling reads still succeed. Dropping the table instead would poison the
+    ///     shared container for the rest of the class.
+    /// </summary>
+    private ServiceProvider BuildProviderWithUnreadableOutbox() =>
+        BuildProviderCore(_defaultScanLimit, warnings: null, readsOutbox: false);
+
+    private ServiceProvider BuildProviderCore(int scanLimit, CapturingLoggerProvider? warnings, bool readsOutbox)
     {
         var services = new ServiceCollection();
         services.AddLogging(b =>
@@ -632,15 +688,14 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
             }
         });
         services.AddSingleton<TimeProvider>(_time);
-        services.AddDbContext<ApplicationDbContext>(o =>
-        {
-            o.UseNpgsql(fixture.ConnectionString);
-            if (interceptors.Length > 0)
-            {
-                o.AddInterceptors(interceptors);
-            }
-        });
         services.AddChannelOutboxOver(fixture, o => o.PollingInterval = TimeSpan.FromHours(1));
+        if (!readsOutbox)
+        {
+            var restricted = NpgsqlDataSource.Create(RestrictedConnectionString());
+            _disposables.Add(restricted);
+            services.AddSingleton(new DaedalusDb(restricted));
+        }
+
         services.Configure<ScheduleDiagnosticsOptions>(o =>
         {
             o.StrandedAfter = _strandedAfter;
@@ -663,9 +718,7 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
             schedule.Disable();
         }
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRuns.Add(schedule);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, schedule);
         return schedule;
     }
 
@@ -688,9 +741,28 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
 
     private async Task InsertAsync(ScheduledRunExecution execution)
     {
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRunExecutions.Add(execution);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, execution);
+    }
+
+    /// <summary>
+    ///     The connection string of a role that reads the two scheduling tables and nothing else, created on first use.
+    ///     The role lives in the shared container for its lifetime; creating it twice is a no-op.
+    /// </summary>
+    private string RestrictedConnectionString()
+    {
+        const string Role = "diagnostics_reader";
+        using var command = fixture.DataSource.CreateCommand($"""
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{Role}') THEN
+                    CREATE ROLE {Role} LOGIN PASSWORD '{Role}';
+                END IF;
+            END $$;
+            GRANT USAGE ON SCHEMA public TO {Role};
+            GRANT SELECT ON "ScheduledRuns", "ScheduledRunExecutions" TO {Role};
+            """);
+        command.ExecuteNonQuery();
+        return new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { Username = Role, Password = Role }
+            .ConnectionString;
     }
 
     /// <summary>Queues a real <see cref="ChannelMessageQueued"/> through the generated writer, stamped with <paramref name="executionId"/>.</summary>
@@ -790,36 +862,34 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
         }
     }
 
-    /// <summary>Counts the reads a single overview issues, so an N+1 shows up as growth with the schedule count.</summary>
-    private sealed class CommandCountingInterceptor : DbCommandInterceptor
+    /// <summary>
+    ///     Counts the commands one overview sends, from Npgsql's own activity source, so an N+1 shows up as growth
+    ///     with the schedule count.
+    /// </summary>
+    private sealed class CommandCounter : IDisposable
     {
+        private readonly ActivityListener _listener;
         private int _count;
+
+        public CommandCounter()
+        {
+            _listener = new ActivityListener
+            {
+                ShouldListenTo = source => string.Equals(source.Name, "Npgsql", StringComparison.Ordinal),
+                Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+                ActivityStopped = activity =>
+                {
+                    if (activity.Kind == ActivityKind.Client)
+                    {
+                        Interlocked.Increment(ref _count);
+                    }
+                },
+            };
+            ActivitySource.AddActivityListener(_listener);
+        }
 
         public int Count => Volatile.Read(ref _count);
 
-        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
-            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
-        {
-            Interlocked.Increment(ref _count);
-            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
-        }
-    }
-
-    /// <summary>
-    ///     Fails every read of <c>OutboxMessages</c> and nothing else, standing in for an outbox the page cannot
-    ///     reach. Dropping the table instead would poison the shared container for the rest of the class.
-    /// </summary>
-    private sealed class ThrowOnOutboxReadInterceptor : DbCommandInterceptor
-    {
-        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
-            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
-        {
-            if (command.CommandText.Contains("OutboxMessages", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("Simulated outbox read failure.");
-            }
-
-            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
-        }
+        public void Dispose() => _listener.Dispose();
     }
 }

@@ -136,9 +136,7 @@ public sealed class RepoDigestWindowTests(PostgresFixture fixture) : IAsyncLifet
             $"daily-digest-{Guid.NewGuid():N}", "0 7 * * *", "RepoDigest", "telegram", "482910337",
             "schedule:daedalus", Roles, ScheduleOrigin.Config, Now, Repository).Value;
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRuns.Add(schedule);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, schedule);
         return schedule;
     }
 
@@ -152,9 +150,7 @@ public sealed class RepoDigestWindowTests(PostgresFixture fixture) : IAsyncLifet
         execution.RecordDigest("digest", occurrenceAt);
         execution.Complete(occurrenceAt);
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRunExecutions.Add(execution);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, execution);
     }
 
     /// <summary>Seeds a <see cref="ScheduledRunExecution"/> for <paramref name="scheduleId"/> that failed at the scout step.</summary>
@@ -165,9 +161,7 @@ public sealed class RepoDigestWindowTests(PostgresFixture fixture) : IAsyncLifet
         execution.BeginScout(occurrenceAt);
         execution.Fail("boom", occurrenceAt);
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRunExecutions.Add(execution);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, execution);
     }
 
     /// <summary>

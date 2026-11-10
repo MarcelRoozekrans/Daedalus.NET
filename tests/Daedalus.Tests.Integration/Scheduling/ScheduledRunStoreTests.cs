@@ -198,15 +198,12 @@ public sealed class ScheduledRunStoreTests(PostgresFixture fixture) : IAsyncLife
             run.Disable();
         }
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRuns.Add(run);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, run);
     }
 
     private async Task<ScheduledRun> LoadAsync(string name)
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRuns.AsNoTracking().SingleAsync(r => r.Name == name);
+        return await ScheduleTables.RunAsync(fixture, name);
     }
 
     /// <summary>

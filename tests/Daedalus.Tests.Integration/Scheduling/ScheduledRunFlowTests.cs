@@ -384,16 +384,13 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
             name, "0 7 * * *", "RepoDigestSaga", channelId, conversationId, principalId, roles,
             ScheduleOrigin.Config, Occurrence, repository: "owner/repo").Value;
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRuns.Add(schedule);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, schedule);
         return schedule.Id;
     }
 
     private async Task<ScheduledRunExecution> SingleExecutionRowAsync()
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRunExecutions.AsNoTracking().SingleAsync();
+        return await ScheduleTables.SingleExecutionAsync(fixture);
     }
 
     private async Task<Guid> SingleExecutionIdAsync() => (await SingleExecutionRowAsync()).Id;
@@ -409,8 +406,7 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
 
     private async Task<int> ExecutionCountAsync()
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRunExecutions.CountAsync();
+        return await ScheduleTables.ExecutionCountAsync(fixture);
     }
 
     /// <summary>Counts outbox rows of type <typeparamref name="T"/>, by the same type-name column ZeroAlloc.Outbox's generated writer stamps.</summary>

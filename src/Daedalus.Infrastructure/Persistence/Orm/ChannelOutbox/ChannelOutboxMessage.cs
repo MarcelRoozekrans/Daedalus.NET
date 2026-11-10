@@ -19,6 +19,12 @@ internal sealed class ChannelOutboxMessage
     /// <summary>The store's status code: 0 pending, 1 succeeded, 2 dead-lettered.</summary>
     public int Status { get; init; }
 
+    /// <summary>How many delivery attempts were made.</summary>
+    public int RetryCount { get; init; }
+
+    /// <summary>Why delivery was abandoned, for a dead-lettered message; otherwise <see langword="null"/>.</summary>
+    public string? DeadLetterError { get; init; }
+
     /// <summary>When the message was enqueued, in UTC.</summary>
     public DateTimeOffset CreatedAt { get; init; }
 }

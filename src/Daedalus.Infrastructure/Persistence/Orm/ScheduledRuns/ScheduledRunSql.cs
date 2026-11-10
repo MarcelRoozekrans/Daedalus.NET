@@ -79,6 +79,15 @@ public sealed partial class ScheduledRunSql(IAsyncDbConnection connection)
         return row?.ToVersioned().Run;
     }
 
+    /// <summary>Reads every schedule, enabled or not, by name.</summary>
+    /// <param name="ct">Cancels the read.</param>
+    /// <returns>All schedules.</returns>
+    public async Task<IReadOnlyList<ScheduledRun>> ListAllAsync(CancellationToken ct)
+    {
+        var rows = await ListAll(ct).ConfigureAwait(false);
+        return rows.ConvertAll(row => row.ToVersioned().Run);
+    }
+
     /// <summary>Reads every schedule whose origin is <see cref="ScheduleOrigin.Config"/>, by id.</summary>
     /// <param name="tx">The caller's transaction.</param>
     /// <param name="ct">Cancels the read.</param>
@@ -163,6 +172,16 @@ public sealed partial class ScheduledRunSql(IAsyncDbConnection connection)
         Sql.Table<StoredScheduledRun>()
             .Where(r => r.Enabled && r.NextRunAt <= now)
             .OrderBy(r => r.Id)
+            .Select(r => new ScheduledRunRow(
+                r.Id, r.Name, r.Cron, r.Trigger, r.ChannelId, r.ConversationId, r.PrincipalId, r.Roles, r.Origin,
+                r.NextRunAt, r.LastRunAt, r.Enabled, r.MissedOccurrences, r.Repository, Sql.Xmin(r)));
+
+    [LinqQuery(nameof(ListAllQuery))]
+    private partial Task<List<ScheduledRunRow>> ListAll(CancellationToken ct);
+
+    private static IQuery<ScheduledRunRow> ListAllQuery() =>
+        Sql.Table<StoredScheduledRun>()
+            .OrderBy(r => r.Name)
             .Select(r => new ScheduledRunRow(
                 r.Id, r.Name, r.Cron, r.Trigger, r.ChannelId, r.ConversationId, r.PrincipalId, r.Roles, r.Origin,
                 r.NextRunAt, r.LastRunAt, r.Enabled, r.MissedOccurrences, r.Repository, Sql.Xmin(r)));

@@ -103,13 +103,8 @@ public sealed class OrmCapabilityTests(PostgresFixture fixture) : IAsyncLifetime
     [Fact]
     public async Task Enum_stored_as_string_compares()
     {
-        await using (var context = fixture.CreateDbContext())
-        {
-            context.ScheduledRuns.AddRange(
-                NewRun("from-config", ScheduleOrigin.Config),
-                NewRun("from-agent", ScheduleOrigin.Agent));
-            await context.SaveChangesAsync();
-        }
+        await ScheduleTables.InsertAsync(
+            fixture, NewRun("from-config", ScheduleOrigin.Config), NewRun("from-agent", ScheduleOrigin.Agent));
 
         await using var connection = await _db.OpenAsync(CancellationToken.None);
         var sql = new CapabilitySql(connection);

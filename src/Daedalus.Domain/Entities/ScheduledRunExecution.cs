@@ -86,7 +86,7 @@ public sealed class ScheduledRunExecution : Entity<Guid>
     /// <summary>Gets when this execution was last updated (UTC).</summary>
     public DateTime UpdatedAt { get; private set; }
 
-    // Used by Create and Rehydrate, and by EF Core until the last scheduling reader leaves it (phase 3.5, Task 21).
+    // Used by Create and Rehydrate.
     private ScheduledRunExecution() { }
 
     /// <summary>

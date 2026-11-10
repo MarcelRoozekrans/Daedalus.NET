@@ -25,7 +25,7 @@ public sealed partial class ChannelOutboxSql(IAsyncDbConnection connection)
     /// <param name="since">The oldest enqueue time to read, in UTC.</param>
     /// <param name="limit">The most rows to read.</param>
     /// <param name="ct">Cancels the read.</param>
-    /// <returns>The messages' ids and payloads.</returns>
+    /// <returns>The messages' ids, payloads, errors, retry counts and enqueue times.</returns>
     public async Task<IReadOnlyList<ChannelOutboxDeadLetter>> ListDeadLettersAsync(
         string typeName, DateTimeOffset since, int limit, CancellationToken ct)
     {
@@ -45,5 +45,5 @@ public sealed partial class ChannelOutboxSql(IAsyncDbConnection connection)
                 && m.CreatedAt >= since)
             .OrderByDescending(m => m.CreatedAt)
             .Take(limit)
-            .Select(m => new ChannelOutboxDeadLetterRow(m.Id, m.Payload));
+            .Select(m => new ChannelOutboxDeadLetterRow(m.Id, m.Payload, m.DeadLetterError, m.RetryCount, m.CreatedAt));
 }

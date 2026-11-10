@@ -44,3 +44,32 @@ internal sealed record ScheduledRunExecutionRow(
                 PrincipalId, ScheduledRunRoles.Split(Roles), Attempts, LastError, CreatedAt, UpdatedAt),
             Version);
 }
+
+/// <summary>
+///     One <c>"ScheduledRunExecutions"</c> row as a raw query reads it, the two steps as their stored member names.
+/// </summary>
+internal sealed record ScheduledRunExecutionTextRow(
+    Guid Id,
+    Guid ScheduleId,
+    DateTime OccurrenceAt,
+    string Step,
+    string? FailedAtStep,
+    string? Findings,
+    string? Digest,
+    string ChannelId,
+    string ConversationId,
+    string PrincipalId,
+    string Roles,
+    int Attempts,
+    string? LastError,
+    DateTime CreatedAt,
+    DateTime UpdatedAt)
+{
+    /// <summary>The execution the row holds, as stored: <see cref="ScheduledRunExecution.Rehydrate"/> validates nothing.</summary>
+    /// <returns>The execution.</returns>
+    public ScheduledRunExecution ToExecution() =>
+        ScheduledRunExecution.Rehydrate(
+            Id, ScheduleId, OccurrenceAt, Enum.Parse<RunStep>(Step),
+            FailedAtStep is null ? null : Enum.Parse<RunStep>(FailedAtStep), Findings, Digest, ChannelId,
+            ConversationId, PrincipalId, ScheduledRunRoles.Split(Roles), Attempts, LastError, CreatedAt, UpdatedAt);
+}

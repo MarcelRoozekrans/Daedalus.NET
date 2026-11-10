@@ -94,7 +94,7 @@ public sealed class ScheduledRun : Entity<Guid>
     /// <summary>Gets the cumulative count of occurrences the reconciler determined were missed (e.g. after downtime).</summary>
     public int MissedOccurrences { get; private set; }
 
-    // Used by Create and Rehydrate, and by EF Core until the last scheduling reader leaves it (phase 3.5, Task 21).
+    // Used by Create and Rehydrate.
     private ScheduledRun() { }
 
     /// <summary>Creates a new, enabled schedule with its first computed occurrence.</summary>

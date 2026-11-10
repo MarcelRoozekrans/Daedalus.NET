@@ -146,15 +146,12 @@ public sealed class ScheduleSweeperServiceTests(PostgresFixture fixture) : IAsyn
             name, "0 7 * * *", "RepoDigestSaga", "telegram", "482910337",
             $"schedule:{name}", ["reader", "digest"], ScheduleOrigin.Config, DateTime.UtcNow.AddMinutes(-5)).Value;
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRuns.Add(run);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, run);
     }
 
     private async Task<ScheduledRun> LoadAsync(string name)
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRuns.AsNoTracking().SingleAsync(r => r.Name == name);
+        return await ScheduleTables.RunAsync(fixture, name);
     }
 
     private async Task<List<OutboxMessageEntity>> OutboxRowsAsync()

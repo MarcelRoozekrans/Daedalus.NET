@@ -157,9 +157,7 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
             name, "0 7 * * *", "RepoDigest", "telegram", "482910337",
             "schedule:daedalus", ["reader", "writer"], ScheduleOrigin.Config, _now.AddHours(1)).Value;
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRuns.Add(schedule);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, schedule);
         return schedule;
     }
 
@@ -175,9 +173,7 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
         execution.RecordDigest("Three PRs are waiting on you.", occurrenceAtUtc.AddMinutes(2));
         execution.Complete(occurrenceAtUtc.AddMinutes(3));
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRunExecutions.Add(execution);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, execution);
         return execution;
     }
 

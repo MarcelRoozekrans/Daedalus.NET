@@ -78,11 +78,7 @@ public sealed class SchedulesEndpointsIntegrationTests(PostgresFixture fixture) 
             "schedule:daedalus", ["reader", "writer"], ScheduleOrigin.Config, DateTime.UtcNow.AddDays(-1)).Value;
         schedule.Disable();
 
-        await using (var db = fixture.CreateDbContext())
-        {
-            db.ScheduledRuns.Add(schedule);
-            await db.SaveChangesAsync();
-        }
+        await ScheduleTables.InsertAsync(fixture, schedule);
 
         var response = await Send(HttpMethod.Get, "/api/schedules", user: "alice");
 
@@ -140,12 +136,8 @@ public sealed class SchedulesEndpointsIntegrationTests(PostgresFixture fixture) 
         execution.RecordDigest("Three PRs are waiting on you.", occurrenceAtUtc.AddMinutes(2));
         execution.Complete(occurrenceAtUtc.AddMinutes(3));
 
-        await using (var db = fixture.CreateDbContext())
-        {
-            db.ScheduledRuns.Add(schedule);
-            db.ScheduledRunExecutions.Add(execution);
-            await db.SaveChangesAsync();
-        }
+        await ScheduleTables.InsertAsync(fixture, schedule);
+        await ScheduleTables.InsertAsync(fixture, execution);
 
         using (var scope = _factory.Services.CreateScope())
         {

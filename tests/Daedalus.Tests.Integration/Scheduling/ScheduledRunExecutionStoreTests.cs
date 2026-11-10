@@ -426,22 +426,18 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
             name, "0 7 * * *", "RepoDigestSaga", channelId, conversationId, principalId, roles,
             ScheduleOrigin.Config, Occurrence).Value;
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRuns.Add(schedule);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, schedule);
         return schedule.Id;
     }
 
     private async Task<ScheduledRunExecution> SingleExecutionAsync()
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRunExecutions.AsNoTracking().SingleAsync();
+        return await ScheduleTables.SingleExecutionAsync(fixture);
     }
 
     private async Task<int> ExecutionCountAsync()
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRunExecutions.CountAsync();
+        return await ScheduleTables.ExecutionCountAsync(fixture);
     }
 
     /// <summary>

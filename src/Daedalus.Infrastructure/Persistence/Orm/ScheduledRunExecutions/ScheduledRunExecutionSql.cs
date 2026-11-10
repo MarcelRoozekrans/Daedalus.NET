@@ -78,6 +78,33 @@ public sealed partial class ScheduledRunExecutionSql(IAsyncDbConnection connecti
     }
 
     /// <summary>
+    ///     The latest execution of each of the given schedules, in one read: the row of a schedule for which no
+    ///     execution with a later occurrence exists. The unique <c>("ScheduleId", "OccurrenceAt")</c> index makes the
+    ///     occurrence a total order within a schedule, so this is exactly one row per schedule that has any.
+    /// </summary>
+    /// <param name="scheduleIds">The schedules to look at.</param>
+    /// <param name="ct">Cancels the read.</param>
+    /// <returns>The latest execution of each schedule that has one.</returns>
+    public async Task<IReadOnlyList<ScheduledRunExecution>> ListLatestPerScheduleAsync(
+        IReadOnlyList<Guid> scheduleIds, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(scheduleIds);
+        var rows = await ListLatestPerSchedule([.. scheduleIds], ct).ConfigureAwait(false);
+        return rows.ConvertAll(row => row.ToExecution());
+    }
+
+    /// <summary>The most recent executions of <paramref name="scheduleId"/>, newest occurrence first.</summary>
+    /// <param name="scheduleId">The schedule.</param>
+    /// <param name="take">The most executions to read.</param>
+    /// <param name="ct">Cancels the read.</param>
+    /// <returns>The executions.</returns>
+    public async Task<IReadOnlyList<ScheduledRunExecution>> ListRecentAsync(Guid scheduleId, int take, CancellationToken ct)
+    {
+        var rows = await ListRecent(scheduleId, take, ct).ConfigureAwait(false);
+        return rows.ConvertAll(row => row.ToVersioned().Execution);
+    }
+
+    /// <summary>
     ///     The latest occurrence of <paramref name="scheduleId"/> before <paramref name="before"/> whose execution is
     ///     <see cref="RunStep.Done"/>.
     /// </summary>
@@ -140,6 +167,33 @@ public sealed partial class ScheduledRunExecutionSql(IAsyncDbConnection connecti
     private static IQuery<ScheduledRunExecutionRow> FindRowQuery(Guid id) =>
         Sql.Table<StoredScheduledRunExecution>()
             .Where(e => e.Id == id)
+            .Select(e => new ScheduledRunExecutionRow(
+                e.Id, e.ScheduleId, e.OccurrenceAt, e.Step, e.FailedAtStep, e.Findings, e.Digest, e.ChannelId,
+                e.ConversationId, e.PrincipalId, e.Roles, e.Attempts, e.LastError, e.CreatedAt, e.UpdatedAt,
+                Sql.Xmin(e)));
+
+    // Raw, not a LinqQuery: "no later occurrence of the same schedule exists" is a correlated NOT EXISTS, which the
+    // ORM does not translate (ruling R124). The step columns come back as text and the row parses them.
+    [Query("""
+        SELECT e."Id", e."ScheduleId", e."OccurrenceAt", e."Step", e."FailedAtStep", e."Findings", e."Digest",
+               e."ChannelId", e."ConversationId", e."PrincipalId", e."Roles", e."Attempts", e."LastError",
+               e."CreatedAt", e."UpdatedAt"
+        FROM "ScheduledRunExecutions" e
+        WHERE e."ScheduleId" = ANY(@scheduleIds)
+          AND NOT EXISTS (
+              SELECT 1 FROM "ScheduledRunExecutions" later
+              WHERE later."ScheduleId" = e."ScheduleId" AND later."OccurrenceAt" > e."OccurrenceAt")
+        """)]
+    private partial Task<List<ScheduledRunExecutionTextRow>> ListLatestPerSchedule(Guid[] scheduleIds, CancellationToken ct);
+
+    [LinqQuery(nameof(ListRecentQuery))]
+    private partial Task<List<ScheduledRunExecutionRow>> ListRecent(Guid scheduleId, int take, CancellationToken ct);
+
+    private static IQuery<ScheduledRunExecutionRow> ListRecentQuery(Guid scheduleId, int take) =>
+        Sql.Table<StoredScheduledRunExecution>()
+            .Where(e => e.ScheduleId == scheduleId)
+            .OrderByDescending(e => e.OccurrenceAt)
+            .Take(take)
             .Select(e => new ScheduledRunExecutionRow(
                 e.Id, e.ScheduleId, e.OccurrenceAt, e.Step, e.FailedAtStep, e.Findings, e.Digest, e.ChannelId,
                 e.ConversationId, e.PrincipalId, e.Roles, e.Attempts, e.LastError, e.CreatedAt, e.UpdatedAt,

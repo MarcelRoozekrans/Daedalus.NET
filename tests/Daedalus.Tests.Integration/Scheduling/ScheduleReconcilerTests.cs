@@ -61,8 +61,7 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
 
         await ReconcilerFor(secondRun).ReconcileAsync(default);
 
-        await using var verifyDb = fixture.CreateDbContext();
-        var rows = await verifyDb.ScheduledRuns.Where(r => r.Name == "daily-digest").ToListAsync();
+        var rows = (await ScheduleTables.RunsAsync(fixture)).Where(r => string.Equals(r.Name, "daily-digest", StringComparison.Ordinal)).ToList();
         rows.Should().ContainSingle("the second run must update the existing row, not insert a duplicate");
         rows[0].ConversationId.Should().Be("999999999");
     }
@@ -136,11 +135,7 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
             "schedule:agent-created", ["reader"], ScheduleOrigin.Agent,
             new DateTime(2026, 9, 17, 8, 0, 0, DateTimeKind.Utc)).Value;
 
-        await using (var seedDb = fixture.CreateDbContext())
-        {
-            seedDb.ScheduledRuns.Add(agentRun);
-            await seedDb.SaveChangesAsync();
-        }
+        await ScheduleTables.InsertAsync(fixture, agentRun);
 
         // No config entries at all — if the reconciler ever queried Agent rows to decide what to disable,
         // this configuration (which does not name "agent-created") would flip it off.
@@ -162,13 +157,12 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
             "schedule:daedalus", ["reader"],
             [new ConfigEntry("bad-cron", "not a cron expression", "RepoDigest", "telegram", "482910337")]);
 
-        await using var db = fixture.CreateDbContext();
         var act = async () => await ReconcilerFor(configuration).ReconcileAsync(default);
 
         var exception = await act.Should().ThrowAsync<InvalidOperationException>();
         exception.Which.Message.Should().Contain("bad-cron").And.Contain("not a cron expression");
 
-        (await db.ScheduledRuns.CountAsync()).Should().Be(0, "an invalid entry must leave the database untouched");
+        (await ScheduleTables.RunsAsync(fixture)).Should().BeEmpty("an invalid entry must leave the database untouched");
     }
 
     [Fact]
@@ -178,13 +172,12 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
             "schedule:daedalus", ["reader"],
             [new ConfigEntry("daily-digest", "0 7 * * *", "RepoDigestSaga", "telegram", "482910337")]);
 
-        await using var db = fixture.CreateDbContext();
         var act = async () => await ReconcilerFor(configuration).ReconcileAsync(default);
 
         var exception = await act.Should().ThrowAsync<InvalidOperationException>();
         exception.Which.Message.Should().Contain("daily-digest").And.Contain("RepoDigestSaga").And.Contain("RepoDigest");
 
-        (await db.ScheduledRuns.CountAsync()).Should().Be(0, "an invalid entry must leave the database untouched");
+        (await ScheduleTables.RunsAsync(fixture)).Should().BeEmpty("an invalid entry must leave the database untouched");
     }
 
     private ScheduleReconciler ReconcilerFor(IConfiguration configuration) =>
@@ -192,8 +185,7 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
 
     private async Task<ScheduledRun> LoadAsync(string name)
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRuns.SingleAsync(r => r.Name == name);
+        return await ScheduleTables.RunAsync(fixture, name);
     }
 
     private sealed record ConfigEntry(

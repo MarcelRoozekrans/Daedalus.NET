@@ -72,12 +72,8 @@ public sealed class DaedalusScheduleToolsTests(PostgresFixture fixture) : IAsync
         execution.RecordFindings("three open PRs", occurrence.AddMinutes(1));
         execution.Fail("the writer subagent exceeded its token budget", occurrence.AddMinutes(2));
 
-        await using (var db = fixture.CreateDbContext())
-        {
-            db.ScheduledRuns.Add(schedule);
-            db.ScheduledRunExecutions.Add(execution);
-            await db.SaveChangesAsync();
-        }
+        await ScheduleTables.InsertAsync(fixture, schedule);
+        await ScheduleTables.InsertAsync(fixture, execution);
 
         // Path 1: the controller, over HTTP, through the real composed host.
         var response = await Send(HttpMethod.Get, $"/api/schedules/{schedule.Id}/runs", user: "alice");

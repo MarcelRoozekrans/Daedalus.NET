@@ -98,17 +98,14 @@ public sealed class ScheduledRunOutboxWorkerTests(PostgresFixture fixture) : IAs
             schedule.PrincipalId, schedule.Roles, now).Value;
         execution.BeginScout(now);
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRuns.Add(schedule);
-        db.ScheduledRunExecutions.Add(execution);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, schedule);
+        await ScheduleTables.InsertAsync(fixture, execution);
         return execution.Id;
     }
 
     private async Task<ScheduledRunExecution> ReadExecutionAsync(Guid id)
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRunExecutions.AsNoTracking().SingleAsync(e => e.Id == id);
+        return await ScheduleTables.ExecutionAsync(fixture, id);
     }
 
     private async Task<OutboxMessageEntity> ReadOutboxRowAsync<T>()

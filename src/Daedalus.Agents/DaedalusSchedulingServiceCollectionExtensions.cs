@@ -93,8 +93,7 @@ public static class DaedalusSchedulingServiceCollectionExtensions
         services.AddScoped<ScheduledRunExecutionStore>();
         services.AddScoped<ISubagentRunExecutor, SubagentRunExecutor>();
 
-        // Scoped, not singleton — same rule as the two stores above: ScheduleDiagnostics takes ApplicationDbContext
-        // directly.
+        // Scoped like the stores above; it only reads, over DaedalusDb.
         services.AddScoped<IScheduleDiagnostics, ScheduleDiagnostics>();
         services.Configure<ScheduleDiagnosticsOptions>(configuration.GetSection(ScheduleDiagnosticsOptions.SectionName));
 
