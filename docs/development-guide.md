@@ -1369,8 +1369,8 @@ read with it (the entity's `RowVersion`), and the update or delete compares it a
 that into its failure `Result`, as `ModifiedByAnotherOperation` or `TaskRunGuard.ChangedUnderneath`. Task, Project,
 BrainstormSession, CodeAnalysisRequest, ScheduledRun and ScheduledRunExecution are guarded.
 RepositoryConfiguration's update is not: it has no version, and its `ThrowOnNoRows` makes a row deleted since the
-read answer `ModifiedByAnotherOperation`. A save of independent columns updates only those columns with no check, and atomic in-database updates,
-such as counter increments and compare-and-swap transitions, stay single `UPDATE ... WHERE` statements. The guard
+read answer `ModifiedByAnotherOperation`. A save of independent columns updates only those columns with no check,
+and atomic in-database updates, such as counter increments and compare-and-swap transitions, stay single `UPDATE ... WHERE` statements. The guard
 protects against lost updates only. A guarded entity must be re-read before its next guarded save.
 
 **Reads.** There is no tracking to turn off: every read returns fresh entities. Paged reads that must agree with

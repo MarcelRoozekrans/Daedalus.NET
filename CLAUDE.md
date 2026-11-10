@@ -161,7 +161,8 @@ Daedalus' own tables are read and written through ZeroAlloc.ORM over one `Npgsql
   documented "for persistence only"; `Create` keeps the invariants.
 - A write that stores values computed from the row it read is guarded by `xmin` (Task, Project, BrainstormSession,
   CodeAnalysisRequest, ScheduledRun, ScheduledRunExecution): it throws `ZeroAllocOrmConcurrencyException` when the
-  row changed since the read, and the repository turns that into its failure `Result`. Writes of independent columns and atomic in-database updates are not guarded.
+  row changed since the read, and the repository turns that into its failure `Result`. Writes of independent
+  columns and atomic in-database updates are not guarded.
 - Schema changes are numbered SQL files, `Persistence/Migrations/NNNN_<name>.sql`, applied by
   `DaedalusMigrations.CreateRunner`. Never edit a shipped file: add the next number. See
   `skills/daedalus-migrations/SKILL.md` and `docs/development-guide.md`, "Data layer".
