@@ -86,8 +86,8 @@ public static class DaedalusSchedulingServiceCollectionExtensions
         // forever. TryAddSingleton is a no-op wherever a host already has one and never overrides it.
         services.TryAddSingleton(TimeProvider.System);
 
-        // Scoped, not singleton: both stores inject ApplicationDbContext (also scoped) and the channel pipeline's
-        // keyed writers — see ScheduledRunStore's and ScheduledRunExecutionStore's own remarks. ISubagentRunExecutor
+        // Scoped, not singleton: both stores take the channel pipeline's keyed writers, and ScheduledRunExecutionStore
+        // still injects ApplicationDbContext (also scoped) — see their own remarks. ISubagentRunExecutor
         // follows the same rule so it is safe to depend on regardless of what lifetime Thalos gives ISubagentRunner.
         services.AddScoped<ScheduledRunStore>();
         services.AddScoped<ScheduledRunExecutionStore>();

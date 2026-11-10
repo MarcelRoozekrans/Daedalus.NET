@@ -17,9 +17,9 @@ namespace Daedalus.Tests.Integration.Scheduling;
 ///     Integration tests for <see cref="ScheduledRunStore.ClaimAndEnqueueDueAsync"/> against a real PostgreSQL
 ///     database: the atomic claim that advances a due row's <c>NextRunAt</c> and enqueues its
 ///     <see cref="ScheduledRunDue"/> trigger in the same transaction. Every test resolves the store the way
-///     production now must — from its own <see cref="IServiceScope"/>, with the real ZeroAlloc.Outbox-generated
-///     writer sharing that scope's <see cref="ApplicationDbContext"/> — because <see cref="ScheduledRunStore"/> is
-///     scoped, not a singleton over <c>IDbContextFactory</c>; see the remarks on the store itself for why. The last
+///     production does — from its own <see cref="IServiceScope"/>, with the channel pipeline's real generated
+///     writer, which the store hands its own transaction — because <see cref="ScheduledRunStore"/> is scoped; see
+///     the remarks on the store itself for why. The last
 ///     three tests are the reason this store exists in this exact form: one-transaction-per-sweep with genuinely
 ///     more than one row at risk, the impossible-cron escape hatch, and the <c>xmin</c> concurrency race.
 /// </summary>
@@ -234,8 +234,8 @@ public sealed class ScheduledRunStoreTests(PostgresFixture fixture) : IAsyncLife
 
     /// <summary>
     ///     A store resolved from its own scope, wired exactly like production: the real generated
-    ///     <c>IOutboxWriter&lt;ScheduledRunDue&gt;</c> shares the scope's single <see cref="ApplicationDbContext"/>
-    ///     with the store itself, so <c>ScheduledRunStore</c>'s transaction actually enlists the outbox write.
+    ///     <c>IOutboxWriter&lt;ScheduledRunDue&gt;</c> is handed the store's own transaction, so the sweep actually
+    ///     enlists the outbox write.
     /// </summary>
     private ScheduledRunStore StoreWith(FakeTimeProvider time) => ResolveStore(time);
 
@@ -275,7 +275,6 @@ public sealed class ScheduledRunStoreTests(PostgresFixture fixture) : IAsyncLife
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<TimeProvider>(time);
-        services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         services.AddChannelOutboxOver(fixture);
         services.AddScoped<ScheduledRunStore>();
 
@@ -339,13 +338,10 @@ public sealed class ScheduledRunStoreTests(PostgresFixture fixture) : IAsyncLife
     {
         public async ValueTask WriteAsync(ScheduledRunDue message, DbTransaction? transaction = null, CancellationToken ct = default)
         {
-            // Signal readiness and wait for the other side BEFORE the real write, not after: EfCoreOutboxStore
-            // shares this sweep's own DbContext (see ScheduledRunStore's remarks), so its internal SaveChangesAsync
-            // flushes the already-mutated ScheduledRun row too - the row lock is acquired inside inner.WriteAsync,
-            // not at the sweep's later explicit SaveChangesAsync. Rendezvousing after the write would have the
-            // loser block on Postgres's row lock INSIDE inner.WriteAsync, unable to ever reach the signal the
-            // winner is waiting on - a deadlock. Rendezvousing first guarantees both sides have already read the
-            // row and are about to write before either takes the lock, so they race for real.
+            // Signal readiness and wait for the other side BEFORE the real write: the sweep enqueues a row's
+            // trigger and then writes the row's guarded update, which takes the row lock (see ScheduledRunStore's
+            // remarks). Rendezvousing here guarantees both sides have already read the row, with the same xmin,
+            // before either takes the lock, so they race for real.
             mySignal.TrySetResult();
             await otherSignal;
             await inner.WriteAsync(message, transaction, ct);

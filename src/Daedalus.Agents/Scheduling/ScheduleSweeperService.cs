@@ -24,9 +24,9 @@ namespace Daedalus.Agents.Scheduling;
 ///     </para>
 ///     <para>
 ///     <b>A fresh <see cref="IServiceScope"/> per tick is a correctness requirement, not a style choice.</b>
-///     <see cref="ScheduledRunStore"/> is scoped over a scoped
-///     <see cref="Daedalus.Infrastructure.Persistence.ApplicationDbContext"/> (see that type's own remarks);
-///     reusing one scope across ticks would carry EF Core's change-tracker state between sweeps.
+///     <see cref="ScheduledRunStore"/> is scoped over the channel pipeline's keyed writers, whose store holds the
+///     pipeline's scoped connection (see the store's own remarks); reusing one scope across ticks would keep that
+///     connection, and everything else the scope resolved, for the host's lifetime.
 ///     </para>
 ///     <para>
 ///     <b>A tick must never let an exception escape.</b> Doing so would stop <see cref="BackgroundService"/>'s

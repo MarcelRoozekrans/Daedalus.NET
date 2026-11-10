@@ -1,12 +1,13 @@
 using Cronos;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.ScheduledRuns;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Thalos;
+using ZeroAlloc.ORM;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Agents.Scheduling;
@@ -66,10 +67,19 @@ public sealed class ScheduledRunOptions
 ///     <b>Validates everything before writing anything.</b> Spec §7 requires the boot to fail rather than defer a
 ///     configuration error to the schedule's first firing at 07:00. Every entry's cron is parsed with Cronos and
 ///     every entry's <see cref="ScheduledRunOptions.Trigger"/> is checked against <see cref="KnownTriggers"/> in a
-///     dedicated pass before any <see cref="ApplicationDbContext.ScheduledRuns"/> row is added or mutated; only
-///     after every entry passes does the method touch the change tracker, and <see cref="DbContext.SaveChangesAsync(CancellationToken)"/>
-///     runs exactly once, at the very end. A validation failure therefore leaves the database untouched, never
-///     partially reconciled.
+///     dedicated pass before the database is even opened. The writes then run in one transaction, committed once at
+///     the very end, as EF Core's one <c>SaveChangesAsync</c> was; an entry that still fails the aggregate's own
+///     validation throws before the commit, so a failure leaves the database untouched, never partially reconciled.
+///     </para>
+///     <para>
+///     <b>Guarded, as EF Core guarded it.</b> Every update of an existing row compares the <c>xmin</c> the row was read
+///     with, the token EF Core kept on <see cref="ScheduledRun"/>, and writes only when the row's configured values or
+///     enabled flag actually change, as EF Core saved no unchanged entity (ruling R116). A row another writer changed
+///     in between, such as a sweep in another host advancing its <c>NextRunAt</c>, makes the update throw
+///     <see cref="ZeroAllocOrmConcurrencyException"/>, which rolls the whole reconcile back and propagates out of
+///     <see cref="ReconcileAsync"/>, and so out of host start (owner, 2026-11-05; ruling R117). The values written are
+///     configuration, independent of what was read, so the guard is not needed for correctness; writing them
+///     unguarded is a separate change, raised as its own issue.
 ///     </para>
 ///     <para>
 ///     <b>Cron parsing lives here, not in the domain.</b> <see cref="ScheduledRun.Cron"/> is stored as text and
@@ -84,19 +94,14 @@ public sealed class ScheduledRunOptions
 ///     one of. Add a second workflow by adding its name to that set.
 ///     </para>
 ///     <para>
-///     <b>Scoped, like <see cref="ScheduledRunStore"/>, not a singleton over <c>IDbContextFactory</c>.</b> This
-///     type injects <see cref="ApplicationDbContext"/> directly. Unlike the store, it needs no shared-connection
-///     trick with an outbox writer — reconciliation writes no outbox messages — but the same reasoning that makes
-///     "singleton service, scoped context via a factory" the wrong default elsewhere does not automatically make it
-///     right here either, and a plain scoped registration is simpler to reason about and to test. Because
-///     <see cref="IHostedService"/> instances are singletons, this type is not itself the hosted service:
-///     <see cref="ScheduleReconcilerHostedService"/> opens one scope per host start, resolves this type from it, and
-///     lets the scope (and its <see cref="ApplicationDbContext"/>) go away once <see cref="ReconcileAsync"/> returns
-///     or throws.
+///     <b>Scoped, like <see cref="ScheduledRunStore"/>.</b> It opens one connection from <see cref="DaedalusDb"/> per
+///     reconcile. Because <see cref="IHostedService"/> instances are singletons, this type is not itself the hosted
+///     service: <see cref="ScheduleReconcilerHostedService"/> opens one scope per host start, resolves this type from
+///     it, and lets the scope go away once <see cref="ReconcileAsync"/> returns or throws.
 ///     </para>
 /// </remarks>
 public sealed partial class ScheduleReconciler(
-    ApplicationDbContext db,
+    DaedalusDb db,
     IConfiguration configuration,
     TimeProvider time,
     ILogger<ScheduleReconciler> logger)
@@ -120,7 +125,7 @@ public sealed partial class ScheduleReconciler(
     /// </summary>
     public static readonly IReadOnlyCollection<string> KnownTriggers = ["RepoDigest"];
 
-    private readonly ApplicationDbContext _db = db ?? throw new ArgumentNullException(nameof(db));
+    private readonly DaedalusDb _db = db ?? throw new ArgumentNullException(nameof(db));
     private readonly IConfiguration _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     private readonly TimeProvider _time = time ?? throw new ArgumentNullException(nameof(time));
     private readonly ILogger<ScheduleReconciler> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -138,8 +143,12 @@ public sealed partial class ScheduleReconciler(
     ///     fails to parse or has no future occurrence, an entry's <c>Trigger</c> is not one of
     ///     <see cref="KnownTriggers"/>, or an entry otherwise fails the same validation
     ///     <see cref="ScheduledRun.Create"/>/<see cref="ScheduledRun.UpdateFromConfig"/> enforce (e.g. a blank
-    ///     <c>DetachedRuns:PrincipalId</c>). Every message names the offending schedule. Thrown before any row is
-    ///     added or mutated, so the database is untouched when this method throws.
+    ///     <c>DetachedRuns:PrincipalId</c>). Every message names the offending schedule. Thrown before the
+    ///     reconcile's transaction commits, so the database is untouched when this method throws.
+    /// </exception>
+    /// <exception cref="ZeroAllocOrmConcurrencyException">
+    ///     Another writer changed a configured row between this reconcile's read and its update. The whole reconcile
+    ///     rolls back.
     /// </exception>
     public async ValueTask ReconcileAsync(CancellationToken ct)
     {
@@ -151,22 +160,29 @@ public sealed partial class ScheduleReconciler(
         var principalId = _configuration[$"{DetachedRunsSectionName}:PrincipalId"] ?? string.Empty;
         var roles = ReadDetachedRunRoles(_configuration);
 
-        var existingConfigRuns = await _db.ScheduledRuns
-            .Where(r => r.Origin == ScheduleOrigin.Config)
-            .ToListAsync(ct)
-            .ConfigureAwait(false);
-        var byName = existingConfigRuns.ToDictionary(r => r.Name, StringComparer.Ordinal);
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        await using var tx = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+        var sql = new ScheduledRunSql(connection);
+
+        var existingConfigRuns = await sql.ListConfigAsync(tx, ct).ConfigureAwait(false);
+        var byName = existingConfigRuns.ToDictionary(r => r.Run.Name, StringComparer.Ordinal);
         var configuredNames = new HashSet<string>(entries.Select(e => e.Name), StringComparer.Ordinal);
 
         foreach (var (entry, nextRunAtUtc) in validated)
         {
-            ScheduledRun run;
             if (byName.TryGetValue(entry.Name, out var existing))
             {
-                existing.UpdateFromConfig(
+                var run = existing.Run;
+                var before = ConfiguredValues.Of(run);
+                run.UpdateFromConfig(
                     entry.Cron, entry.Trigger, entry.ChannelId, entry.ConversationId, principalId, roles,
                     entry.Repository);
-                run = existing;
+                ApplyEnabled(run, entry.Enabled);
+
+                if (!before.Matches(run))
+                {
+                    await sql.UpdateConfigAsync(run, existing.Version, tx, ct).ConfigureAwait(false);
+                }
             }
             else
             {
@@ -179,33 +195,19 @@ public sealed partial class ScheduleReconciler(
                     throw new InvalidOperationException($"Schedule '{entry.Name}' is invalid: {created.Error}");
                 }
 
-                run = created.Value;
-                _db.ScheduledRuns.Add(run);
-            }
-
-            // Origin.Config rows are fully config-owned: this method already overwrites cron, trigger and
-            // delivery target from configuration without asking, so Enabled follows the same rule. A row
-            // someone (or a previous reconcile) disabled directly in the database is re-enabled here the
-            // moment its entry says Enabled: true -- that is the intended escape hatch, not collateral
-            // damage. Without this, the first thing an operator does after verifying a channel (flipping
-            // Enabled: false to true) would be silently ignored, and the only way to actually turn a
-            // schedule on would be a manual database edit.
-            if (entry.Enabled)
-            {
-                run.Enable();
-            }
-            else
-            {
-                run.Disable();
+                var run = created.Value;
+                ApplyEnabled(run, entry.Enabled);
+                await sql.InsertAsync(run, tx, ct).ConfigureAwait(false);
             }
         }
 
         var disabled = 0;
-        foreach (var run in existingConfigRuns)
+        foreach (var (run, version) in existingConfigRuns)
         {
             if (run.Enabled && !configuredNames.Contains(run.Name))
             {
                 run.Disable();
+                await sql.DisableAsync(run.Id, version, tx, ct).ConfigureAwait(false);
                 disabled++;
             }
         }
@@ -215,8 +217,28 @@ public sealed partial class ScheduleReconciler(
             LogDisabledMissing(_logger, disabled);
         }
 
-        await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+        await tx.CommitAsync(ct).ConfigureAwait(false);
         LogReconciled(_logger, entries.Count);
+    }
+
+    /// <summary>
+    ///     Origin.Config rows are fully config-owned: this method already overwrites cron, trigger and delivery target
+    ///     from configuration without asking, so Enabled follows the same rule. A row someone (or a previous reconcile)
+    ///     disabled directly in the database is re-enabled here the moment its entry says Enabled: true -- that is the
+    ///     intended escape hatch, not collateral damage. Without this, the first thing an operator does after verifying
+    ///     a channel (flipping Enabled: false to true) would be silently ignored, and the only way to actually turn a
+    ///     schedule on would be a manual database edit.
+    /// </summary>
+    private static void ApplyEnabled(ScheduledRun run, bool enabled)
+    {
+        if (enabled)
+        {
+            run.Enable();
+        }
+        else
+        {
+            run.Disable();
+        }
     }
 
     /// <summary>
@@ -269,6 +291,35 @@ public sealed partial class ScheduleReconciler(
         }
 
         return result;
+    }
+
+    /// <summary>
+    ///     The values a reconcile writes to an existing row, as read, so it writes only a row whose values changed.
+    /// </summary>
+    private readonly record struct ConfiguredValues(
+        string Cron,
+        string Trigger,
+        string ChannelId,
+        string ConversationId,
+        string PrincipalId,
+        IReadOnlyList<string> Roles,
+        string? Repository,
+        bool Enabled)
+    {
+        public static ConfiguredValues Of(ScheduledRun run) =>
+            new(run.Cron, run.Trigger, run.ChannelId, run.ConversationId, run.PrincipalId, run.Roles, run.Repository,
+                run.Enabled);
+
+        /// <summary>Whether <paramref name="run"/> still holds these values, the roles compared in order.</summary>
+        public bool Matches(ScheduledRun run) =>
+            string.Equals(Cron, run.Cron, StringComparison.Ordinal)
+            && string.Equals(Trigger, run.Trigger, StringComparison.Ordinal)
+            && string.Equals(ChannelId, run.ChannelId, StringComparison.Ordinal)
+            && string.Equals(ConversationId, run.ConversationId, StringComparison.Ordinal)
+            && string.Equals(PrincipalId, run.PrincipalId, StringComparison.Ordinal)
+            && Roles.SequenceEqual(run.Roles, StringComparer.Ordinal)
+            && string.Equals(Repository, run.Repository, StringComparison.Ordinal)
+            && Enabled == run.Enabled;
     }
 
     [LoggerMessage(EventId = 443, Level = LogLevel.Information,

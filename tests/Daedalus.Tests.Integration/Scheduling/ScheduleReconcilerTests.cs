@@ -33,8 +33,7 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
             roles: ["reader"],
             entries: [new ConfigEntry("daily-digest", "0 7 * * *", "RepoDigest", "telegram", "482910337")]);
 
-        await using var db = fixture.CreateDbContext();
-        await ReconcilerFor(db, configuration).ReconcileAsync(default);
+        await ReconcilerFor(configuration).ReconcileAsync(default);
 
         var row = await LoadAsync("daily-digest");
         row.Cron.Should().Be("0 7 * * *");
@@ -58,15 +57,9 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
             "schedule:daedalus", ["reader"],
             [new ConfigEntry("daily-digest", "0 7 * * *", "RepoDigest", "telegram", "999999999")]);
 
-        await using (var db = fixture.CreateDbContext())
-        {
-            await ReconcilerFor(db, firstRun).ReconcileAsync(default);
-        }
+        await ReconcilerFor(firstRun).ReconcileAsync(default);
 
-        await using (var db = fixture.CreateDbContext())
-        {
-            await ReconcilerFor(db, secondRun).ReconcileAsync(default);
-        }
+        await ReconcilerFor(secondRun).ReconcileAsync(default);
 
         await using var verifyDb = fixture.CreateDbContext();
         var rows = await verifyDb.ScheduledRuns.Where(r => r.Name == "daily-digest").ToListAsync();
@@ -82,15 +75,9 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
             [new ConfigEntry("daily-digest", "0 7 * * *", "RepoDigest", "telegram", "482910337")]);
         var secondRun = BuildConfiguration("schedule:daedalus", ["reader"], []);
 
-        await using (var db = fixture.CreateDbContext())
-        {
-            await ReconcilerFor(db, firstRun).ReconcileAsync(default);
-        }
+        await ReconcilerFor(firstRun).ReconcileAsync(default);
 
-        await using (var db = fixture.CreateDbContext())
-        {
-            await ReconcilerFor(db, secondRun).ReconcileAsync(default);
-        }
+        await ReconcilerFor(secondRun).ReconcileAsync(default);
 
         var row = await LoadAsync("daily-digest");
         row.Should().NotBeNull("a config row missing from configuration is disabled, never deleted");
@@ -111,17 +98,11 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
             "schedule:daedalus", ["reader"],
             [new ConfigEntry("daily-digest", "0 7 * * *", "RepoDigest", "telegram", "482910337", Enabled: true)]);
 
-        await using (var db = fixture.CreateDbContext())
-        {
-            await ReconcilerFor(db, firstRun).ReconcileAsync(default);
-        }
+        await ReconcilerFor(firstRun).ReconcileAsync(default);
 
         (await LoadAsync("daily-digest")).Enabled.Should().BeFalse("sanity check: the first run must land disabled");
 
-        await using (var db = fixture.CreateDbContext())
-        {
-            await ReconcilerFor(db, secondRun).ReconcileAsync(default);
-        }
+        await ReconcilerFor(secondRun).ReconcileAsync(default);
 
         (await LoadAsync("daily-digest")).Enabled.Should().BeTrue(
             "flipping Enabled: false to true in configuration is the intended way to turn a schedule on");
@@ -135,22 +116,13 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
             [new ConfigEntry("daily-digest", "0 7 * * *", "RepoDigest", "telegram", "482910337")]);
         var removed = BuildConfiguration("schedule:daedalus", ["reader"], []);
 
-        await using (var db = fixture.CreateDbContext())
-        {
-            await ReconcilerFor(db, present).ReconcileAsync(default);
-        }
+        await ReconcilerFor(present).ReconcileAsync(default);
 
-        await using (var db = fixture.CreateDbContext())
-        {
-            await ReconcilerFor(db, removed).ReconcileAsync(default);
-        }
+        await ReconcilerFor(removed).ReconcileAsync(default);
 
         (await LoadAsync("daily-digest")).Enabled.Should().BeFalse("sanity check: removal must disable the row");
 
-        await using (var db = fixture.CreateDbContext())
-        {
-            await ReconcilerFor(db, present).ReconcileAsync(default);
-        }
+        await ReconcilerFor(present).ReconcileAsync(default);
 
         (await LoadAsync("daily-digest")).Enabled.Should().BeTrue(
             "a schedule re-added to configuration is enabled again, not left disabled from its removal");
@@ -174,8 +146,7 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
         // this configuration (which does not name "agent-created") would flip it off.
         var configuration = BuildConfiguration("schedule:daedalus", ["reader"], []);
 
-        await using var db = fixture.CreateDbContext();
-        await ReconcilerFor(db, configuration).ReconcileAsync(default);
+        await ReconcilerFor(configuration).ReconcileAsync(default);
 
         var row = await LoadAsync("agent-created");
         row.Enabled.Should().BeTrue("Agent-origin rows must never be disabled by config reconciliation");
@@ -192,7 +163,7 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
             [new ConfigEntry("bad-cron", "not a cron expression", "RepoDigest", "telegram", "482910337")]);
 
         await using var db = fixture.CreateDbContext();
-        var act = async () => await ReconcilerFor(db, configuration).ReconcileAsync(default);
+        var act = async () => await ReconcilerFor(configuration).ReconcileAsync(default);
 
         var exception = await act.Should().ThrowAsync<InvalidOperationException>();
         exception.Which.Message.Should().Contain("bad-cron").And.Contain("not a cron expression");
@@ -208,7 +179,7 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
             [new ConfigEntry("daily-digest", "0 7 * * *", "RepoDigestSaga", "telegram", "482910337")]);
 
         await using var db = fixture.CreateDbContext();
-        var act = async () => await ReconcilerFor(db, configuration).ReconcileAsync(default);
+        var act = async () => await ReconcilerFor(configuration).ReconcileAsync(default);
 
         var exception = await act.Should().ThrowAsync<InvalidOperationException>();
         exception.Which.Message.Should().Contain("daily-digest").And.Contain("RepoDigestSaga").And.Contain("RepoDigest");
@@ -216,8 +187,8 @@ public sealed class ScheduleReconcilerTests(PostgresFixture fixture) : IAsyncLif
         (await db.ScheduledRuns.CountAsync()).Should().Be(0, "an invalid entry must leave the database untouched");
     }
 
-    private static ScheduleReconciler ReconcilerFor(ApplicationDbContext db, IConfiguration configuration) =>
-        new(db, configuration, new FakeTimeProvider(_now), NullLogger<ScheduleReconciler>.Instance);
+    private ScheduleReconciler ReconcilerFor(IConfiguration configuration) =>
+        new(fixture.Db, configuration, new FakeTimeProvider(_now), NullLogger<ScheduleReconciler>.Instance);
 
     private async Task<ScheduledRun> LoadAsync(string name)
     {
