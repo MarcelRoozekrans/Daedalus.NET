@@ -19,9 +19,9 @@ try
     // The key must match the Aspire database resource name.
     var connectionString = builder.Configuration.GetConnectionString("daedalus") ?? DatabaseSettings.GetDefaultConnectionString();
 
-    // One connection for both steps, in one process: Daedalus' own migration source first, then the workflow
-    // engine's. Daedalus' source adopts an EF Core database at its frozen head, builds a new one, and refuses any
-    // other EF state, which exits 1 with the reason (Review Focus 5).
+    // One connection for all steps, in one process: the history-table upgrade, then Daedalus' own migration
+    // source, then the workflow engine's. Daedalus' source adopts an EF Core database at its frozen head, builds
+    // a new one, and refuses any other EF state, which exits 1 with the reason (Review Focus 5).
     await using var connection = new NpgsqlConnection(connectionString);
     await connection.OpenAsync();
 
@@ -33,10 +33,11 @@ try
     var upgrade = await PreScopingMigrationHistory.UpgradeAsync(connection, WorkflowEngineMigrator.Sources);
     if (upgrade.IsFailure)
     {
-        logger.WorkflowEngineMigrationRefused(upgrade.Error);
+        logger.MigrationHistoryUpgradeRefused(upgrade.Error);
         Environment.Exit(1);
     }
 
+    logger.MigrationHistoryUpgraded(upgrade.Value);
     logger.LogInformation("Starting database migration");
     try
     {
