@@ -213,10 +213,10 @@ The old technique is described in [Ralph Wiggum Technique](docs/ralph-wiggum-tec
 | Framework            | .NET 10                                                                             |
 | Orchestration        | .NET Aspire 13.1.0                                                                  |
 | Database             | PostgreSQL 16 with pgvector (`pgvector/pgvector:pg16`)                              |
-| ORM                  | Entity Framework Core 10 (Npgsql 10.0.3)                                            |
+| ORM                  | ZeroAlloc.ORM 2.14.0 (Npgsql 10.0.3)                                                |
 | Pattern Library      | ZeroAlloc.Results for Result types, ZeroAlloc.ValueObjects for value equality       |
 | ZeroAlloc            | ZeroAlloc.Results 1.2.0, ZeroAlloc.Authorization 2.1.0, ZeroAlloc.Validation 1.5.6, ZeroAlloc.Mapping 1.6.1 (via Thalos.NET) |
-| Durable delivery     | ZeroAlloc.Outbox 2.5.2 + ZeroAlloc.Outbox.EfCore 2.5.2 (channel outbound messages)  |
+| Durable delivery     | ZeroAlloc.Outbox 4.5.0 + ZeroAlloc.Outbox.Orm 4.5.0 (channel outbound messages)     |
 | Zero-Allocation LINQ | ZLinq 1.5.4                                                                         |
 | Agent framework      | Thalos.NET 0.4.0 (nuget.org) on Microsoft Agent Framework 1.17, Microsoft.Extensions.AI 10.9         |
 | Agent memory         | `Thalos.NET.Memory` 0.4.0 + `Thalos.NET.Memory.RagNet` 0.4.0 (→ Rag.NET 0.1.x pgvector store, `rag_chunks`) |
@@ -957,7 +957,7 @@ phase's manual CLI session, not documented in Thalos's XML docs) rather than bug
   sees a terminal event for these, so the next delta starts on a fresh line instead — cosmetic only.
 
 **The outbox has no producer in this phase.** `ChannelMessageQueued` / `ChannelMessageQueuedDispatcher`
-(`ZeroAlloc.Outbox` + `ZeroAlloc.Outbox.EfCore`, migration `AddChannelMessageOutbox`) are built, tested and
+(`ZeroAlloc.Outbox` + `ZeroAlloc.Outbox.Orm`; first built on `ZeroAlloc.Outbox.EfCore` with the EF migration `AddChannelMessageOutbox`) are built, tested and
 wired, but **nothing writes to the outbox table** — terminal messages are delivered straight from the pump to
 `IChannelAdapter.DeliverAsync`, exactly as the design's §5 "one message, edited in place" behaviour requires.
 Routing terminal messages through the outbox instead would double-post every reply and leave the streamed

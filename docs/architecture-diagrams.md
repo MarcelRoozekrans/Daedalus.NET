@@ -170,7 +170,7 @@ which are not tables).
 
 **Dropped from the previous diagram:** `GitOperation`, `GitDiff` and `GitBranch`. They are not persisted
 domain entities — `GitDiff` and `GitOperationContext` exist only as transient DTOs under
-`Daedalus.Domain/CodeAnalysis/` with no EF mapping, and no `GitBranch` type exists anywhere in `src/`. The
+`Daedalus.Domain/CodeAnalysis/` with no ORM map, and no `GitBranch` type exists anywhere in `src/`. The
 old diagram's `TASK ||--o| GIT_OPERATION` relationship and `EXECUTION_SESSION ||--o{ TASK : claims` /
 `PROJECT ||--o{ EXECUTION_SESSION : tracks` relationships do not exist as database foreign keys either —
 see the note below the diagram.
@@ -652,7 +652,7 @@ graph TB
     ENTITIES --> VALUEOBJECTS
     ENTITIES --> AGGROOT
 
-    DBCONTEXT --> PERSISTENCE
+    ORMSQL --> PERSISTENCE
     MIGRATION --> PERSISTENCE
 ```
 
@@ -844,7 +844,7 @@ graph TB
     subgraph Cqrs["CQRS & Results"]
         MEDIATOR["ZeroAlloc.Mediator 5.1.1<br/>+ Generator (internal IMediator)"]
         RESULTS["ZeroAlloc.Results 1.2.2<br/>Result&lt;T&gt; / Result"]
-        OUTBOX["ZeroAlloc.Outbox 2.5.2<br/>+ .EfCore"]
+        OUTBOX["ZeroAlloc.Outbox 4.5.0<br/>+ ZeroAlloc.Outbox.Orm 4.5.0"]
     end
 
     subgraph Ai["AI stack"]
@@ -1590,7 +1590,7 @@ already is. This is enforced, not merely documented: `CleanArchitectureTests.No_
 that no project references the package — a namespace-based ArchUnitNET rule would be vacuously true here,
 since the whole point of dropping the package is that nothing loads it, so the test greps `.csproj` files
 directly instead. The test's own failure message records that the decision is reversible: the package now
-ships a zero-setup in-memory store and a public EF context migrations could target, so it can slot
+ships a zero-setup in-memory store and the package's own EF context migrations could target, so it can slot
 back in later if durable job state is ever genuinely needed — "if that is ever wanted, delete this fact
 rather than working around it."
 
@@ -1892,10 +1892,10 @@ The pieces, each verified in the code:
 
 PostgreSQL's own `xmin` system column is the concurrency token. A map exposes it as the entity's `RowVersion`
 (`[ColumnMap(nameof(Task.RowVersion), Column = "xmin")]` on `Task`, `Project`, `BrainstormSession` and
-`CodeAnalysisRequest`); the scheduling and repository-configuration SQL classes compare it directly. A save is
+`CodeAnalysisRequest`); the scheduling SQL classes compare it directly. A save is
 **guarded** when it writes values computed from the row it loaded: the update or delete carries the `xmin` it was
 read with, and a row another write changed since throws `ZeroAllocOrmConcurrencyException`. Task, Project,
-BrainstormSession, CodeAnalysisRequest, RepositoryConfiguration, ScheduledRun and ScheduledRunExecution are guarded;
+BrainstormSession, CodeAnalysisRequest, ScheduledRun and ScheduledRunExecution are guarded;
 the repository maps the exception to a failure `Result`, and the scheduling stores read it as "another sweeper already
 won" (section 18).
 
@@ -1904,8 +1904,8 @@ Saves of independent columns update only those columns with no check, and atomic
 The guard protects against lost updates only.
 
 Before phase 3.5, six entities carried an inert `bytea` `RowVersion` that PostgreSQL never filled, so nothing was
-checked against it (issue #290). The five live aggregates among them now have the real `xmin` guard, and migration 2
-dropped all six columns.
+checked against it (issue #290). Three of them (Project, BrainstormSession, CodeAnalysisRequest) now have the real `xmin` guard; the rest rely on
+atomic updates or unguarded writes. Migration 2 dropped all six columns.
 
 ```mermaid
 graph TB

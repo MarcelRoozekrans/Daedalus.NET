@@ -84,8 +84,7 @@ using ZeroAlloc.Results.Extensions;
 
 public async Task<Result<Customer>> GetCustomerAsync(Guid id, CancellationToken ct)
 {
-    var customer = await dbContext.Customers.AsNoTracking()
-        .FirstOrDefaultAsync(c => c.Id == id, ct);
+    var customer = await customers.FindAsync(id, ct);
     return customer is not null
         ? Result<Customer>.Success(customer)
         : Result<Customer>.Failure($"Customer with ID {id} not found");
@@ -160,9 +159,9 @@ Daedalus' own tables are read and written through ZeroAlloc.ORM over one `Npgsql
   `...Sql` class over it and disposes the connection.
 - Domain stays free of ORM attributes. Rows become entities through each entity's public `Rehydrate` factory,
   documented "for persistence only"; `Create` keeps the invariants.
-- A write that stores values computed from the row it read is guarded by `xmin`: it throws
-  `ZeroAllocOrmConcurrencyException` when the row changed since the read, and the repository turns that into its
-  failure `Result`. Writes of independent columns and atomic in-database updates are not guarded.
+- A write that stores values computed from the row it read is guarded by `xmin` (Task, Project, BrainstormSession,
+  CodeAnalysisRequest, ScheduledRun, ScheduledRunExecution): it throws `ZeroAllocOrmConcurrencyException` when the
+  row changed since the read, and the repository turns that into its failure `Result`. Writes of independent columns and atomic in-database updates are not guarded.
 - Schema changes are numbered SQL files, `Persistence/Migrations/NNNN_<name>.sql`, applied by
   `DaedalusMigrations.CreateRunner`. Never edit a shipped file: add the next number. See
   `skills/daedalus-migrations/SKILL.md` and `docs/development-guide.md`, "Data layer".

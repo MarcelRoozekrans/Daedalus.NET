@@ -575,7 +575,7 @@ How phase 3.2 applied the rule:
 
 - **The five pre-existing suppressions came out, each with its fix.** Api's assembly-wide IL2026 was the one bare
   removal, re-baselined upward by the two warnings it hid. `RegisterHandlersAot`'s three went with the generated
-  Mediator registration, and the EF context's, since removed, with an explicit configuration list. The `#pragma warning
+  Mediator registration, and the removed EF context's explicit configuration list. The `#pragma warning
   disable IL20xx` lines went with their fixes, and the stale IL2026 entries in two multi-code pragma lists were
   dropped.
 - **No sanctioned `[RequiresUnreferencedCode]` remains.** Phase 3.2 allowed exactly one, because EF Core model
@@ -1367,8 +1367,9 @@ one behave alike. A write that must be atomic with another opens a transaction o
 **Guarded saves.** A save is guarded when it writes values computed from the row it loaded. The row's `xmin` is
 read with it (the entity's `RowVersion`), and the update or delete compares it and uses `ThrowOnNoRows`. A row another write changed since throws `ZeroAllocOrmConcurrencyException`; the repository turns
 that into its failure `Result`, as `ModifiedByAnotherOperation` or `TaskRunGuard.ChangedUnderneath`. Task, Project,
-BrainstormSession, CodeAnalysisRequest, RepositoryConfiguration, ScheduledRun and ScheduledRunExecution are
-guarded. A save of independent columns updates only those columns with no check, and atomic in-database updates,
+BrainstormSession, CodeAnalysisRequest, ScheduledRun and ScheduledRunExecution are guarded.
+RepositoryConfiguration's update is not: it has no version, and its `ThrowOnNoRows` makes a row deleted since the
+read answer `ModifiedByAnotherOperation`. A save of independent columns updates only those columns with no check, and atomic in-database updates,
 such as counter increments and compare-and-swap transitions, stay single `UPDATE ... WHERE` statements. The guard
 protects against lost updates only. A guarded entity must be re-read before its next guarded save.
 
