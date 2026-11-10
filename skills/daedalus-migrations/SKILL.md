@@ -1,73 +1,71 @@
 ---
 name: daedalus-migrations
-description: How to add, verify and apply an EF Core migration in the Daedalus repo.
-tags: [dotnet, ef, database, daedalus]
+description: How to add, verify and apply a schema migration in the Daedalus repo.
+tags: [dotnet, zeroalloc-orm, database, daedalus]
 ---
 
-# Adding an EF Core migration
+# Adding a schema migration
 
-The model lives in `src/Daedalus.Infrastructure`; the startup project is `src/Daedalus.Api`
-(it supplies the connection string and the DI graph the design-time factory needs).
+Daedalus' schema is a numbered list of plain SQL files, embedded in `src/Daedalus.Infrastructure` and applied by
+ZeroAlloc.ORM's `MigrationRunner`. There is no EF Core: no model, no snapshot, no `dotnet ef`.
 
-## 1. Change the model first
+## 1. Write the SQL file
 
-- Aggregate: `src/Daedalus.Domain/Entities/<Name>.cs`. Domain stays framework-free — no Thalos, no EF
-  attributes, invariants enforced in `Create`/`Update` returning `CSharpFunctionalExtensions.Result`.
-- Mapping: `src/Daedalus.Infrastructure/Persistence/Configurations/<Name>Configuration.cs`,
-  `internal sealed class … : IEntityTypeConfiguration<T>`. It is picked up automatically by
-  `ApplyConfigurationsFromAssembly`. Use the aggregate's `Max*Length` constants for `HasMaxLength`, so a
-  violation is a validation error and never a varchar failure.
-- `DbSet`: add `public DbSet<T> Xs => Set<T>();` to `ApplicationDbContext`.
+- Folder: `src/Daedalus.Infrastructure/Persistence/Migrations/`. The csproj embeds every `*.sql` there
+  (`<EmbeddedResource Include="Persistence/Migrations/*.sql" />`), so nothing else needs registering.
+- Name: `NNNN_<name>.sql`, the next number above the last file, four digits, the name in `[A-Za-z0-9_]`, for
+  example `0003_add_task_labels.sql`. The number is the version; the runner applies pending versions in order and
+  records each as `version name` (`3 add_task_labels`) in `__zaorm_migrations` under the source `daedalus`.
+- Start with a comment saying what the migration does and why. Quote every identifier, as the existing tables are
+  mixed case: `ALTER TABLE "Tasks" ADD COLUMN "Labels" text[] NOT NULL DEFAULT '{}';`.
+- A new `NOT NULL` column on a table with rows needs a default or a backfill in the same file.
+- Each migration runs in its own transaction with its history row, so a failing statement leaves nothing behind.
 
-## 2. Scaffold
+## 2. Map it
 
-```powershell
-dotnet ef migrations add <Name> --project src/Daedalus.Infrastructure --startup-project src/Daedalus.Api --output-dir Migrations
-```
+The SQL that reads and writes a table lives beside its map in `src/Daedalus.Infrastructure/Persistence/Orm/<Aggregate>/`:
+the `[TableMap]` class, the row record and the `<Aggregate>Sql` class. Add a new column to the map, the row record
+and every raw `[Command]` insert, which lists every column. Domain stays framework-free: no map attributes, entities
+are rebuilt through their own `Rehydrate` factory, and invariants live in `Create`, returning a
+`ZeroAlloc.Results` `Result<T>`.
 
-This writes three things: the migration, its `.Designer.cs` and an updated
-`ApplicationDbContextModelSnapshot.cs`. Never hand-edit the snapshot to "fix" a diff — EF 10 throws on
-`Migrate()` when the model has pending changes that are not in the snapshot, so a hand-patched snapshot
-fails at runtime, not at build time.
+## 3. Never
 
-## 3. Read the generated file before you trust it
-
-- **The scaffolder diffs both directions.** `Down` is generated from the snapshot, so if a mapping was
-  removed in the same change (a type, a column type, a provider), the down direction can crash the
-  scaffolder with a `NullReferenceException` in `MigrationsModelDiffer` — or, worse, generate a `Down`
-  that leaves a schema the *previous* migration's `Down` cannot run against. Walk the chain mentally:
-  after this `Down`, can the predecessor's `Down` still run? `AddAgentMemories` had to hand-add an
-  `ALTER TABLE … ADD COLUMN IF NOT EXISTS "Embedding" vector(384);` for exactly this reason.
-- **Order the operations yourself** when data moves. EF emits `DropTable` first; a copy has to run
-  after the `CreateTable` and its indexes, and before the drop.
-- Add the `#pragma warning disable CA1861` header if the file contains `new[]` column arrays
-  (composite indexes), give the class and `Down` XML doc comments saying what a rollback destroys, and
-  strip the BOM (`dotnet format` enforces CHARSET). The scaffolder writes one; nothing else in
-  `Migrations/` has one.
+- Edit or renumber a file that has shipped. The runner keeps no checksum: an applied version is never run again,
+  so an edit only reaches new databases and the two drift apart. Write a new migration instead.
+- Insert, update or delete rows in `__zaorm_migrations` or `__EFMigrationsHistory` by hand. The EF history is frozen
+  at `20261014090300_AddNodeSelectionUniqueIndex` and only read, to adopt an EF-built database as version 1.
+- Rename the source `daedalus` (`DaedalusMigrations.SourceName`): the runner would run migration 1 again.
+- Build a schema any other way, such as `EnsureCreated` or an ad-hoc `CREATE TABLE` in a test.
 
 ## 4. Test it
 
-Migrations get an integration test under `tests/Daedalus.Tests.Integration/Migrations/`. The pattern:
-create a throwaway database, `MigrateAsync(<predecessor>)`, seed, `MigrateAsync()`, assert — and a
-second fact that rolls the chain back past this migration and forward again. Rollback failures are
-silent and destructive, so they are pinned permanently rather than checked once by hand.
+Every Postgres test fixture builds its schema with `DatabaseSchema.ApplyAsync` (`tests/Shared/DatabaseSchema.cs`):
+the `vector` extension, the Daedalus migrations, then the workflow engine's, the same order as the host. A new file
+therefore reaches every integration and Playwright test at once.
 
-```powershell
-dotnet test tests/Daedalus.Tests.Integration --nologo --filter "FullyQualifiedName~<Name>MigrationTests"
+`tests/Daedalus.Tests.Integration/Migrations/` pins the chain:
+
+- `BaselineAdoptionTests` and `MigrationsHostTests` assert the exact applied history (`"1 baseline"`,
+  `"2 drop_dead_rowversions"`, ...): add the new version to their expected lists, and assert what the migration
+  changed on an adopted EF database that holds rows.
+- `BaselineSchemaEqualityTests.Fresh_database_matches_an_adopted_ef_database_after_every_migration` checks that a
+  fresh database and an adopted one end with the same schema.
+- Each store's `<Store>RoundTripTests` shows a changed column loads back whole.
+
+```bash
+dotnet test tests/Daedalus.Tests.Integration --filter "FullyQualifiedName~Daedalus.Tests.Integration.Migrations"
 ```
-
-Note the integration fixture builds its schema from the real migrations (`DatabaseSchema.ApplyAsync`: the
-Daedalus migration source, then the workflow engine's), not from the EF model with `EnsureCreatedAsync()`.
-A new `DbSet` therefore reaches store/contract tests only once its migration exists. Between adding the
-`DbSet` and scaffolding the migration, every test that calls `MigrateAsync()` fails with EF 10's
-`PendingModelChangesWarning` — expected, and closed by step 2.
 
 ## 5. Apply
 
-```powershell
-dotnet run --project src/Daedalus.Migrations          # what Aspire runs, with .WaitForCompletion(migrations)
-dotnet ef database update --project src/Daedalus.Infrastructure --startup-project src/Daedalus.Api
+```bash
+dotnet run --project src/Daedalus.Migrations   # what Aspire runs before the hosts: .WaitForCompletion(migrations)
 ```
+
+`Daedalus.Migrations` opens one connection to `ConnectionStrings:daedalus`, runs `DaedalusMigrations.CreateRunner`,
+then `WorkflowEngineMigrator` for the workflow engine's own sources. It exits 1 with the reason, before anything
+runs, when a database's EF history ends anywhere but the frozen head.
 
 If the local Postgres volume is stale (collation-version mismatch warnings, tables missing),
 `docker volume rm daedalus_postgres_data` and let Aspire recreate it.

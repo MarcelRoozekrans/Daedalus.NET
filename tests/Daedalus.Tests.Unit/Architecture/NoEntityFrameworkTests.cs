@@ -9,7 +9,10 @@ namespace Daedalus.Tests.Unit.Architecture;
 /// </summary>
 public sealed class NoEntityFrameworkTests
 {
-    /// <summary>The 11 projects under <c>src/</c> and the 7 under <c>tests/</c>, every project in <c>Daedalus.sln</c>.</summary>
+    /// <summary>
+    ///     The fewest <c>.csproj</c> files the scan must find under <c>src/</c> and <c>tests/</c>: the 11 and 7 there
+    ///     today. The scan counts project files on disk; it does not compare them with <c>Daedalus.sln</c>.
+    /// </summary>
     private const int MinimumProjects = 18;
 
     private static readonly string[] ScannedRoots = ["src", "tests"];

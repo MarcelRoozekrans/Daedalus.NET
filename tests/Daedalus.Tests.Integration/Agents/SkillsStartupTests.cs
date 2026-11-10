@@ -43,9 +43,9 @@ public sealed class SkillsStartupTests(PostgresFixture fixture) : IAsyncLifetime
             all.Value.Should().OnlyContain(s => s.IsActive && s.Description.Length > 0 && s.ContentHash.Length > 0);
 
             var migrations = await store.GetAsync(SkillName.Parse("daedalus-migrations"), CancellationToken.None);
-            migrations.Value.Description.Should().Be("How to add, verify and apply an EF Core migration in the Daedalus repo.");
-            migrations.Value.Tags.Should().Contain("ef");
-            migrations.Value.Body.Should().Contain("dotnet ef migrations add")
+            migrations.Value.Description.Should().Be("How to add, verify and apply a schema migration in the Daedalus repo.");
+            migrations.Value.Tags.Should().Contain("zeroalloc-orm");
+            migrations.Value.Body.Should().Contain("dotnet run --project src/Daedalus.Migrations")
                 .And.NotContain("---", "the frontmatter is parsed off; the body is everything after it");
             migrations.Value.SourcePath.Should().EndWith("SKILL.md");
         }
