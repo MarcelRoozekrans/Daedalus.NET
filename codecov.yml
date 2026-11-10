@@ -2,11 +2,7 @@ coverage:
   status:
     project:
       default:
-        # Not auto: auto compares with main's last report, 88.89%, which counted about 27,600 lines of
-        # EF-generated migrations as covered (R63). Hand-written code measures 71.86% here. Return to auto
-        # once main carries a report without them, and raise the target with the CI floor
-        # (MarcelRoozekrans/Daedalus.NET#438).
-        target: 71%
+        target: auto
         threshold: 1%
 ignore:
   - "tests/**"
