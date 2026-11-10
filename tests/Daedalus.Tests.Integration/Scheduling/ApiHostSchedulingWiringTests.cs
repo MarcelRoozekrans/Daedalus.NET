@@ -56,14 +56,13 @@ public sealed class ApiHostSchedulingWiringTests(PostgresFixture fixture) : IAsy
     [Fact]
     public void The_test_host_does_not_register_the_workflow_engines_hosted_services()
     {
-        // ApiWebApplicationFactory sets Thalos:Workflow:Enabled=false because PostgresFixture's EnsureCreatedAsync
-        // schema (the EF Core model only) never creates workflow_run/process_definition/the ORM outbox table —
-        // left enabled here, every one of these would tick against a table that does not exist and fail with
-        // Postgres 42P01 on every poll. This is the other half of that guard: if the override in
-        // ApiWebApplicationFactory stopped taking effect (a typo in the setting name, a removed UseSetting call),
-        // nothing else would fail loudly — the 42P01 noise would simply come back, silently, exactly the
-        // regression this test exists to catch. CliHostSchedulingWiringTests asserts the opposite polarity: that
-        // the *default* (Enabled=true, unset here) wires these services on a host that does not override it.
+        // ApiWebApplicationFactory sets Thalos:Workflow:Enabled=false because the suites on it test the Api, not
+        // the engine — left enabled here, every one of these would poll the shared database for the life of each test.
+        // This is the other half of that setting: if the override in ApiWebApplicationFactory stopped taking effect
+        // (a typo in the setting name, a removed UseSetting call), nothing else would fail loudly — the engine would
+        // simply start polling, silently, exactly the regression this test exists to catch.
+        // CliHostSchedulingWiringTests asserts the opposite polarity: that the *default* (Enabled=true, unset here) wires
+        // these services on a host that does not override it.
         var hosted = _factory.Services.GetServices<IHostedService>().ToList();
 
         hosted.Should().NotContain(h => h is WorkflowOutboxDispatchService);

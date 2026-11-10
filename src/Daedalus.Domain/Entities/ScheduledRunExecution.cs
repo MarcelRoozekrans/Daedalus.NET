@@ -86,7 +86,63 @@ public sealed class ScheduledRunExecution : Entity<Guid>
     /// <summary>Gets when this execution was last updated (UTC).</summary>
     public DateTime UpdatedAt { get; private set; }
 
-    private ScheduledRunExecution() { } // EF Core
+    // Used by Create and Rehydrate.
+    private ScheduledRunExecution() { }
+
+    /// <summary>
+    ///     Rebuilds a stored execution, for persistence only. Sets every value as given and validates nothing, so a row
+    ///     <see cref="Create"/> would refuse today still loads.
+    /// </summary>
+    /// <param name="id">The execution's id.</param>
+    /// <param name="scheduleId">The schedule that fired.</param>
+    /// <param name="occurrenceAt">The instant the occurrence was due (UTC).</param>
+    /// <param name="step">The step that should happen next.</param>
+    /// <param name="failedAtStep">The step the run failed at, or null.</param>
+    /// <param name="findings">The scout stage's output, or null.</param>
+    /// <param name="digest">The writer stage's output, or null.</param>
+    /// <param name="channelId">Which channel adapter receives the run's output.</param>
+    /// <param name="conversationId">The conversation that receives the run's output.</param>
+    /// <param name="principalId">The identity the run executes as.</param>
+    /// <param name="roles">The roles granted to the run's principal, in stored order.</param>
+    /// <param name="attempts">How many times the execution has failed.</param>
+    /// <param name="lastError">The most recent failure's message, or null.</param>
+    /// <param name="createdAt">When the execution was created (UTC).</param>
+    /// <param name="updatedAt">When the execution was last updated (UTC).</param>
+    /// <returns>The execution.</returns>
+    public static ScheduledRunExecution Rehydrate(
+        Guid id,
+        Guid scheduleId,
+        DateTime occurrenceAt,
+        RunStep step,
+        RunStep? failedAtStep,
+        string? findings,
+        string? digest,
+        string channelId,
+        string conversationId,
+        string principalId,
+        IReadOnlyList<string> roles,
+        int attempts,
+        string? lastError,
+        DateTime createdAt,
+        DateTime updatedAt) =>
+        new()
+        {
+            Id = id,
+            ScheduleId = scheduleId,
+            OccurrenceAt = occurrenceAt,
+            Step = step,
+            FailedAtStep = failedAtStep,
+            Findings = findings,
+            Digest = digest,
+            ChannelId = channelId,
+            ConversationId = conversationId,
+            PrincipalId = principalId,
+            Roles = roles,
+            Attempts = attempts,
+            LastError = lastError,
+            CreatedAt = createdAt,
+            UpdatedAt = updatedAt,
+        };
 
     /// <summary>Creates a new execution at <see cref="RunStep.Pending"/>, with no output and no attempts.</summary>
     /// <param name="scheduleId">The schedule that fired.</param>

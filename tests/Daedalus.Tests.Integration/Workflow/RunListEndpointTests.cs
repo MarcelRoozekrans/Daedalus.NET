@@ -3,10 +3,10 @@ using Daedalus.Agents.Workflow;
 using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Integration.Fixtures;
+using Daedalus.Tests.Shared;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Thalos;
@@ -192,11 +192,7 @@ public sealed class RunListEndpointTests(PostgresFixture fixture)
         var project = Project.Create(Guid.NewGuid(), "Sandbox", "The scratch remote", repositoryUrl: host.Remote.Url).Value;
         var task = IntegrationTestFactory.CreateTask(projectId: project.Id, taskId: TaskCode);
         project.AddTask(task).IsSuccess.Should().BeTrue();
-        await using (var db = await host.Factory.Services.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContextAsync())
-        {
-            db.Projects.Add(project);
-            await db.SaveChangesAsync();
-        }
+        await StoreSeed.AddProjectAsync(host.Factory.Services.GetRequiredService<DaedalusDb>(), project);
 
         using var client = host.Client(Starter, "developer");
 

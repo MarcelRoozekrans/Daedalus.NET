@@ -2,13 +2,10 @@ using System.Data.Common;
 using System.Diagnostics;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Scheduling;
@@ -122,19 +119,16 @@ public sealed class ScheduleSweeperServiceTests(PostgresFixture fixture) : IAsyn
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(TimeProvider.System);
-        services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
-        services.AddOutbox(o => { })
-            .WithEfCore<ApplicationDbContext>()
-            .AddScheduledRunDueOutbox()
-            .WithSystemTextJsonSerializer();
+        services.AddChannelOutboxOver(fixture);
         services.AddScoped<ScheduledRunStore>();
 
         if (wrapWriter is not null)
         {
             // Registered after AddScheduledRunDueOutbox's own AddTransient: DI resolves the last registration
             // for a service type, so this wins — the same pattern ScheduledRunStoreTests uses.
-            services.AddTransient<IOutboxWriter<ScheduledRunDue>>(sp =>
-                wrapWriter(new ScheduledRunDueOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+            services.WrapChannelWriter<ScheduledRunDue>(
+                (store, serializer) => new ScheduledRunDueOutboxWriter(store, serializer),
+                (real, _) => wrapWriter(real));
         }
 
         var provider = services.BuildServiceProvider();
@@ -148,23 +142,15 @@ public sealed class ScheduleSweeperServiceTests(PostgresFixture fixture) : IAsyn
             name, "0 7 * * *", "RepoDigestSaga", "telegram", "482910337",
             $"schedule:{name}", ["reader", "digest"], ScheduleOrigin.Config, DateTime.UtcNow.AddMinutes(-5)).Value;
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRuns.Add(run);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, run);
     }
 
     private async Task<ScheduledRun> LoadAsync(string name)
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRuns.AsNoTracking().SingleAsync(r => r.Name == name);
+        return await ScheduleTables.RunAsync(fixture, name);
     }
 
-    private async Task<List<OutboxMessageEntity>> OutboxRowsAsync()
-    {
-        var typeName = typeof(ScheduledRunDue).FullName;
-        await using var db = fixture.CreateDbContext();
-        return await db.OutboxMessages.AsNoTracking().Where(m => m.TypeName == typeName).ToListAsync();
-    }
+    private Task<List<ChannelOutboxRow>> OutboxRowsAsync() => ChannelOutboxRows.ListAsync<ScheduledRunDue>(fixture);
 
     private static async Task WaitUntilAsync(Func<Task<bool>> condition)
     {

@@ -27,9 +27,7 @@
         <PackageReference Include="AwesomeAssertions"/>
         <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing"/>
         <PackageReference Include="Microsoft.AspNetCore.SignalR.Client"/>
-        <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory"/>
         <PackageReference Include="Microsoft.NET.Test.Sdk"/>
-        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL"/>
         <PackageReference Include="NSubstitute"/>
         <PackageReference Include="Respawn"/>
         <PackageReference Include="Testcontainers.Keycloak"/>
@@ -49,6 +47,10 @@
         <PackageReference Include="OpenTelemetry.Exporter.InMemory"/>
         <PackageReference Include="Thalos.NET.Testing"/>
         <PackageReference Include="ZeroAlloc.TestHelpers"/>
+        <!-- Phase 3.5, Task 1: OrmCapabilityTests declares its own maps and queries, so the ORM generator, a
+             development dependency that Infrastructure does not pass on, runs here too. -->
+        <PackageReference Include="ZeroAlloc.ORM.Generator"/>
+        <PackageReference Include="ZeroAlloc.ORM.Linq"/>
     </ItemGroup>
 
     <ItemGroup>
@@ -89,10 +91,15 @@
         <None Include="..\Daedalus.Tests.Unit\Configuration\RoslynCodeLens.Mcp.tools.json" Link="RoslynCodeLens.Mcp.tools.json" CopyToOutputDirectory="PreserveNewest"/>
         <!-- Phase 3.4: EndpointContractSnapshotTests reads the endpoint table snapshot from Api/ beside the test assembly. -->
         <None Update="Api/endpoint-contract.snapshot.txt" CopyToOutputDirectory="PreserveNewest"/>
+        <!-- Phase 3.5, Task 2: EF Core's chain scripted once and frozen; EfChainDatabase reads it from Migrations/ beside the
+             test assembly to build an "EF database". -->
+        <None Update="Migrations/ef-chain.sql" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 
     <ItemGroup>
         <!-- The tool oracle format, shared with the other project that pins tools (phase 3.2, Task 12). -->
+        <Compile Include="..\Shared\DatabaseSchema.cs" Link="Shared\DatabaseSchema.cs"/>
+        <Compile Include="..\Shared\StoreSeed.cs" Link="Shared\StoreSeed.cs"/>
         <Compile Include="..\Shared\ToolDump.cs" Link="Shared\ToolDump.cs"/>
         <Compile Include="..\Shared\PagingQueryBinding.cs" Link="Shared\PagingQueryBinding.cs"/>
         <Compile Include="..\Shared\WorkflowRunsRequest.cs" Link="Shared\WorkflowRunsRequest.cs"/>

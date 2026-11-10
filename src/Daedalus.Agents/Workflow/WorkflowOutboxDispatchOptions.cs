@@ -4,11 +4,10 @@ namespace Daedalus.Agents.Workflow;
 
 /// <summary>
 ///     Configures <see cref="WorkflowOutboxDispatchService"/>'s poll loop. Deliberately its own type rather than
-///     <c>ZeroAlloc.Outbox.OutboxOptions</c>: that type is a single, un-keyed options instance in this host's
-///     container (<c>AddChannelOutbox</c> already binds one for the ApplicationDbContext-backed pipeline), so
-///     configuring it a second time here would also rewrite the scheduling/channel outbox's polling interval,
-///     batch size, retry budget and lease out from under it. <see cref="LeaseDuration"/> and <see cref="HostId"/>
-///     live here for the same reason.
+///     <c>ZeroAlloc.Outbox.OutboxOptions</c>: this poller is not a ZeroAlloc.Outbox pipeline, and the options it
+///     validates against the turn deadline at boot (see <see cref="WorkflowDispatchTiming.Validate"/>) are its own.
+///     The channel pipeline's <c>OutboxOptions</c> are named options under <c>AddChannelOutbox</c>'s pipeline name,
+///     unrelated to these. <see cref="LeaseDuration"/> and <see cref="HostId"/> live here for the same reason.
 /// </summary>
 /// <remarks>
 ///     <b>Bound from <c>Thalos:Workflow:Dispatch</c></b> by <see cref="Bind"/>, so a host whose turn deadline or

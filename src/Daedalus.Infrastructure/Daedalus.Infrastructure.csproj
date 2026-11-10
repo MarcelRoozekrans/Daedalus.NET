@@ -12,6 +12,7 @@
 
     <ItemGroup>
         <InternalsVisibleTo Include="Daedalus.Tests.Unit.Infrastructure" />
+        <InternalsVisibleTo Include="Daedalus.Tests.Integration" />
     </ItemGroup>
 
     <ItemGroup>
@@ -20,15 +21,9 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.EntityFrameworkCore" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
         <PackageReference Include="Microsoft.Extensions.AI" />
         <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
         <PackageReference Include="ModelContextProtocol" />
-        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
         <PackageReference Include="Microsoft.Extensions.Configuration" />
         <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
@@ -39,9 +34,20 @@
         <PackageReference Include="ZeroAlloc.Rest.SystemTextJson" />
         <PackageReference Include="ZLinq" />
         <PackageReference Include="LibGit2Sharp" />
-        <!-- OutboxMessageEntity + AddOutboxMessages(): ApplicationDbContext.OnModelCreating maps the outbox table here
-             because the model lives in this project; the DI wiring (AddOutbox/.WithEfCore) lives in Daedalus.Agents. -->
-        <PackageReference Include="ZeroAlloc.Outbox.EfCore" />
+        <!-- Phase 3.5: the data layer on ZeroAlloc.ORM. Maps and SQL classes live here, under Persistence/Orm, because
+             the generator reads maps from the compilation that holds the queries (ruling R3). Npgsql and the async
+             adapter are direct: DaedalusDb opens pooled connections from the shared NpgsqlDataSource. -->
+        <PackageReference Include="Npgsql" />
+        <PackageReference Include="AdoNet.Async.Adapters" />
+        <PackageReference Include="ZeroAlloc.ORM" />
+        <PackageReference Include="ZeroAlloc.ORM.Generator" />
+        <PackageReference Include="ZeroAlloc.ORM.Linq" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Phase 3.5: Daedalus' schema migrations, read by DaedalusMigrations through EmbeddedResourceMigrationSource
+             as Daedalus.Infrastructure.Persistence.Migrations.NNNN_name.sql. -->
+        <EmbeddedResource Include="Persistence/Migrations/*.sql" />
     </ItemGroup>
 
 </Project>

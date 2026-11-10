@@ -16,9 +16,9 @@ namespace Daedalus.Agents.Workflow;
 /// </summary>
 /// <remarks>
 ///     <para>
-///     <b>Not an EF migration (amendment A4).</b> <c>Daedalus.Migrations</c> runs the EF migrations before the Thalos
-///     ones, so on a fresh database <c>workflow_run_event</c> does not exist when an EF migration runs. A workflow-enabled
-///     host starts only after both have run.
+///     <b>Not a schema migration (amendment A4).</b> <c>Daedalus.Migrations</c> runs Daedalus' own migrations before
+///     the Thalos ones, so on a fresh database <c>workflow_run_event</c> does not exist when a Daedalus migration runs. A
+///     workflow-enabled host starts only after both have run.
 ///     </para>
 ///     <para>
 ///     <b>Idempotency rests on the database.</b> The unique index <see cref="WorkflowRunRecord.NodeUsageIndexName"/>

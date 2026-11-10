@@ -59,7 +59,7 @@ public sealed class Skill : Entity<string>
     /// <summary>Gets when the skill was last synced from a changed file (UTC).</summary>
     public DateTime UpdatedAt { get; private set; }
 
-    private Skill() { } // EF Core
+    private Skill() { }
 
     /// <summary>Creates a skill from a synced document. Timestamps are supplied by the caller (UTC).</summary>
     /// <returns>A Result containing the new skill or the first validation error.</returns>
@@ -86,6 +86,39 @@ public sealed class Skill : Entity<string>
         };
         skill._tags.AddRange(fields.Value);
         return Result<Skill>.Success(skill);
+    }
+
+    /// <summary>
+    ///     Rebuilds a stored skill from its columns. For persistence only: it sets every value as given and validates
+    ///     nothing, so a row written before a rule of <see cref="Create"/> existed still loads.
+    /// </summary>
+    /// <param name="name">The skill name, the primary key.</param>
+    /// <param name="description">The one-line description.</param>
+    /// <param name="body">The procedure body, verbatim.</param>
+    /// <param name="tags">The tags as stored.</param>
+    /// <param name="sourcePath">The repo-relative path the skill was loaded from.</param>
+    /// <param name="contentHash">The hash of the raw file.</param>
+    /// <param name="isActive">Whether the file still exists on disk.</param>
+    /// <param name="updatedAt">When the skill was last synced from a changed file.</param>
+    /// <returns>The skill the row holds.</returns>
+    public static Skill Rehydrate(
+        string name, string description, string body, IEnumerable<string> tags,
+        string sourcePath, string contentHash, bool isActive, DateTime updatedAt)
+    {
+        ArgumentNullException.ThrowIfNull(tags);
+
+        var skill = new Skill
+        {
+            Id = name,
+            Description = description,
+            Body = body,
+            SourcePath = sourcePath,
+            ContentHash = contentHash,
+            IsActive = isActive,
+            UpdatedAt = updatedAt,
+        };
+        skill._tags.AddRange(tags);
+        return skill;
     }
 
     /// <summary>

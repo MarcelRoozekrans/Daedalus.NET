@@ -1,6 +1,5 @@
 using Aspire.Hosting;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Shared;
 using Testcontainers.PostgreSql;
 
 namespace Daedalus.Tests.Integration.Fixtures;
@@ -91,12 +90,7 @@ public sealed class AspirePostgresFixture : IAsyncLifetime
     {
         try
         {
-            var options = PostgresFixture.CreateDbContextOptions(ConnectionString);
-
-            using var dbContext = new ApplicationDbContext(options);
-            // EnsureCreatedAsync does not run migration SQL, so create the pgvector extension explicitly
-            await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;");
-            await dbContext.Database.EnsureCreatedAsync();
+            await DatabaseSchema.ApplyAsync(ConnectionString, CancellationToken.None);
             System.Console.WriteLine("✓ Database schema created successfully (Aspire fixture)");
         }
         catch (Exception ex)

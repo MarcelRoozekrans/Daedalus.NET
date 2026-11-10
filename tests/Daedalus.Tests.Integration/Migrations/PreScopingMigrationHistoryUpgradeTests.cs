@@ -4,13 +4,14 @@ using Daedalus.Tests.Integration.Fixtures;
 using Npgsql;
 using ZeroAlloc.ORM.Migrations;
 using ZeroAlloc.Outbox.Orm;
+using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Migrations;
 
 /// <summary>
-///     Runs <c>Daedalus.Migrations</c>' workflow engine step, <see cref="WorkflowEngineMigrator.ApplyAsync" />,
-///     against a <c>__zaorm_migrations</c> table as ZeroAlloc.ORM wrote it before 2.2.0 scoped versions by source,
+///     Runs <c>Daedalus.Migrations</c>' workflow engine step, <see cref="WorkflowEngineMigrator.ApplyAsync" />
+///     after the history upgrade <c>Program.cs</c> runs first, against a <c>__zaorm_migrations</c> table as ZeroAlloc.ORM wrote it before 2.2.0 scoped versions by source,
 ///     holding the rows of both <c>OutboxOrmMigrations.Postgres</c> and <c>WorkflowOrmMigrations.Postgres</c>: the
 ///     state every database Daedalus.Migrations migrated before the 2.2.0 bump is in. Every other migration test
 ///     starts from an empty database, which has nothing to upgrade.
@@ -38,7 +39,7 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
     private const string LegacyInsertSql =
         "INSERT INTO __zaorm_migrations (version, name, applied_at) VALUES (@version, @name, @applied_at::timestamptz)";
 
-    private static readonly (string Source, int Version, string Name)[] LegacyRows =
+    internal static readonly (string Source, int Version, string Name)[] LegacyRows =
     [
         (OutboxSource, 1, "create_outbox_messages"),
         (OutboxSource, 2, "add_outbox_lease"),
@@ -60,10 +61,10 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
         {
             await BuildLegacyDatabaseAsync(connection, LegacyRows, withSchema: true);
 
-            // Red: remove the PreScopingMigrationHistory.UpgradeAsync call from WorkflowEngineMigrator.ApplyAsync. The
+            // Red: remove the PreScopingMigrationHistory.UpgradeAsync call from UpgradeAndApplyAsync. The
             // outbox runner upgrades the table itself and refuses it with the boot failure's own
             // ZeroAllocOrmMigrationConflictException: 9 of its 11 rows are not migrations of 'ZeroAlloc.Outbox.Orm'.
-            var first = (await FluentActions.Awaiting(() => WorkflowEngineMigrator.ApplyAsync(connection))
+            var first = (await FluentActions.Awaiting(() => UpgradeAndApplyAsync(connection))
                 .Should().NotThrowAsync()).Subject;
 
             // Red: pass only OutboxOrmMigrations.Postgres to UpgradeAsync, so the nine workflow rows match no source.
@@ -94,7 +95,7 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
 
             // Red: drop the "AND NOT EXISTS ... column_name = 'source'" clause from IsUnscopedAsync, so a scoped
             // table is upgraded again and ADD COLUMN source fails with 42701.
-            var rerun = (await FluentActions.Awaiting(() => WorkflowEngineMigrator.ApplyAsync(connection))
+            var rerun = (await FluentActions.Awaiting(() => UpgradeAndApplyAsync(connection))
                 .Should().NotThrowAsync()).Subject;
 
             // Red: return Result<int>.Success(1) instead of 0 on UpgradeAsync's already-scoped path.
@@ -126,7 +127,7 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
             // Red: in PreScopingMigrationHistory.Attribute, assign every row to sources[0].Name, which is what the
             // runner's own upgrade does. The workflow source then finds no rows of its own, and its re-applied 1001
             // fails on 'already exists', which ApplyAsync throws, as a migration's own SQL failing always does.
-            var outcome = (await FluentActions.Awaiting(() => WorkflowEngineMigrator.ApplyAsync(connection))
+            var outcome = (await FluentActions.Awaiting(() => UpgradeAndApplyAsync(connection))
                 .Should().NotThrowAsync()).Subject;
 
             // Red: pass only OutboxOrmMigrations.Postgres to UpgradeAsync, so the nine workflow rows match no source.
@@ -153,7 +154,7 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
             await BuildLegacyDatabaseAsync(connection, rows, withSchema: false);
             var before = await ReadLegacyHistoryAsync(connection);
 
-            var outcome = await WorkflowEngineMigrator.ApplyAsync(connection);
+            var outcome = await UpgradeAndApplyAsync(connection);
 
             // Red: in PreScopingMigrationHistory.Attribute, assign a row no source owns to sources[0].Name instead of
             // failing, which is the runner's own upgrade without its check.
@@ -179,7 +180,7 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
         {
             // Red: drop the table's own EXISTS clause from IsUnscopedAsync, so an absent table counts as unscoped,
             // as PostgresMigrationDialect.SelectUnscopedHistorySql reports it, and LOCK TABLE fails with 42P01.
-            var outcome = (await FluentActions.Awaiting(() => WorkflowEngineMigrator.ApplyAsync(connection))
+            var outcome = (await FluentActions.Awaiting(() => UpgradeAndApplyAsync(connection))
                 .Should().NotThrowAsync()).Subject;
 
             // Red: return Result<int>.Failure on UpgradeAsync's absent-or-scoped path.
@@ -189,7 +190,7 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
             outcome.Value.UpgradedHistoryRows.Should().Be(0);
 
             // A fresh database applies every migration of both sources, outbox first, so Applied is that whole list
-            // rather than empty. Red: run only WorkflowEngineMigrator.Sources.Skip(1) in ApplyAsync.
+            // rather than empty. Red: run only WorkflowEngineMigrator.Sources.Skip(1) in WorkflowEngineMigrator.ApplyAsync.
             var everything = WorkflowEngineMigrator.Sources
                 .SelectMany(source => source.GetMigrations().OrderBy(migration => migration.Version))
                 .Select(migration => (migration.Version, migration.Name));
@@ -315,7 +316,7 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
     // A distinct, fixed applied_at per row, so a row whose applied_at is rewritten shows up.
     private static DateTime AppliedAt(int version) => new DateTime(2026, 9, 22, 21, 0, 0, DateTimeKind.Utc).AddMinutes(version);
 
-    private static async Task BuildLegacyDatabaseAsync(
+    internal static async Task BuildLegacyDatabaseAsync(
         NpgsqlConnection connection,
         IReadOnlyList<(string Source, int Version, string Name)> rows,
         bool withSchema,
@@ -430,6 +431,21 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
         command.Parameters.AddWithValue("key", PostgresMigrationDialect.DefaultLockKey);
         await command.ExecuteNonQueryAsync();
     }
+
+    /// <summary>The host's order for these sources: the history upgrade, then the workflow engine's runners.</summary>
+    private static async Task<Result<MigrationOutcome>> UpgradeAndApplyAsync(NpgsqlConnection connection)
+    {
+        var upgrade = await PreScopingMigrationHistory.UpgradeAsync(connection, WorkflowEngineMigrator.Sources);
+        if (upgrade.IsFailure)
+        {
+            return Result<MigrationOutcome>.Failure(upgrade.Error);
+        }
+
+        var applied = await WorkflowEngineMigrator.ApplyAsync(connection);
+        return Result<MigrationOutcome>.Success(new MigrationOutcome(upgrade.Value, applied));
+    }
+
+    private sealed record MigrationOutcome(int UpgradedHistoryRows, IReadOnlyList<Migration> Applied);
 
     private async Task WithDatabaseAsync(Func<NpgsqlConnection, Task> test)
     {

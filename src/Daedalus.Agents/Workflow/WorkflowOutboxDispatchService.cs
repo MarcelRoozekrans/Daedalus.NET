@@ -17,25 +17,17 @@ namespace Daedalus.Agents.Workflow;
 /// <remarks>
 ///     <para>
 ///     <b>Hand-rolled, not <c>ZeroAlloc.Outbox</c>'s own <c>AddOutbox()</c>/<c>OutboxWorkerService</c>.</b> This
-///     host already runs one outbox pipeline — <c>AddChannelOutbox</c>/<c>AddDaedalusScheduling</c> wire
-///     <c>AddOutbox().WithEfCore&lt;ApplicationDbContext&gt;()</c> for channel delivery and the RepoDigest
-///     scheduling chain, and both of those methods' own remarks warn that a second <c>AddOutbox()</c> call would
-///     register a second <c>OutboxWorkerService</c> racing the same table. ZeroAlloc.Outbox 3.0.1's source confirms
-///     why that warning is not overcautious: <c>AddOutbox()</c> itself registers <c>OutboxOptions</c> and
-///     <c>AddHostedService&lt;OutboxWorkerService&gt;()</c> as ordinary <c>Add</c> calls; it is
-///     <c>WithEfCore&lt;T&gt;()</c>/<c>WithOrm()</c> — called next, on the builder <c>AddOutbox()</c> returns —
-///     that each register <c>IOutboxStore</c> as an ordinary <c>AddScoped</c>, not <c>TryAddScoped</c>, and not
-///     keyed. <c>OutboxWorkerService</c> then resolves <c>IOutboxStore</c> as a single <c>GetRequiredService</c>
-///     per batch — the last <c>AddScoped</c> registration wins for <em>every</em> <c>OutboxWorkerService</c>
-///     instance in the container, regardless of which one that particular worker was built to poll. A second
-///     <c>AddOutbox().WithOrm()</c> call here would therefore silently replace the EfCore-backed store both the
-///     existing poller and this one resolve, stopping the live RepoDigest chain while double-polling the workflow
-///     table. <c>docs/workflow.md</c>'s Step 4 snippet assumes a host with no outbox pipeline yet; Daedalus
-///     already has one, so this is a small, self-contained poller instead — the same reasoning
-///     <see cref="Daedalus.Agents.Scheduling.ScheduleSweeperService"/> gives for hand-rolling its own timer rather
-///     than forcing <c>ZeroAlloc.Scheduling</c> into a shape it does not fit. It shares no DI registration with the
-///     existing pipeline: <see cref="OrmOutboxStore"/> is constructed directly here, per batch, never added to this
-///     container's <c>IOutboxStore</c> slot.
+///     host already runs one outbox pipeline: <c>AddChannelOutbox</c> wires the named pipeline
+///     <c>channel</c> on ZeroAlloc.Outbox.Orm's store, over the quoted <c>"OutboxMessages"</c> table, for channel
+///     delivery and the RepoDigest scheduling chain. Up to ZeroAlloc.Outbox 4.4 a second <c>AddOutbox()</c> in one
+///     container replaced the first pipeline's store for every worker, which is why this poller was written.
+///     Since 4.5.0 a second named pipeline on its own table and its own worker is supported, so this table could
+///     move to a stock <c>OutboxWorkerService</c>; phase 3.5 keeps this poller (ruling R105) because the move
+///     changes the manufacture workflow's dispatch loop, its options and their boot validation, and needs its own
+///     tests. It shares no DI registration with the channel pipeline: <see cref="OrmOutboxStore"/> is constructed
+///     directly here, per batch, on the default table name, never added to this container's
+///     <c>IOutboxStore</c> slots. The same reasoning <see cref="Daedalus.Agents.Scheduling.ScheduleSweeperService"/>
+///     gives for hand-rolling its own timer applies.
 ///     </para>
 ///     <para>
 ///     <b>Mirrors <c>OutboxWorkerService</c> 3.0.1's lease loop</b> — see <see cref="ProcessBatchAsync"/> — and its
@@ -52,14 +44,14 @@ namespace Daedalus.Agents.Workflow;
 ///     consumer.</b> <see cref="ProcessBatchAsync"/> dead-letters any entry whose <c>TypeName</c> is not
 ///     <see cref="WorkflowDispatchOutboxDispatcher.TypeName"/>, rather than leaving it for someone else, because
 ///     the workflow store is currently the only writer of the <c>outboxmessages</c> table in this database.
-///     The channel/scheduling pipeline is not a second writer of it: EF Core's migrations create a
-///     <em>quoted</em>, mixed-case <c>"OutboxMessages"</c> and <c>ZeroAlloc.Outbox.Orm</c>'s create an unquoted
-///     <c>OutboxMessages</c> that PostgreSQL folds to <c>outboxmessages</c>, so the two are distinct tables —
-///     asserted by <c>WorkflowOrmMigrationTests.The_EF_and_ORM_outbox_tables_coexist_as_distinct_tables</c>.
-///     The moment Milestone 3
-///     moves any other producer onto <c>ZeroAlloc.Outbox.Orm</c>, this poller will silently eat its messages.
-///     Whoever makes that move has to give this loop a dispatcher registry keyed by <c>TypeName</c>, or scope
-///     its claim to rows it owns, before the second producer ships.
+///     The channel/scheduling pipeline is not a second writer of it, though it runs on the same ORM store: its
+///     store is configured with the <em>quoted</em>, mixed-case <c>"OutboxMessages"</c> table, which the baseline
+///     migration created, while this one uses the store's default, unquoted <c>OutboxMessages</c> that PostgreSQL
+///     folds to <c>outboxmessages</c>. The two are distinct tables, asserted by
+///     <c>WorkflowOrmMigrationTests.The_EF_and_ORM_outbox_tables_coexist_as_distinct_tables</c> and by
+///     <c>ChannelOutboxCarryOverTests.Workflow_outbox_is_untouched</c>. Any other producer that writes this
+///     table must first give this loop a dispatcher registry keyed by <c>TypeName</c>, or scope its claim to
+///     rows it owns, or this poller will dead-letter its messages.
 ///     </para>
 ///     <para>
 ///     <b>A tick must never let an exception escape</b> — the same rule

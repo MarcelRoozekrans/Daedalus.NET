@@ -8,9 +8,9 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <RootNamespace>Daedalus.Migrations</RootNamespace>
         <AssemblyName>Daedalus.Migrations</AssemblyName>
-        <!-- AOT disabled: Migrations tool requires EF Core reflection for schema discovery -->
+        <!-- Not published native or trimmed; eng/aot/count-warnings.sh measures what a native publish would report.
+             EF Core's reflection, the reason given before phase 3.5, is gone. -->
         <PublishAot>false</PublishAot>
-        <!-- Disable trimming to preserve EF Core reflection capabilities -->
         <TrimMode>none</TrimMode>
         <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
         <InvariantGlobalization>false</InvariantGlobalization>
@@ -28,12 +28,8 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
         <!-- Phase 2.2 Part B: applies the workflow engine's raw-SQL migrations (WorkflowOrmMigrations,
-             OutboxOrmMigrations) as the same explicit, pre-boot deploy step this tool already runs EF Core's
+             OutboxOrmMigrations) as the same explicit, pre-boot deploy step this tool runs Daedalus' own
              migrations as — see Program.cs. AddWorkflowOrm's EnsureSchemaOnStartup is left off for exactly this
              reason: migration 1004 is not backward compatible with pre-1004 code (see task-9-report.md). -->
         <PackageReference Include="Thalos.NET.Workflow.Orm" />

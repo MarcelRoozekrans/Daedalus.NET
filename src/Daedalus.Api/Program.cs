@@ -8,8 +8,6 @@ using Daedalus.Api.Endpoints;
 using Daedalus.Api.Hubs;
 using Daedalus.Api.Middleware;
 using Daedalus.Application.Abstractions;
-using Daedalus.Application.Configuration;
-using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Application.Extensions;
 using Daedalus.Application.Services.Brainstorm;
@@ -65,7 +63,7 @@ if (!string.IsNullOrEmpty(ollamaConnectionString))
     ollama = builder.Services.UseOllamaEmbeddings(OllamaConnectionString.ParseEndpoint(ollamaConnectionString), "nomic-embed-text");
 }
 
-// Thalos-based agents: chat sessions, memory, the manufacture workflow and scheduled runs. Needs the DbContext factory (AddApplicationDatabase),
+// Thalos-based agents: chat sessions, memory, the manufacture workflow and scheduled runs. Needs DaedalusDb (AddApplicationDatabase),
 // the Ollama embedding generator (memory index + Sentinel) and the knowledge-tool services registered by AddAgentFrameworkServices above.
 builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment, ollama);
 

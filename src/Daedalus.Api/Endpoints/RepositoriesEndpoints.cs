@@ -1,4 +1,5 @@
 using Daedalus.Application.Abstractions;
+using Daedalus.Application.Services;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Services.Git;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -145,8 +146,7 @@ public static partial class RepositoriesEndpoints
         var logger = loggerFactory.CreateLogger(typeof(RepositoriesEndpoints));
         Log.UpdatingRepository(logger, id);
 
-        // Fetch with change tracking enabled for proper optimistic concurrency
-        var getResult = await repository.GetByIdTrackingAsync(id, ct);
+        var getResult = await repository.GetByIdAsync(id, ct);
         if (getResult.IsFailure)
         {
             return NotFound(context, getResult.Error);
@@ -171,7 +171,7 @@ public static partial class RepositoriesEndpoints
 
         if (saveResult.IsFailure)
         {
-            if (saveResult.Error.Contains("modified by another", StringComparison.OrdinalIgnoreCase))
+            if (SaveConflict.IsConflict(saveResult.Error))
             {
                 return ApiProblem.AsGiven(context, new ProblemDetails
                 {

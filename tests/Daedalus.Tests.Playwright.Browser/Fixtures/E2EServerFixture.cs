@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.RateLimiting;
@@ -6,7 +7,6 @@ using Daedalus.Api.Endpoints;
 using Daedalus.Api.Hubs;
 using Daedalus.Api.Services;
 using Daedalus.Application.Abstractions;
-using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Application.Extensions;
 using Daedalus.Application.Services.Brainstorm;
@@ -14,10 +14,13 @@ using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Extensions;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.AgentMemories;
+using Daedalus.Infrastructure.Persistence.Orm.Projects;
 using Daedalus.Infrastructure.Persistence.Repositories;
 using Daedalus.Infrastructure.Services;
-using Daedalus.Migrations;
 using Daedalus.Tests.Playwright.Browser.Fixtures;
+using Daedalus.Tests.Shared;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
@@ -25,12 +28,13 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Npgsql;
 using Thalos;
 using Thalos.Memory;
 using Thalos.Workflow;
+using ZeroAlloc.Outbox;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Playwright.Browser;
@@ -165,14 +169,10 @@ public class E2EServerFixture
             // so _framework, index.html, CSS, and Radzen assets are served
             builder.WebHost.UseStaticWebAssets();
 
-            // Database. Singleton consumers (Thalos PostgresAgentSessionStore, AgentSessionCrashRecovery) need
-            // IDbContextFactory<T>; register it first so DbContextOptions<T> is the singleton both share, and keep the
-            // scoped DbContext's options singleton too (otherwise the factory sees a scoped IDbContextOptionsConfiguration).
-            builder.Services.AddPooledDbContextFactory<ApplicationDbContext>(options =>
-                options.UseNpgsql(ConnectionString));
-            builder.Services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseNpgsql(ConnectionString),
-                contextLifetime: ServiceLifetime.Scoped, optionsLifetime: ServiceLifetime.Singleton);
+            // Database. The ZeroAlloc.ORM stores (sessions, memory, skills, charters, tasks) and AgentSessionCrashRecovery open
+            // their connections from one data source, as AddApplicationDatabase registers it in a real host.
+            builder.Services.TryAddSingleton(_ => Npgsql.NpgsqlDataSource.Create(ConnectionString));
+            builder.Services.TryAddSingleton<DaedalusDb>();
 
             // Core infrastructure (ISystemClock, etc.)
             builder.Services.AddCoreInfrastructureServices();
@@ -384,13 +384,10 @@ public class E2EServerFixture
             // 5. Create database + seed test data
             using (var scope = app.Services.CreateScope())
             {
-                var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                // Rag.NET's rag_chunks (Thalos memory index) needs the pgvector extension; EnsureCreatedAsync runs no migration SQL
-                await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;").ConfigureAwait(false);
-                await dbContext.Database.EnsureCreatedAsync().ConfigureAwait(false);
-                await MigrateWorkflowEngineAsync(ConnectionString).ConfigureAwait(false);
-                await SeedTestDataAsync(dbContext).ConfigureAwait(false);
-                await SeedMemoriesAsync(dbContext).ConfigureAwait(false);
+                // The real migrations, workflow engine included: the schema Daedalus.Migrations builds in production.
+                await DatabaseSchema.ApplyAsync(ConnectionString, CancellationToken.None).ConfigureAwait(false);
+                await SeedTestDataAsync(scope.ServiceProvider.GetRequiredService<DaedalusDb>()).ConfigureAwait(false);
+                await SeedMemoriesAsync(scope.ServiceProvider.GetRequiredService<DaedalusDb>()).ConfigureAwait(false);
             }
 
             var runs = new RunSeeds(app.Services.GetRequiredService<IWorkflowStore>(), app.Services.GetRequiredService<IServiceScopeFactory>());
@@ -518,27 +515,28 @@ public class E2EServerFixture
     private static bool IsHostedService(ServiceDescriptor descriptor) =>
         !descriptor.IsKeyedService && descriptor.ServiceType == typeof(IHostedService);
 
-    /// <summary>The type a hosted service registration runs: its implementation type, instance or factory return type.</summary>
+    /// <summary>
+    ///     The type a hosted service registration runs: its implementation type, instance, a named outbox pipeline's
+    ///     worker, or else its factory's return type.
+    /// </summary>
     private static Type? HostedServiceType(ServiceDescriptor descriptor) =>
         descriptor.ImplementationType
         ?? descriptor.ImplementationInstance?.GetType()
+        ?? OutboxPipelineWorkerType(descriptor)
         ?? descriptor.ImplementationFactory?.Method.ReturnType;
 
     /// <summary>
-    ///     The workflow engine's raw-SQL schema, through the same step Daedalus.Migrations runs at deploy,
-    ///     <see cref="WorkflowEngineMigrator.ApplyAsync"/>, so the sources and their order cannot drift from it. A refusal
-    ///     fails set-up with the migrator's reason.
+    ///     A named ZeroAlloc.Outbox pipeline, such as the channel pipeline, registers its worker as an unkeyed
+    ///     <see cref="IHostedService"/> through a factory object whose method is declared to return the interface. The
+    ///     only hosted service ZeroAlloc.Outbox's assembly registers is <see cref="OutboxWorkerService"/>, so a factory
+    ///     object from that assembly is matched as one, by assembly alone. A second worker counts as a second
+    ///     <see cref="OutboxWorkerService"/> and fails the exactly-once check.
     /// </summary>
-    private static async Task MigrateWorkflowEngineAsync(string connectionString)
-    {
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync().ConfigureAwait(false);
-        var outcome = await WorkflowEngineMigrator.ApplyAsync(connection).ConfigureAwait(false);
-        if (outcome.IsFailure)
-        {
-            throw new InvalidOperationException($"The workflow engine migration was refused: {outcome.Error}");
-        }
-    }
+    private static Type? OutboxPipelineWorkerType(ServiceDescriptor descriptor) =>
+        IsHostedService(descriptor)
+        && descriptor.ImplementationFactory?.Target?.GetType().Assembly == typeof(OutboxWorkerService).Assembly
+            ? typeof(OutboxWorkerService)
+            : null;
 
     private static void RemoveAndReplace<TService, TImplementation>(IServiceCollection services)
         where TService : class
@@ -554,13 +552,16 @@ public class E2EServerFixture
         services.AddScoped<TService, TImplementation>();
     }
 
-    private static async Task SeedTestDataAsync(ApplicationDbContext dbContext)
+    private static async Task SeedTestDataAsync(DaedalusDb db)
     {
         try
         {
-            if (await dbContext.Projects.AnyAsync().ConfigureAwait(false))
+            await using (var connection = await db.OpenAsync(CancellationToken.None).ConfigureAwait(false))
             {
-                return;
+                if ((await new ProjectSql(connection).PageWithTasksAsync(0, 0, CancellationToken.None).ConfigureAwait(false)).Total > 0)
+                {
+                    return;
+                }
             }
 
             var projectResult = Project.Create(
@@ -619,8 +620,6 @@ public class E2EServerFixture
                 project.AddTask(legacyResult.Value);
             }
 
-            dbContext.Projects.Add(project);
-
             // A second project with a repository URL, so the create dialog's picker shows a repository beside a name. The
             // URL is on no allow-list, so a manufacture of its tasks is refused. TASK-004 carries the seeded Succeeded
             // run (RunSeeds), so the Tasks grid shows that run's pull request; TASK-005 carries the parked run.
@@ -651,25 +650,43 @@ public class E2EServerFixture
                     widgetsResult.Value.AddTask(approveResult.Value);
                 }
 
-                dbContext.Projects.Add(widgetsResult.Value);
             }
 
             // TASK-001 stands in for an old task-loop task. Task.Create no longer takes the loop settings, so set them
-            // as EF does when it reads an old row. TASK-002 stays a new task with none.
-            if (task1Result.IsSuccess)
+            // as an old row reads back. TASK-002 stays a new task with none. Task.Create no longer sets a loop
+            // outcome either, so the legacy task is stored Completed the same way. Each project's own tasks go in
+            // as their stored form, in the order they were added.
+            var projects = new List<Project> { project };
+            if (widgetsResult.IsSuccess)
             {
-                dbContext.Entry(task1Result.Value).Property(t => t.MaxIterations).CurrentValue = 10;
+                projects.Add(widgetsResult.Value);
             }
 
-            // Task.Create no longer sets a loop outcome, so set it as EF does when it reads an old row.
-            if (legacyResult.IsSuccess)
+            var tasks = new List<Domain.Entities.Task>();
+            foreach (var t in projects.SelectMany(p => p.Tasks))
             {
-                dbContext.Entry(legacyResult.Value).Property(t => t.Status).CurrentValue = Domain.Entities.TaskStatus.Completed;
+                if (task1Result.IsSuccess && t.Id == task1Result.Value.Id)
+                {
+                    tasks.Add(StoreSeed.AsStored(t, maxIterations: 10));
+                }
+                else if (legacyResult.IsSuccess && t.Id == legacyResult.Value.Id)
+                {
+                    tasks.Add(StoreSeed.AsStored(t, status: Domain.Entities.TaskStatus.Completed));
+                }
+                else
+                {
+                    tasks.Add(t);
+                }
             }
 
-            await dbContext.SaveChangesAsync().ConfigureAwait(false);
+            var heads = projects.ConvertAll(p => Project.Rehydrate(
+                p.Id, p.Version, p.ProjectName, p.Description, p.CreatedAt, p.ModifiedAt, p.DefaultBranch,
+                p.RepositoryUrl, p.RowVersion, []));
+
+            // All or nothing, as EF's one SaveChanges was: a half-seeded table would pass the emptiness check above.
+            await StoreSeed.AddAsync(db, heads, tasks).ConfigureAwait(false);
         }
-        catch (DbUpdateException)
+        catch (DbException)
         {
             // Seed data already exists — safe to ignore
         }
@@ -690,9 +707,12 @@ public class E2EServerFixture
     ///     invisible. Seeded through the aggregate, so the rows are exactly what
     ///     <see cref="Daedalus.Agents.Memory.PostgresMemoryStore"/> would have written.
     /// </summary>
-    private static async Task SeedMemoriesAsync(ApplicationDbContext dbContext)
+    private static async Task SeedMemoriesAsync(DaedalusDb db)
     {
-        if (await dbContext.AgentMemories.AnyAsync().ConfigureAwait(false))
+        await using var connection = await db.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+        var sql = new AgentMemorySql(connection);
+        var everything = new AgentMemoryFilter([], null, [], [], IncludeArchived: true, IndexPending: null);
+        if (await sql.CountAsync(everything, CancellationToken.None).ConfigureAwait(false) > 0)
         {
             return;
         }
@@ -722,11 +742,10 @@ public class E2EServerFixture
             {
                 throw new InvalidOperationException($"Seeding agent memories failed: {seed.Error}");
             }
-
-            dbContext.AgentMemories.Add(seed.Value);
         }
 
-        await dbContext.SaveChangesAsync().ConfigureAwait(false);
+        // All or nothing, as EF's one SaveChanges was: a half-seeded table would pass the emptiness check above.
+        await sql.InsertAllAsync([.. seeds.Select(seed => seed.Value)], CancellationToken.None).ConfigureAwait(false);
     }
 
     [OneTimeTearDown]

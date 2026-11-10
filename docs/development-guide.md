@@ -23,13 +23,13 @@ src/
 ├── Daedalus.Domain/           # Entities, value objects
 ├── Daedalus.Application/      # Mediator requests/handlers, DTOs, services,
 │                               # repository interfaces (ITaskRepository, etc.)
-├── Daedalus.Infrastructure/   # EF Core DbContext, repository implementations,
-│                               # migrations, external service clients
+├── Daedalus.Infrastructure/   # ZeroAlloc.ORM maps and SQL classes, repository
+│                               # implementations, SQL migrations, external service clients
 ├── Daedalus.Api/              # REST minimal API endpoints, request/response models
 ├── Daedalus.Agents/           # Agent/session infrastructure (ZeroAlloc.Outbox),
 │                               # the manufacture workflow host
 ├── Daedalus.Cli/              # Console-channel host
-├── Daedalus.Migrations/       # EF Core migration runner, run before the hosts
+├── Daedalus.Migrations/       # SQL migration runner, run before the hosts
 ├── Daedalus.Sandbox/          # Per-run sandbox container host and its Dockerfile
 ├── Daedalus.ServiceDefaults/  # Shared OpenTelemetry, logging, DB registration
 ├── Daedalus.Web/              # Blazor WebAssembly UI
@@ -209,7 +209,7 @@ the other endpoint groups still differ (issue #366).
 
 - After each agent node completes with usage, the host appends a `node-usage`
   workflow run record (`NodeUsageRecorder`). `NodeUsageBackfill` fills the
-  records missing for older runs at host startup. It is not an EF migration, and
+  records missing for older runs at host startup. It is not a schema migration, and
   it writes nothing for a (run, seq) that already has a record.
 - A node can run on more than one model: a review whose lens is pinned
   (`Thalos:Decisions:PinnedLensModels`) runs that pass on the pinned model and
@@ -575,19 +575,17 @@ How phase 3.2 applied the rule:
 
 - **The five pre-existing suppressions came out, each with its fix.** Api's assembly-wide IL2026 was the one bare
   removal, re-baselined upward by the two warnings it hid. `RegisterHandlersAot`'s three went with the generated
-  Mediator registration, and `ApplicationDbContext`'s with an explicit configuration list. The `#pragma warning
+  Mediator registration, and the removed EF context's explicit configuration list. The `#pragma warning
   disable IL20xx` lines went with their fixes, and the stale IL2026 entries in two multi-code pragma lists were
   dropped.
-- **One sanctioned `[RequiresUnreferencedCode]`, until 3.5.** EF Core model building is not trim-safe, and 3.5
-  removes EF Core. The `ApplicationDbContext` constructor carries the attribute, and so does ServiceDefaults'
-  `AddApplicationDatabase`, which registers the context; both messages name phase 3.5. It is an honest annotation,
-  not a suppression: ILC still reports every caller. `ApplicationDbContextFactory` moved to `Daedalus.Api`, because
-  `IDesignTimeDbContextFactory.CreateDbContext` cannot carry the attribute without IL2046, and the factory is design
-  time only.
-- **A scan becomes an explicit list with a guard.** `ApplyConfigurationsFromAssembly` became
-  `ApplicationDbContext.Configurations`, alphabetical by entity. `ApplicationDbContextModelTests` compares the model
-  with a golden debug view captured from the old scan and fails naming any configuration class not in the list. The
-  golden holds EF Core's product version, so an EF Core bump refreshes it on purpose.
+- **No sanctioned `[RequiresUnreferencedCode]` remains.** Phase 3.2 allowed exactly one, because EF Core model
+  building is not trim-safe: the `ApplicationDbContext` constructor and ServiceDefaults' `AddApplicationDatabase`
+  carried it, each naming phase 3.5. Phase 3.5 removed EF Core, and with it both attributes, the design-time
+  factory and the model golden test. `AddApplicationDatabase` now registers an `NpgsqlDataSource` and `DaedalusDb`,
+  and no member under `src/` carries the attribute. The source-generated maps and queries need no reflection.
+- **A scan becomes an explicit list with a guard.** Phase 3.2 replaced `ApplyConfigurationsFromAssembly` with an
+  explicit list and a model test. The list is gone with the model: the ORM maps are `[TableMap]` classes the
+  generator finds in the compilation, and an unmapped table fails the build of the query that names it.
 - **A trim annotation on a generic is a fix.** `ForwardHostedServiceToConcreteSingleton<T>` carries
   `[DynamicallyAccessedMembers(PublicConstructors)]`, the same demand as the `TryAddSingleton` it calls.
 - **A blocker outside our code is fixed at its source, or tracked.** YamlDotNet's static generator emits a public
@@ -909,9 +907,7 @@ using ZeroAlloc.Results.Extensions; // Bind, Map, Match, Combine, Tap, TapError,
 
 public async Task<Result<Customer>> GetCustomerAsync(Guid id, CancellationToken ct)
 {
-    var customer = await dbContext.Customers
-        .AsNoTracking()
-        .FirstOrDefaultAsync(c => c.Id == id, ct);
+    var customer = await customers.FindAsync(id, ct);
 
     return customer is not null
         ? Result<Customer>.Success(customer)
@@ -1269,7 +1265,7 @@ There is no generic `IRepository<T>`. Repositories are one interface per
 aggregate, defined in `src/Daedalus.Application/Abstractions/` (e.g.
 `ITaskRepository`, `IProjectRepository`, `IExecutionSessionRepository`,
 `IBrainstormRepository`, `IRepositoryConfigurationRepository`) and implemented
-in `src/Daedalus.Infrastructure/Persistence/`. Methods return
+in `src/Daedalus.Infrastructure/Persistence/` over the `...Sql` classes of the data layer (below). Methods return
 `Result<T>`/`Result` rather than throwing for expected failures (not-found,
 concurrency conflicts).
 
@@ -1343,15 +1339,73 @@ var filtered = tasks
 - `IAsyncEnumerable<T>` is used in 3 files — a real but narrow pattern for
   streaming; don't force it onto ordinary list-returning methods.
 
-## EF Core
+## Data layer: ZeroAlloc.ORM
 
-- `AsNoTracking()` is used in 18 files for read-only queries — the default
-  for anything that doesn't mutate.
-- `ExecuteUpdateAsync`/`ExecuteDeleteAsync` for bulk operations instead of
-  loading entities.
-- DbContext pooling and transactions are used where appropriate; check
-  `src/Daedalus.Infrastructure/Extensions/InfrastructureServiceExtensions.cs`
-  for current registration before adding a new pattern.
+Phase 3.5 replaced EF Core with ZeroAlloc.ORM over Npgsql. There is no `DbContext`, no change tracker, no model
+snapshot and no `dotnet ef`; every query is source-generated SQL, so nothing is reflected over at run time. The
+code is in `src/Daedalus.Infrastructure/Persistence/Orm/`, one folder per aggregate.
+
+**Maps.** A `[TableMap(typeof(Entity), "Table")]` class names the table, with `[ColumnMap]` for what the default
+mapping cannot infer: a property over a private list (the `text[]` columns) or `Column = "xmin"` for a row
+version. Domain entities carry no ORM attribute, and the assembly declares `Dialect(SqlDialect.PostgreSql)` and
+`DateTimeStorage.TimestampTz` once, in `Orm/AssemblyInfo.cs`. Enums are stored as their integers.
+
+**SQL classes.** `<Aggregate>Sql` takes an open `IAsyncDbConnection` and exposes public methods that take and
+return Domain types. Behind them sit generated partial methods: `[LinqQuery]` for reads and `[LinqCommand]` for
+updates and deletes, written as LINQ over `Sql.Table<T>()`, and `[Command]` for inserts, which are raw SQL
+listing every column because the ORM has no LINQ insert. A parent and its children read as one command of two
+statements, in place of `Include`. A row record, internal to the folder, is what a query selects into.
+
+**Rehydrate.** A row record turns into an entity through the entity's public static `Rehydrate` factory, which
+validates nothing and is documented "for persistence only". `Create` keeps the invariants. Application code never
+calls `Rehydrate`; a row record's `ToDomain` does, inside the Orm folder.
+
+**Connections.** `DaedalusDb.OpenAsync` returns a pooled connection from the host's one `NpgsqlDataSource`. A
+repository opens one per call, builds the `...Sql` class over it and disposes it, so a singleton store and a scoped
+one behave alike. A write that must be atomic with another opens a transaction on that connection.
+
+**Guarded saves.** A save is guarded when it writes values computed from the row it loaded. The row's `xmin` is
+read with it (the entity's `RowVersion`), and the update or delete compares it and uses `ThrowOnNoRows`. A row another write changed since throws `ZeroAllocOrmConcurrencyException`; the repository turns
+that into its failure `Result`, as `ModifiedByAnotherOperation` or `TaskRunGuard.ChangedUnderneath`. Task, Project,
+BrainstormSession, CodeAnalysisRequest, ScheduledRun and ScheduledRunExecution are guarded.
+RepositoryConfiguration's update is not: it has no version, and its `ThrowOnNoRows` makes a row deleted since the
+read answer `ModifiedByAnotherOperation`. A save of independent columns updates only those columns with no check,
+and atomic in-database updates, such as counter increments and compare-and-swap transitions, stay single `UPDATE ... WHERE` statements. The guard
+protects against lost updates only. A guarded entity must be re-read before its next guarded save.
+
+**Reads.** There is no tracking to turn off: every read returns fresh entities. Paged reads that must agree with
+their total or their children (`TaskSql.PageAsync`) run in one read-only REPEATABLE READ transaction.
+
+**Migrations.** The schema is a numbered list of SQL files, `Persistence/Migrations/NNNN_<name>.sql`, embedded in
+Infrastructure and applied by ZeroAlloc.ORM's `MigrationRunner`, built by `DaedalusMigrations.CreateRunner`. The
+runner records each applied version in `__zaorm_migrations` under the source `daedalus` and applies the missing ones
+in order, each in its own transaction.
+
+- `0001_baseline.sql` is the schema EF Core's chain left at `20261014090300_AddNodeSelectionUniqueIndex`. A new
+  database runs it. A database EF built at exactly that head records it as applied without running it (baseline
+  adoption). A database whose EF history ends anywhere else is refused with
+  `ZeroAllocOrmMigrationConflictException` before anything runs; `Daedalus.Migrations` exits 1.
+  `__EFMigrationsHistory` stays and is never written again.
+- `0002_drop_dead_rowversions.sql` drops the six dead `bytea` `"RowVersion"` columns (#290). An EF Core build still
+  selects them, so stop every EF-build host before running `Daedalus.Migrations`; a rolling deploy that keeps one
+  running fails its queries.
+- `Daedalus.Migrations` opens one connection, attributes a history table from before ZeroAlloc.ORM 2.2.0 scoped
+  versions by source (`PreScopingMigrationHistory`), runs `DaedalusMigrations`, then the workflow engine's own sources
+  (`WorkflowEngineMigrator`). Aspire runs it before the hosts. Every Postgres test fixture builds its schema with
+  `DatabaseSchema.ApplyAsync`, in the same order.
+
+To add migration N+1:
+
+1. Add `src/Daedalus.Infrastructure/Persistence/Migrations/NNNN_<name>.sql`, the next four-digit number above the
+   last file. The csproj embeds every `*.sql` there. Quote identifiers, and give a new `NOT NULL` column on a
+   populated table a default or a backfill.
+2. Add the column to the `[TableMap]` class, the row record and every raw `[Command]` insert of the table.
+3. Add the new version to the expected histories in `tests/Daedalus.Tests.Integration/Migrations/`
+   (`BaselineAdoptionTests`, `MigrationsHostTests`) and assert what it changed.
+4. Never edit or renumber a shipped file, never rename the source `daedalus`, never write `__zaorm_migrations` by
+   hand. The runner keeps no checksum, so an edited file reaches new databases only.
+
+The full workflow is `skills/daedalus-migrations/SKILL.md`.
 
 ## API endpoints
 

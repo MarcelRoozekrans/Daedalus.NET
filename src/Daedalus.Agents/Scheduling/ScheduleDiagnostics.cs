@@ -3,12 +3,13 @@ using Daedalus.Agents.Channels;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs.Scheduling;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.ChannelOutbox;
+using Daedalus.Infrastructure.Persistence.Orm.ScheduledRunExecutions;
+using Daedalus.Infrastructure.Persistence.Orm.ScheduledRuns;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 
 namespace Daedalus.Agents.Scheduling;
 
@@ -28,11 +29,10 @@ namespace Daedalus.Agents.Scheduling;
 ///     enforces that. Agents is the only layer holding both the scheduling stores and the outbox.
 ///     </para>
 ///     <para>
-///     <b>Scoped, taking <see cref="ApplicationDbContext"/> directly rather than an
-///     <c>IDbContextFactory</c>.</b> The same rule phase 1.5 established for every store that touches the
-///     outbox: <c>EfCoreOutboxStore.EnqueueAsync</c> calls <c>UseTransactionAsync</c>, which requires connection
-///     identity with whatever else is in the scope. Nothing here writes, but sharing the scope's context keeps
-///     this type registrable next to the stores without a second connection per request.
+///     <b>Read-only, over <see cref="DaedalusDb"/>.</b> Every read opens its own pooled connection and gives it
+///     back, so the dead-letter read can fail on its own without taking the scheduling reads with it. Nothing
+///     here writes, so there is no transaction to share with the outbox; it stays scoped only because it is
+///     registered beside the stores.
 ///     </para>
 ///     <para>
 ///     <b>One query per table, never one per schedule.</b> <see cref="GetOverviewAsync"/> issues exactly three
@@ -54,13 +54,13 @@ namespace Daedalus.Agents.Scheduling;
 ///     that renders identically to a complete one is the exact failure this page exists to prevent.
 ///     </para>
 /// </remarks>
-/// <param name="db">The scope's context; see the remarks on why it is not a factory.</param>
+/// <param name="db">Opens the connection each read runs on.</param>
 /// <param name="timeProvider">The only clock this type reads. <c>DateTime.UtcNow</c> appears nowhere.</param>
 /// <param name="options">Thresholds and bounds; see <see cref="ScheduleDiagnosticsOptions"/>.</param>
 /// <param name="serializer">The same serializer the host registers, so no wire format is assumed here.</param>
 /// <param name="logger">Records the reads that degraded, since a degraded verdict is otherwise silent.</param>
 public sealed class ScheduleDiagnostics(
-    ApplicationDbContext db,
+    DaedalusDb db,
     TimeProvider timeProvider,
     IOptions<ScheduleDiagnosticsOptions> options,
     IOutboxSerializer serializer,
@@ -95,34 +95,36 @@ public sealed class ScheduleDiagnostics(
         var now = timeProvider.GetUtcNow().UtcDateTime;
 
         // Read 1 of 3. No Enabled filter: see the remarks.
-        var schedules = await db.ScheduledRuns
-            .AsNoTracking()
-            .OrderBy(s => s.Name)
-            .ToListAsync(ct);
+        IReadOnlyList<ScheduledRun> schedules;
+        await using (var connection = await db.OpenAsync(ct).ConfigureAwait(false))
+        {
+            schedules = await new ScheduledRunSql(connection).ListAllAsync(ct).ConfigureAwait(false);
+        }
 
         if (schedules.Count == 0)
         {
             return [];
         }
 
-        var scheduleIds = schedules.ConvertAll(s => s.Id);
+        var scheduleIds = schedules.Select(s => s.Id).ToList();
 
         // Read 2 of 3 — the latest execution of every schedule at once. Expressed as "no later occurrence of the
         // same schedule exists" rather than a per-schedule ORDER BY ... LIMIT 1, which is the N+1 this is here to
         // avoid. IX_ScheduledRunExecution_Schedule_Occurrence makes OccurrenceAt a total order within a schedule,
         // so this selects exactly one row per schedule that has any.
-        var latestExecutions = await db.ScheduledRunExecutions
-            .AsNoTracking()
-            .Where(e => scheduleIds.Contains(e.ScheduleId)
-                        && !db.ScheduledRunExecutions.Any(later => later.ScheduleId == e.ScheduleId && later.OccurrenceAt > e.OccurrenceAt))
-            .ToListAsync(ct);
+        IReadOnlyList<ScheduledRunExecution> latestExecutions;
+        await using (var connection = await db.OpenAsync(ct).ConfigureAwait(false))
+        {
+            latestExecutions = await new ScheduledRunExecutionSql(connection)
+                .ListLatestPerScheduleAsync(scheduleIds, ct).ConfigureAwait(false);
+        }
 
         var byScheduleId = latestExecutions.ToDictionary(e => e.ScheduleId);
 
         // Read 3 of 3.
         var deadLetters = await ReadDeadLettersAsync(now, ct);
 
-        return schedules.ConvertAll(s => DiagnoseCurrentState(s, byScheduleId.GetValueOrDefault(s.Id), deadLetters, now));
+        return schedules.Select(s => DiagnoseCurrentState(s, byScheduleId.GetValueOrDefault(s.Id), deadLetters, now)).ToList();
     }
 
     /// <inheritdoc/>
@@ -145,21 +147,19 @@ public sealed class ScheduleDiagnostics(
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var limit = Math.Clamp(take, 1, _options.MaxRunHistory);
 
-        var schedule = await db.ScheduledRuns
-            .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Id == scheduleId, ct);
-
-        if (schedule is null)
+        ScheduledRun? schedule;
+        IReadOnlyList<ScheduledRunExecution> executions;
+        await using (var connection = await db.OpenAsync(ct).ConfigureAwait(false))
         {
-            return [];
-        }
+            schedule = await new ScheduledRunSql(connection).FindAsync(scheduleId, ct).ConfigureAwait(false);
+            if (schedule is null)
+            {
+                return [];
+            }
 
-        var executions = await db.ScheduledRunExecutions
-            .AsNoTracking()
-            .Where(e => e.ScheduleId == scheduleId)
-            .OrderByDescending(e => e.OccurrenceAt)
-            .Take(limit)
-            .ToListAsync(ct);
+            executions = await new ScheduledRunExecutionSql(connection)
+                .ListRecentAsync(scheduleId, limit, ct).ConfigureAwait(false);
+        }
 
         if (executions.Count == 0)
         {
@@ -168,7 +168,7 @@ public sealed class ScheduleDiagnostics(
 
         var deadLetters = await ReadDeadLettersAsync(now, ct);
 
-        return executions.ConvertAll(e => DiagnoseHistoricalRun(schedule, e, deadLetters, now));
+        return executions.Select(e => DiagnoseHistoricalRun(schedule, e, deadLetters, now)).ToList();
     }
 
     /// <summary>
@@ -189,18 +189,12 @@ public sealed class ScheduleDiagnostics(
         var typeName = _channelMessageTypeName;
         var since = WindowStart(_options.DeadLetterLookback, now);
 
-        List<DeadLetterRow> rows;
+        IReadOnlyList<ChannelOutboxDeadLetter> rows;
         try
         {
-            rows = await db.OutboxMessages
-                .AsNoTracking()
-                .Where(m => m.TypeName == typeName
-                            && m.Status == OutboxMessageStatus.DeadLetter
-                            && m.CreatedAt >= since)
-                .OrderByDescending(m => m.CreatedAt)
-                .Take(_options.DeadLetterScanLimit)
-                .Select(m => new DeadLetterRow(m.Payload, m.DeadLetterError, m.RetryCount, m.CreatedAt))
-                .ToListAsync(ct);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            rows = await new ChannelOutboxSql(connection)
+                .ListDeadLettersAsync(typeName, since, _options.DeadLetterScanLimit, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -462,13 +456,6 @@ public sealed class ScheduleDiagnostics(
             deadLetter?.Error, deadLetter?.RetryCount, execution.CreatedAt, execution.UpdatedAt, execution.Id,
             schedule.Enabled, schedule.NextRunAt, execution.Findings, execution.Digest);
     }
-
-    /// <summary>The columns of a dead-lettered row this type needs, projected in the database.</summary>
-    /// <param name="Payload">The opaque serialized <see cref="ChannelMessageQueued"/>.</param>
-    /// <param name="DeadLetterError">Why delivery was abandoned. The half <c>IOutboxDashboardStore</c> cannot give.</param>
-    /// <param name="RetryCount">How many attempts were made before it was abandoned.</param>
-    /// <param name="CreatedAt">When the message was queued. Only used to find how far back a capped scan reaches.</param>
-    private sealed record DeadLetterRow(byte[] Payload, string? DeadLetterError, int RetryCount, DateTimeOffset CreatedAt);
 
     /// <summary>What a dead letter contributes to a diagnosis.</summary>
     /// <param name="Error">Why delivery was abandoned.</param>

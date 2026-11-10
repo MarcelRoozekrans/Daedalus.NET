@@ -1,8 +1,6 @@
 using Daedalus.Agents.Sessions;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Thalos;
 using Thalos.Testing;
 using Task = System.Threading.Tasks.Task;
@@ -21,12 +19,8 @@ public sealed class PostgresAgentSessionStoreTests(PostgresFixture fixture) : Se
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    protected override ValueTask<IAgentSessionStore> CreateStoreAsync(TimeProvider clock)
-    {
-        // The store disposes every context it creates, so the factory needs no tracking.
-        var factory = new TestDbContextFactory(fixture.ConnectionString);
-        return new(new PostgresAgentSessionStore(factory, clock));
-    }
+    protected override ValueTask<IAgentSessionStore> CreateStoreAsync(TimeProvider clock) =>
+        new(new PostgresAgentSessionStore(fixture.Db, clock));
 
     /// <summary>
     ///     The adapter converts between the two enums by integer cast; a drift in either enum must break loudly.
@@ -38,10 +32,5 @@ public sealed class PostgresAgentSessionStoreTests(PostgresFixture fixture) : Se
         var domain = Enum.GetValues<AgentSessionState>().Select(v => ((int)v, v.ToString())).ToList();
 
         domain.Should().Equal(thalos);
-    }
-
-    private sealed class TestDbContextFactory(string connectionString) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => new(PostgresFixture.CreateDbContextOptions(connectionString));
     }
 }

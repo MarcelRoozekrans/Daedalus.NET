@@ -1,15 +1,9 @@
-using Daedalus.Agents.Channels;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Services.GitHub;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
-using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Scheduling;
@@ -137,9 +131,7 @@ public sealed class RepoDigestWindowTests(PostgresFixture fixture) : IAsyncLifet
             $"daily-digest-{Guid.NewGuid():N}", "0 7 * * *", "RepoDigest", "telegram", "482910337",
             "schedule:daedalus", Roles, ScheduleOrigin.Config, Now, Repository).Value;
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRuns.Add(schedule);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, schedule);
         return schedule;
     }
 
@@ -153,9 +145,7 @@ public sealed class RepoDigestWindowTests(PostgresFixture fixture) : IAsyncLifet
         execution.RecordDigest("digest", occurrenceAt);
         execution.Complete(occurrenceAt);
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRunExecutions.Add(execution);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, execution);
     }
 
     /// <summary>Seeds a <see cref="ScheduledRunExecution"/> for <paramref name="scheduleId"/> that failed at the scout step.</summary>
@@ -166,9 +156,7 @@ public sealed class RepoDigestWindowTests(PostgresFixture fixture) : IAsyncLifet
         execution.BeginScout(occurrenceAt);
         execution.Fail("boom", occurrenceAt);
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRunExecutions.Add(execution);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, execution);
     }
 
     /// <summary>
@@ -194,14 +182,7 @@ public sealed class RepoDigestWindowTests(PostgresFixture fixture) : IAsyncLifet
         services.AddLogging();
         services.Configure<GitHubOptions>(o => o.DefaultLookback = ConfiguredLookback);
         services.AddSingleton<TimeProvider>(_time);
-        services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
-        services.AddOutbox(o => { })
-            .WithEfCore<ApplicationDbContext>()
-            .AddRunScoutStepOutbox()
-            .AddRunWriterStepOutbox()
-            .AddDeliverDigestOutbox()
-            .AddChannelMessageQueuedOutbox()
-            .WithSystemTextJsonSerializer();
+        services.AddChannelOutboxOver(fixture);
         services.AddScoped<ScheduledRunExecutionStore>();
 
         var provider = services.BuildServiceProvider();

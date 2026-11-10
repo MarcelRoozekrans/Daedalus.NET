@@ -28,8 +28,20 @@ public sealed partial class RepositoryReference
 
     [EqualityMember] public RepositoryPlatform Platform { get; private set; }
 
-    // Required by EF Core for owned type materialization
     private RepositoryReference() { }
+
+    /// <summary>
+    ///     Rebuilds a stored reference, for persistence only: every value is taken as stored, nothing is trimmed or
+    ///     validated, and the stored platform is kept, not detected again from the URL.
+    /// </summary>
+    /// <param name="url">The repository URL.</param>
+    /// <param name="branch">The branch, or null.</param>
+    /// <param name="commitSha">The commit SHA, or null.</param>
+    /// <param name="platform">The platform, as stored.</param>
+    /// <returns>The reference as stored.</returns>
+    public static RepositoryReference Rehydrate(
+        string url, string? branch, string? commitSha, RepositoryPlatform platform) =>
+        new() { Url = url, Branch = branch, CommitSha = commitSha, Platform = platform };
 
     public static Result<RepositoryReference> Create(string url, string? branch = null, string? commitSha = null)
     {

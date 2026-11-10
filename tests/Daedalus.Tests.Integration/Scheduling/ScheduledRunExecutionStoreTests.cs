@@ -3,14 +3,13 @@ using System.Data.Common;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm.ScheduledRunExecutions;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
+using Npgsql;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Scheduling;
@@ -18,9 +17,9 @@ namespace Daedalus.Tests.Integration.Scheduling;
 /// <summary>
 ///     Integration tests for <see cref="ScheduledRunExecutionStore"/> against a real PostgreSQL database — the
 ///     correctness core of the saga-free scheduling redesign. Every test resolves the store the way production
-///     must: from its own <see cref="IServiceScope"/>, with the real ZeroAlloc.Outbox-generated writers sharing
-///     that scope's <see cref="ApplicationDbContext"/>, because the store is scoped, not a singleton over
-///     <c>IDbContextFactory</c> — see the store's own remarks for why. The central claims under test: the same
+///     must: from its own <see cref="IServiceScope"/>, with the channel pipeline's real ZeroAlloc.Outbox-generated
+///     writers, each handed the store's own transaction — see the store's own remarks for why. The central claims
+///     under test: the same
 ///     <see cref="ScheduledRunDue"/> can never create two executions (the unique index, not handler diligence);
 ///     a redelivered step command can never re-run a completed step; and the terminal delivery step's outbox write
 ///     commits atomically with <c>Step = Done</c>.
@@ -227,7 +226,8 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
         // fix, FailAsync's read would resolve that STALE tracked instance by identity - not the row's true,
         // rolled-back Deliver step - see Step == Done, and return through its own terminal guard, and no operator
         // notice would ever be queued for a run that just failed. This is the regression this fix exists to
-        // prevent, and per the review it must be seen to fail first (see the round-3 report).
+        // prevent, and per the review it must be seen to fail first (see the round-3 report). Since phase 3.5 the
+        // store keeps no tracker and reads every row afresh; the test stays as the guard against a cache returning.
         var store = StoreWithChannelWriterThatFailsOnce();
         await store.TryBeginAsync(new ScheduledRunDue(_scheduleId, Occurrence), default);
         var id = (await SingleExecutionAsync()).Id;
@@ -237,7 +237,7 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
         var act = async () => await store.TryCompleteDeliveryAsync(id, default);
         await act.Should().ThrowAsync<InvalidOperationException>();
 
-        // Same store instance, same ApplicationDbContext - exactly the shape a real dispatcher uses.
+        // Same store instance - exactly the shape a real dispatcher uses.
         await store.FailAsync(id, "channel adapter unreachable", default);
 
         var row = await SingleExecutionAsync();
@@ -358,20 +358,36 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
     }
 
     [Fact]
-    public void The_insert_statement_lists_every_mapped_column()
+    public async Task The_insert_statement_lists_every_mapped_column()
     {
-        using var db = fixture.CreateContext();
+        // Phase 3.5, ruling R122: the columns are the table's own, read from information_schema, which lists no
+        // system column such as xmin; the insert's are parsed from the statement ScheduledRunExecutionSql sends.
+        var mapped = new HashSet<string>(StringComparer.Ordinal);
+        await using (var connection = new NpgsqlConnection(fixture.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT column_name FROM information_schema.columns " +
+                "WHERE table_schema = current_schema() AND table_name = 'ScheduledRunExecutions'",
+                connection);
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                mapped.Add(reader.GetString(0));
+            }
+        }
 
-        var mapped = db.Model.FindEntityType(typeof(ScheduledRunExecution))!
-            .GetProperties()
-            .Select(p => p.GetColumnName())
-            .Where(c => !string.Equals(c, "xmin", StringComparison.Ordinal)) // system column; the database maintains it
+        var sql = ScheduledRunExecutionSql.InsertSql;
+        var open = sql.IndexOf('(', StringComparison.Ordinal);
+        var inserted = sql[(open + 1)..sql.IndexOf(')', open)]
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(c => c.Trim('"'))
             .ToHashSet(StringComparer.Ordinal);
 
-        ScheduledRunExecutionStore.InsertColumnNames.ToHashSet(StringComparer.Ordinal)
-            .Should().BeEquivalentTo(mapped,
-                "TryBeginAsync writes this table with hand-written SQL; a property added to the entity without a " +
-                "matching column here is inserted as NULL or rejected at run time, and only at run time");
+        mapped.Should().NotBeEmpty();
+        inserted.Should().BeEquivalentTo(mapped,
+            "TryBeginAsync writes this table with hand-written SQL; a property added to the entity without a " +
+            "matching column here is inserted as NULL or rejected at run time, and only at run time");
     }
 
     [Fact]
@@ -407,35 +423,26 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
             name, "0 7 * * *", "RepoDigestSaga", channelId, conversationId, principalId, roles,
             ScheduleOrigin.Config, Occurrence).Value;
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRuns.Add(schedule);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, schedule);
         return schedule.Id;
     }
 
     private async Task<ScheduledRunExecution> SingleExecutionAsync()
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRunExecutions.AsNoTracking().SingleAsync();
+        return await ScheduleTables.SingleExecutionAsync(fixture);
     }
 
     private async Task<int> ExecutionCountAsync()
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRunExecutions.CountAsync();
+        return await ScheduleTables.ExecutionCountAsync(fixture);
     }
 
     /// <summary>
-    ///     Rows in the shared <c>OutboxMessages</c> table (see <see cref="ApplicationDbContext.OutboxMessages"/>)
+    ///     Rows in the channel outbox table <c>"OutboxMessages"</c>
     ///     whose type-name column matches <typeparamref name="T"/>'s full name — the same key ZeroAlloc.Outbox's
     ///     generated writer stamps every row with.
     /// </summary>
-    private async Task<List<OutboxMessageEntity>> OutboxRowsAsync<T>()
-    {
-        var typeName = typeof(T).FullName;
-        await using var db = fixture.CreateDbContext();
-        return await db.OutboxMessages.AsNoTracking().Where(m => m.TypeName == typeName).ToListAsync();
-    }
+    private Task<List<ChannelOutboxRow>> OutboxRowsAsync<T>() => ChannelOutboxRows.ListAsync<T>(fixture);
 
     /// <summary>
     ///     Deserializes every <typeparamref name="T"/> row's payload with the same <see cref="IOutboxSerializer"/>
@@ -452,9 +459,8 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
 
     /// <summary>
     ///     A store resolved from its own scope, wired exactly like production: the real generated
-    ///     <c>IOutboxWriter&lt;T&gt;</c> for each of the four message types shares the scope's single
-    ///     <see cref="ApplicationDbContext"/> with the store itself, so the store's transactions actually enlist
-    ///     the outbox writes. Each call builds an entirely separate DI container (and so an entirely separate
+    ///     <c>IOutboxWriter&lt;T&gt;</c> for each of the four message types, handed the store's own transaction, so
+    ///     the store's transactions actually enlist the outbox writes. Each call builds an entirely separate DI container (and so an entirely separate
     ///     database connection) — the same "brand-new store" fiction the crash-resumption and racing-pollers tests
     ///     rely on to model two independent processes.
     /// </summary>
@@ -520,14 +526,7 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
             }
         });
         services.AddSingleton<TimeProvider>(_time);
-        services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
-        services.AddOutbox(o => { })
-            .WithEfCore<ApplicationDbContext>()
-            .AddRunScoutStepOutbox()
-            .AddRunWriterStepOutbox()
-            .AddDeliverDigestOutbox()
-            .AddChannelMessageQueuedOutbox()
-            .WithSystemTextJsonSerializer();
+        services.AddChannelOutboxOver(fixture);
         services.AddScoped<ScheduledRunExecutionStore>();
 
         if (wrapChannelWriter is not null)
@@ -537,19 +536,17 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
             // ChannelMessageQueuedOutboxWriter (accessible here via InternalsVisibleTo) is passed in so the
             // wrapped write genuinely enlists in the ambient transaction, the same pattern
             // ScheduledRunStoreTests uses for its own rendezvous.
-            services.AddTransient<IOutboxWriter<ChannelMessageQueued>>(sp =>
-                wrapChannelWriter(
-                    new ChannelMessageQueuedOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>()),
-                    sp));
+            services.WrapChannelWriter<ChannelMessageQueued>(
+                (store, serializer) => new ChannelMessageQueuedOutboxWriter(store, serializer),
+                wrapChannelWriter);
         }
 
         if (wrapWriterStepWriter is not null)
         {
             // Same "registered after, real writer underneath" pattern as wrapChannelWriter above.
-            services.AddTransient<IOutboxWriter<RunWriterStep>>(sp =>
-                wrapWriterStepWriter(
-                    new RunWriterStepOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>()),
-                    sp));
+            services.WrapChannelWriter<RunWriterStep>(
+                (store, serializer) => new RunWriterStepOutboxWriter(store, serializer),
+                wrapWriterStepWriter);
         }
 
         var provider = services.BuildServiceProvider();
@@ -586,14 +583,12 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
 
     /// <summary>
     ///     Signals readiness and waits for the paired writer's own signal BEFORE performing the real write. The
-    ///     rendezvous must happen before the write, not after: <c>EfCoreOutboxStore</c> shares the calling
-    ///     <see cref="ApplicationDbContext"/> (see <see cref="ScheduledRunExecutionStore"/>'s remarks), so its
-    ///     internal <c>SaveChangesAsync</c> flushes the already-mutated <c>ScheduledRunExecution</c> row too — the
-    ///     row lock is acquired inside the inner writer's write, not at <c>FailAsync</c>'s later explicit
-    ///     <c>SaveChangesAsync</c>. Rendezvousing after the write would have the loser block on Postgres's row lock
-    ///     INSIDE the write, unable to ever reach the signal the winner is waiting on — a deadlock. Rendezvousing
-    ///     first guarantees both sides have already read and mutated the row and are about to write before either
-    ///     takes the lock, so they race for real.
+    ///     rendezvous is before the write, where both sides have already read and mutated the row and neither has
+    ///     taken its row lock yet: the store enqueues first and takes the lock at its guarded update after the
+    ///     write (see <see cref="ScheduledRunExecutionStore"/>'s remarks). This was essential while the writers were
+    ///     ZeroAlloc.Outbox.EfCore's, whose own save flushed the mutated row inside the write: rendezvousing after it
+    ///     would have had the loser block on the row lock INSIDE the write, unable to ever reach the signal the
+    ///     winner waits on — a deadlock. Rendezvousing first guarantees both sides race for real.
     /// </summary>
     private sealed class RendezvousChannelWriter(IOutboxWriter<ChannelMessageQueued> inner, TaskCompletionSource mySignal, Task otherSignal)
         : IOutboxWriter<ChannelMessageQueued>

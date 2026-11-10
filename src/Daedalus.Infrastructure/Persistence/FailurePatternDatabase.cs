@@ -1,5 +1,6 @@
 using Daedalus.Application.Abstractions;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.FailurePatterns;
 using Microsoft.Extensions.Logging;
 using ZeroAlloc.Results;
 
@@ -12,7 +13,7 @@ namespace Daedalus.Infrastructure.Persistence;
 ///     successful iterations on the same task to extract the resolution.
 /// </summary>
 public sealed partial class FailurePatternDatabase(
-    ApplicationDbContext dbContext,
+    DaedalusDb db,
     ILogger<FailurePatternDatabase> logger) : IFailurePatternDatabase
 {
     public async Task<Result<IReadOnlyList<FailurePatternRecord>>> SearchByErrorAsync(
@@ -25,57 +26,10 @@ public sealed partial class FailurePatternDatabase(
                 return Result<IReadOnlyList<FailurePatternRecord>>.Success([]);
             }
 
-            // Find task executions that had errors matching the search text
-            var errorExecutions = await dbContext.TaskExecutions
-                .AsNoTracking()
-                .Where(e => e.Error != null &&
-                            EF.Functions.ILike(e.Error, $"%{errorText}%"))
-                .OrderByDescending(e => e.ExecutedAt)
-                .Take(maxResults * 2) // Fetch extra to allow for resolution matching
-                .ToListAsync(ct)
-                .ConfigureAwait(false);
-
-            var patterns = new List<FailurePatternRecord>();
-
-            foreach (var errorExecution in errorExecutions)
-            {
-                // Look for the next successful iteration on the same task.
-                // This issues one query per errorExecution (an N+1 pattern). Batching it into a
-                // single query (e.g. a join across all errorExecutions' TaskIds) is a real
-                // optimisation but a larger change than this task's scope; tracked as follow-up
-                // alongside the ZA0601/ZA0501 NoWarn note in Directory.Build.props.
-                var resolution = await dbContext.TaskExecutions
-                    .AsNoTracking()
-                    .Where(e => e.TaskId == errorExecution.TaskId &&
-                                e.IterationNumber > errorExecution.IterationNumber &&
-                                e.Error == null &&
-                                e.LlmResponse.Length > 0)
-                    .OrderBy(e => e.IterationNumber)
-                    .FirstOrDefaultAsync(ct)
-                    .ConfigureAwait(false);
-
-                if (resolution != null)
-                {
-                    var resolutionText = resolution.LlmResponse.Length > 500
-                        ? resolution.LlmResponse[..500]
-                        : resolution.LlmResponse;
-
-                    patterns.Add(new FailurePatternRecord
-                    {
-                        ErrorText = errorExecution.Error!,
-                        Resolution = resolutionText,
-                        SourceTaskId = errorExecution.TaskId,
-                        ErrorIteration = errorExecution.IterationNumber,
-                        ResolutionIteration = resolution.IterationNumber,
-                        ObservedAt = errorExecution.ExecutedAt
-                    });
-                }
-
-                if (patterns.Count >= maxResults)
-                {
-                    break;
-                }
-            }
+            // Fetch extra errors to allow for resolution matching
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var patterns = await new FailurePatternSql(connection)
+                .SearchAsync($"%{errorText}%", maxResults * 2, maxResults, ct).ConfigureAwait(false);
 
             return Result<IReadOnlyList<FailurePatternRecord>>.Success(patterns);
         }

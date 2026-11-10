@@ -10,7 +10,9 @@ namespace Daedalus.Tests.Integration.Fixtures;
 /// </summary>
 public sealed class RespawnDatabaseResetter
 {
-    private static readonly Table[] TablesToIgnoreArray = [new("__EFMigrationsHistory")];
+    // Both history tables hold the schema's state, not test data: __zaorm_migrations is the runner's, and
+    // __EFMigrationsHistory stays from EF's chain on a database that has one.
+    private static readonly Table[] TablesToIgnoreArray = [new("__EFMigrationsHistory"), new("__zaorm_migrations")];
     private readonly string _connectionString;
     private Respawner? _respawner;
 

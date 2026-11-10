@@ -1,6 +1,5 @@
 using Daedalus.Agents;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -48,7 +47,7 @@ internal static class ChartersTestSupport
 
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.TryAddSingleton<DaedalusDb>();
         services.AddDaedalusAgents(builder.Build(), environment);
 
         // The real registration wires PostgresRoleCharterStore (UseRoleCharterStore<PostgresRoleCharterStore>).

@@ -13,9 +13,8 @@ namespace Daedalus.Agents.Scheduling;
 ///     <b>A plain timer, not <c>ZeroAlloc.Scheduling</c>.</b> The package was evaluated for this trigger and
 ///     dropped: its EF Core store needs its own <c>SchedulingDbContext</c>, which ships no migrations, and
 ///     <c>Database.EnsureCreated()</c> is not a substitute for one — it no-ops once the <c>daedalus</c> database
-///     already exists (created by <see cref="Daedalus.Infrastructure.Persistence.ApplicationDbContext"/>'s
-///     migrations), silently leaving the package's job table missing. None of what the package sells — durable
-///     jobs, retries, dead-lettering, a dashboard — is needed here either:
+///     already exists (created by Daedalus' own migrations), silently leaving the package's job table missing. None
+///     of what the package sells — durable jobs, retries, dead-lettering, a dashboard — is needed here either:
 ///     <see cref="ScheduledRunStore.ClaimAndEnqueueDueAsync"/> is idempotent and <c>ScheduledRuns.NextRunAt</c> is
 ///     the sweep's only source of truth, so a missed tick is simply picked up by the next one. There is no
 ///     "run the sweeper" row that would ever need to survive a crash. This is reversible — the package slots back
@@ -24,10 +23,9 @@ namespace Daedalus.Agents.Scheduling;
 ///     </para>
 ///     <para>
 ///     <b>A fresh <see cref="IServiceScope"/> per tick is a correctness requirement, not a style choice.</b>
-///     <see cref="ScheduledRunStore"/> is scoped and shares its
-///     <see cref="Daedalus.Infrastructure.Persistence.ApplicationDbContext"/> with the outbox writer (see that
-///     type's own remarks for why); reusing one scope across ticks would carry EF Core's change-tracker state
-///     between sweeps.
+///     <see cref="ScheduledRunStore"/> is scoped over the channel pipeline's keyed writers, whose store holds the
+///     pipeline's scoped connection (see the store's own remarks); reusing one scope across ticks would keep that
+///     connection, and everything else the scope resolved, for the host's lifetime.
 ///     </para>
 ///     <para>
 ///     <b>A tick must never let an exception escape.</b> Doing so would stop <see cref="BackgroundService"/>'s

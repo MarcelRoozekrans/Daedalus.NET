@@ -1,4 +1,3 @@
-using System.Data.Async.Adapters;
 using System.Security.Claims;
 using Daedalus.Agents;
 using Daedalus.Agents.Scheduling;
@@ -6,12 +5,10 @@ using Daedalus.Agents.Workflow;
 using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Daedalus.Tests.Shared;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -22,9 +19,6 @@ using Thalos.Tools;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
 using Thalos.Workspaces;
-using ZeroAlloc.ORM.Migrations;
-using ZeroAlloc.Outbox.Orm;
-using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;
@@ -457,13 +451,9 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
         await WithScratchDatabaseAsync(async store =>
         {
             var runId = await ParkedAtGateAsync(store, "drop");
-            await using (var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(store.ConnectionString)))
-            {
-                await db.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector");
-                await db.Database.MigrateAsync();
-            }
 
-            var records = new WorkflowRunRecordStore(new ConnectionStringDbContextFactory(store.ConnectionString));
+            await using var scratch = new ScratchDaedalusDb(store.ConnectionString);
+            var records = new WorkflowRunRecordStore(scratch.Db);
             var run = await store.Store.FindAsync(runId, CancellationToken.None);
             var evidence = WorkflowRunRecord.Create(
                 runId, run!.CurrentSeq, "review", WorkflowRunRecord.ReviewEvidenceKind, "workflow:run/review", null,
@@ -604,7 +594,7 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
 
         try
         {
-            await MigrateAsync(connectionString);
+            await DatabaseSchema.ApplyAsync(connectionString, CancellationToken.None);
 
             var options = new WorkflowOrmOptions { ConnectionString = connectionString };
             var definitions = new OrmProcessDefinitionStore(options);
@@ -622,17 +612,6 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
         }
     }
 
-    private static async Task MigrateAsync(string connectionString)
-    {
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        var asyncConnection = connection.AsAsync();
-        var dialect = new PostgresMigrationDialect();
-
-        await new MigrationRunner(asyncConnection, OutboxOrmMigrations.Postgres, dialect).RunAsync();
-        await new MigrationRunner(asyncConnection, WorkflowOrmMigrations.Postgres, dialect).RunAsync();
-    }
-
     private async Task ExecuteOnServerAsync(string sql)
     {
         await using var connection = new NpgsqlConnection(fixture.ConnectionString);
@@ -642,12 +621,6 @@ public sealed class ResumeSignalMismatchTests(PostgresFixture fixture)
     }
 
     private sealed record ScratchStore(OrmWorkflowStore Store, OrmProcessDefinitionStore Definitions, string ConnectionString);
-
-    /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
-    private sealed class ConnectionStringDbContextFactory(string connectionString) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => new(PostgresFixture.CreateDbContextOptions(connectionString));
-    }
 
     /// <summary>
     ///     The record-store scope factory every gateway here is built with, as <c>ReviewLensRunnerTests.Scopes</c>

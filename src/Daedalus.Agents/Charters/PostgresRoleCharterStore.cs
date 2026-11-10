@@ -1,6 +1,7 @@
+using System.Data.Common;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.RoleCharters;
 using Thalos;
 using Thalos.Skills.Charters;
 using ZeroAlloc.Results;
@@ -8,8 +9,8 @@ using ZeroAlloc.Results;
 namespace Daedalus.Agents.Charters;
 
 /// <summary>
-///     Thalos role-charter store over <see cref="ApplicationDbContext"/> (tables <c>RoleCharterVersions</c> and
-///     <c>RoleCharters</c>). Fresh short-lived DbContext per call (the store is a singleton), same pattern as
+///     Thalos role-charter store over <see cref="RoleCharterSql"/> (tables <c>RoleCharterVersions</c> and
+///     <c>RoleCharters</c>). One pooled connection per call, so the store is safe as a singleton, same pattern as
 ///     <see cref="Skills.PostgresSkillStore"/>.
 /// </summary>
 /// <remarks>
@@ -20,10 +21,9 @@ namespace Daedalus.Agents.Charters;
 ///     failures come back as <see cref="AgentError"/>s; Npgsql/connection exceptions propagate, the session-store
 ///     policy.
 /// </remarks>
-public sealed class PostgresRoleCharterStore(IDbContextFactory<ApplicationDbContext> contextFactory, TimeProvider clock) : IRoleCharterStore
+public sealed class PostgresRoleCharterStore(DaedalusDb db, TimeProvider clock) : IRoleCharterStore
 {
-    private readonly IDbContextFactory<ApplicationDbContext> _contextFactory =
-        contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
+    private readonly DaedalusDb _db = db ?? throw new ArgumentNullException(nameof(db));
 
     private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
 
@@ -32,13 +32,14 @@ public sealed class PostgresRoleCharterStore(IDbContextFactory<ApplicationDbCont
     {
         ArgumentNullException.ThrowIfNull(charter);
 
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        var sql = new RoleCharterSql(connection);
 
         // Append-only history: a run pinned to this hash must be able to resolve it later, even after a further
         // sync repoints RoleCharters at a different version. Skipped when the hash has already been captured (an
         // unchanged file re-synced, or a hash re-appearing after a rollback).
-        var versionExists = await db.RoleCharterVersions
-            .AnyAsync(v => v.Role == charter.Role && v.ContentHash == charter.ContentHash, ct).ConfigureAwait(false);
+        var versionExists = await sql.VersionExistsAsync(charter.Role, charter.ContentHash, ct).ConfigureAwait(false);
+        RoleCharterVersion? version = null;
         if (!versionExists)
         {
             var created = RoleCharterVersion.Create(
@@ -49,13 +50,17 @@ public sealed class PostgresRoleCharterStore(IDbContextFactory<ApplicationDbCont
                 return Result<RoleCharter, AgentError>.Failure(AgentError.SkillValidationFailed(created.Error));
             }
 
-            db.RoleCharterVersions.Add(created.Value);
+            version = created.Value;
         }
 
-        var head = await db.RoleCharters.FirstOrDefaultAsync(h => h.Role == charter.Role, ct).ConfigureAwait(false);
+        var head = await sql.FindHeadAsync(charter.Role, ct).ConfigureAwait(false);
+
+        // One transaction for the version and the head, as EF's single SaveChanges was: a lost check-then-insert
+        // race on either primary key rolls both back and is answered as before.
+        var headExists = head is not null;
         if (head is null)
         {
-            db.RoleCharters.Add(RoleCharterHead.Create(charter.Role, charter.ContentHash, charter.UpdatedAt.UtcDateTime));
+            head = RoleCharterHead.Create(charter.Role, charter.ContentHash, charter.UpdatedAt.UtcDateTime);
         }
         else
         {
@@ -64,9 +69,9 @@ public sealed class PostgresRoleCharterStore(IDbContextFactory<ApplicationDbCont
 
         try
         {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            await sql.StoreAsync(version, head, headExists, ct).ConfigureAwait(false);
         }
-        catch (DbUpdateException ex)
+        catch (DbException ex)
         {
             return Result<RoleCharter, AgentError>.Failure(
                 AgentError.SkillStoreFailed("Could not store the role charter.", ex.GetType().Name));
@@ -80,12 +85,14 @@ public sealed class PostgresRoleCharterStore(IDbContextFactory<ApplicationDbCont
     /// <inheritdoc />
     public async ValueTask<Result<IReadOnlyList<RoleCharter>, AgentError>> ListVersionsAsync(CancellationToken ct)
     {
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        var sql = new RoleCharterSql(connection);
 
-        var versions = await db.RoleCharterVersions.AsNoTracking().ToListAsync(ct).ConfigureAwait(false);
-        var heads = await db.RoleCharters.AsNoTracking().ToDictionaryAsync(h => h.Role, StringComparer.Ordinal, ct).ConfigureAwait(false);
+        var versions = await sql.ListVersionsAsync(ct).ConfigureAwait(false);
+        var headRows = await sql.ListHeadsAsync(ct).ConfigureAwait(false);
+        var heads = headRows.ToDictionary(h => h.Role, StringComparer.Ordinal);
 
-        IReadOnlyList<RoleCharter> all = versions.ConvertAll(v => ToCharter(v, heads));
+        IReadOnlyList<RoleCharter> all = [.. versions.Select(v => ToCharter(v, heads))];
         return Result<IReadOnlyList<RoleCharter>, AgentError>.Success(all);
     }
 
@@ -101,12 +108,8 @@ public sealed class PostgresRoleCharterStore(IDbContextFactory<ApplicationDbCont
         var roles = seenRoles.Distinct(StringComparer.Ordinal).ToList();
         var now = _clock.GetUtcNow().UtcDateTime;
 
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        await db.RoleCharters
-            .Where(h => h.IsActive && !roles.Contains(h.Role))
-            .ExecuteUpdateAsync(
-                set => set.SetProperty(h => h.IsActive, false).SetProperty(h => h.UpdatedAt, now), ct)
-            .ConfigureAwait(false);
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        await new RoleCharterSql(connection).DeactivateMissingAsync(roles, now, ct).ConfigureAwait(false);
 
         return UnitResult<AgentError>.Success();
     }

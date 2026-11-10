@@ -3,22 +3,15 @@ using Npgsql;
 using Thalos.Workflow.Orm;
 using ZeroAlloc.ORM.Migrations;
 using ZeroAlloc.Outbox.Orm;
-using ZeroAlloc.Results;
 
 namespace Daedalus.Migrations;
 
-/// <summary>What <see cref="WorkflowEngineMigrator.ApplyAsync" /> did.</summary>
-/// <param name="UpgradedHistoryRows">
-///     The pre-scoping history rows attributed to their source; zero once the table is scoped, or on a fresh
-///     database.
-/// </param>
-/// <param name="Applied">The migrations applied by this run, outbox first, then workflow.</param>
-public sealed record WorkflowEngineMigrationOutcome(int UpgradedHistoryRows, IReadOnlyList<Migration> Applied);
-
 /// <summary>
-///     The workflow engine's raw-SQL migrations, as <c>Daedalus.Migrations</c> applies them: the shared history
-///     table upgraded from before source scoping first, then <c>OutboxOrmMigrations.Postgres</c>, then
-///     <c>WorkflowOrmMigrations.Postgres</c>.
+///     The workflow engine's raw-SQL migrations, as <c>Daedalus.Migrations</c> applies them:
+///     <c>OutboxOrmMigrations.Postgres</c>, then <c>WorkflowOrmMigrations.Postgres</c>. The host upgrades a history
+///     table from before source scoping with <see cref="PreScopingMigrationHistory.UpgradeAsync" /> over
+///     <see cref="Sources" /> before any runner, the Daedalus one included, because a runner given such a table
+///     assigns all its rows to its own source.
 /// </summary>
 public static class WorkflowEngineMigrator
 {
@@ -31,25 +24,17 @@ public static class WorkflowEngineMigrator
         [OutboxOrmMigrations.Postgres, WorkflowOrmMigrations.Postgres];
 
     /// <summary>
-    ///     Attributes a pre-scoping history table's rows to their sources, then runs every source.
+    ///     Runs every source in <see cref="Sources" /> on a history table that is already scoped or absent.
     /// </summary>
     /// <returns>
-    ///     A failure, with nothing changed, when the pre-scoping table holds a row that is no source's migration.
-    ///     A migration's own SQL failing still throws, as <see cref="MigrationRunner.RunAsync" /> does.
+    ///     The migrations applied by this run, outbox first, then workflow. A migration's own SQL failing throws, as
+    ///     <see cref="MigrationRunner.RunAsync" /> does.
     /// </returns>
-    public static async Task<Result<WorkflowEngineMigrationOutcome>> ApplyAsync(
+    public static async Task<IReadOnlyList<Migration>> ApplyAsync(
         NpgsqlConnection connection,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(connection);
-
-        // Before any runner: a runner upgrading the table itself assigns every row to its own source, and refuses
-        // the table because the other source's rows are in it.
-        var upgrade = await PreScopingMigrationHistory.UpgradeAsync(connection, Sources, cancellationToken);
-        if (upgrade.IsFailure)
-        {
-            return Result<WorkflowEngineMigrationOutcome>.Failure(upgrade.Error);
-        }
 
         var asyncConnection = connection.AsAsync();
         var dialect = new PostgresMigrationDialect();
@@ -59,6 +44,6 @@ public static class WorkflowEngineMigrator
             applied.AddRange(await new MigrationRunner(asyncConnection, source, dialect).RunAsync(cancellationToken));
         }
 
-        return Result<WorkflowEngineMigrationOutcome>.Success(new WorkflowEngineMigrationOutcome(upgrade.Value, applied));
+        return applied;
     }
 }

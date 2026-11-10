@@ -5,11 +5,9 @@ using Daedalus.Agents.Memory;
 using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.DTOs.Agents;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
@@ -43,7 +41,7 @@ public sealed class AgentMemoriesEndpointsIntegrationTests(PostgresFixture fixtu
     public async Task InitializeAsync()
     {
         await fixture.DatabaseResetter.ResetAsync();
-        _store = new PostgresMemoryStore(new FixtureDbContextFactory(fixture), _clock);
+        _store = new PostgresMemoryStore(fixture.Db, _clock);
         _logger.IsEnabled(Arg.Any<LogLevel>()).Returns(true);
         _loggerFactory.CreateLogger(Arg.Any<string>()).Returns(_logger);
     }
@@ -434,9 +432,4 @@ public sealed class AgentMemoriesEndpointsIntegrationTests(PostgresFixture fixtu
 
     private static async Task<TSelf> Bind<TSelf>(HttpContext context, ParameterInfo parameter)
         where TSelf : class, IBindableFromHttpContext<TSelf> => (await TSelf.BindAsync(context, parameter))!;
-
-    private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => fixture.CreateDbContext();
-    }
 }

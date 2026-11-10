@@ -9,8 +9,7 @@ using Daedalus.Agents.Workflow;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
 using Daedalus.Application.Services.CodeAnalysis;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,7 +23,6 @@ using Thalos.Memory;
 using Thalos.Memory.RagNet;
 using Thalos.Sentinel;
 using Thalos.Skills;
-using Thalos.Tools;
 using Thalos.Workflow;
 using ZeroAlloc.Authorization;
 
@@ -80,11 +78,13 @@ public sealed class DaedalusAgentsRegistrationTests
         var environment = Environment();
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         // A real host gets the pull request factory from Daedalus.Infrastructure, not from AddDaedalusAgents, and
         // the pull request publisher needs one to resolve.
         services.AddSingleton(Substitute.For<IPullRequestFactory>());
         services.AddDaedalusAgents(configuration, environment, embeddings);
+        // A real host gets DaedalusDb from AddApplicationDatabase, over the data source AddDaedalusAgents shares, and the
+        // run record store needs it to resolve.
+        services.TryAddSingleton<DaedalusDb>();
         return services.BuildServiceProvider();
     }
 
@@ -109,7 +109,6 @@ public sealed class DaedalusAgentsRegistrationTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         services.AddSingleton(Substitute.For<IPullRequestFactory>());
         services.AddDaedalusAgents(Config(), Environment());
 
@@ -144,7 +143,6 @@ public sealed class DaedalusAgentsRegistrationTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         services.AddSingleton(Substitute.For<IPullRequestFactory>());
         services.AddDaedalusAgents(Config(), Environment());
 
@@ -289,7 +287,7 @@ public sealed class DaedalusAgentsRegistrationTests
 
     /// <summary>
     ///     Task B6: the write audit and the review lenses resolve the run record store from the host, so a
-    ///     workflow-enabled host must register the EF store, not leave it for each consumer to add.
+    ///     workflow-enabled host must register the store, not leave it for each consumer to add.
     /// </summary>
     [Fact]
     public void The_run_record_store_is_registered_when_the_workflow_engine_is_enabled()
@@ -629,7 +627,6 @@ public sealed class DaedalusAgentsRegistrationTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         services.AddSingleton(Substitute.For<IPullRequestFactory>());
         services.AddDaedalusAgents(Config(), Environment());
         var substitute = Substitute.For<IPullRequestPublisher>();
@@ -1010,7 +1007,6 @@ public sealed class DaedalusAgentsRegistrationTests
 
             var services = new ServiceCollection();
             services.AddLogging();
-            services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
             services.AddDaedalusAgents(Config(("Thalos:Skills:Roots:0", "skills")), env);
             using var sp = services.BuildServiceProvider();
 

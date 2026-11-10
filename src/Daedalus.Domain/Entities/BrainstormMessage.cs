@@ -23,7 +23,34 @@ public sealed class BrainstormMessage : Entity<Guid>
     /// <summary>Gets when this message was created.</summary>
     public DateTime CreatedAt { get; private set; }
 
-    private BrainstormMessage() { } // EF Core
+    private BrainstormMessage() { }
+
+    /// <summary>
+    ///     Rebuilds a stored message, for persistence only: every value is taken as stored and nothing is validated.
+    /// </summary>
+    /// <param name="id">The message id.</param>
+    /// <param name="brainstormSessionId">The session the message belongs to.</param>
+    /// <param name="role">The role of the message author.</param>
+    /// <param name="content">The text content.</param>
+    /// <param name="phase">The phase the message was created in.</param>
+    /// <param name="createdAt">When the message was created.</param>
+    /// <returns>The message as stored.</returns>
+    public static BrainstormMessage Rehydrate(
+        Guid id,
+        Guid brainstormSessionId,
+        MessageRole role,
+        string content,
+        BrainstormPhase phase,
+        DateTime createdAt) =>
+        new()
+        {
+            Id = id,
+            BrainstormSessionId = brainstormSessionId,
+            Role = role,
+            Content = content,
+            Phase = phase,
+            CreatedAt = createdAt
+        };
 
     /// <summary>
     ///     Creates a new brainstorm message with validated parameters.

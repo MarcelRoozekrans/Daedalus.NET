@@ -6,8 +6,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <LangVersion>13</LangVersion>
         <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
-        <!-- Native AOT disabled: EF Core (ApplyConfigurationsFromAssembly),
-             Aspire and AI.Sentinel all need reflection/dynamic code — a
+        <!-- Native AOT disabled: Aspire and AI.Sentinel need reflection/dynamic code — a
              Release publish with PublishAot=true fails on IL2026/IL2104 (this is what kept the API container image
              from ever building). Reflection-based System.Text.Json stays enabled in every configuration for the
              same reason: the agent session store serializes without source-generated contexts. -->
@@ -26,10 +25,7 @@
     <ItemGroup>
         <PackageReference Include="AspNetCore.HealthChecks.NpgSql" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
-        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
         <PackageReference Include="Thalos.NET.Ollama" />
         <PackageReference Include="ZeroAlloc.Results" />
         <PackageReference Include="Scalar.AspNetCore" />

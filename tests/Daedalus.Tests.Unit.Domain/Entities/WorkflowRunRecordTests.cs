@@ -129,4 +129,29 @@ public sealed class WorkflowRunRecordTests
     [InlineData(DateTimeKind.Unspecified)]
     public void Create_rejects_a_time_that_is_not_utc(DateTimeKind kind) =>
         Rejected(Create(createdAt: DateTime.SpecifyKind(_now, kind))).Should().Be("Created at must be a UTC time.");
+
+    /// <summary>
+    ///     A stored row loads as it is, even one <see cref="WorkflowRunRecord.Create"/> would refuse today: a blank node,
+    ///     a blank starter id and a local time. Red: validate in <c>Rehydrate</c>, or drop any one assignment.
+    /// </summary>
+    [Fact]
+    public void Rehydrate_keeps_every_value_including_ones_Create_rejects()
+    {
+        var local = DateTime.SpecifyKind(_now, DateTimeKind.Local);
+        Rejected(Create(node: "   ", startedById: "", createdAt: local)).Should().NotBeEmpty();
+
+        var record = WorkflowRunRecord.Rehydrate(
+            42, _runId, 9, "   ", WorkflowRunRecord.ReviewEvidenceKind, "workflow:run/review", "", "[1]", local);
+
+        record.Id.Should().Be(42);
+        record.RunId.Should().Be(_runId);
+        record.Seq.Should().Be(9);
+        record.Node.Should().Be("   ");
+        record.Kind.Should().Be("review-evidence");
+        record.PrincipalId.Should().Be("workflow:run/review");
+        record.StartedById.Should().BeEmpty();
+        record.PayloadJson.Should().Be("[1]");
+        record.CreatedAt.Should().Be(local);
+        record.CreatedAt.Kind.Should().Be(DateTimeKind.Local);
+    }
 }

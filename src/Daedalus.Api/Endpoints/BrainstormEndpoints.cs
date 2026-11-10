@@ -1,6 +1,7 @@
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs;
 using Daedalus.Application.Mappers;
+using Daedalus.Application.Services;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 
@@ -12,7 +13,9 @@ namespace Daedalus.Api.Endpoints;
 ///     requires an authenticated user and each route adds its policy and, for four of them, a rate limit. Every
 ///     failure answers an <c>{ "error" }</c> body through <see cref="ApiJson.Of"/> (R45); the declared 400 and 404 are
 ///     <c>ProducesProblem</c> because MVC declared <c>ProblemDetails</c> and wrote the anonymous object. The
-///     controller had no catch-all, so neither do the handlers (R47).
+///     controller had no catch-all, so neither do the handlers (R47). A write whose session save lost a race to another
+///     write answers 409 with the refusal, matched by <see cref="SaveConflict.IsConflict"/>, as projects do;
+///     generate-tasks is the exception (R83).
 /// </remarks>
 public static partial class BrainstormEndpoints
 {
@@ -29,7 +32,8 @@ public static partial class BrainstormEndpoints
         group.MapPost("sessions", CreateSession)
             .RequireAuthorization("CodeAnalysis")
             .RequireRateLimiting("llm-operations")
-            .ProducesProblem(StatusCodes.Status400BadRequest, "application/json");
+            .ProducesProblem(StatusCodes.Status400BadRequest, "application/json")
+            .ProducesProblem(StatusCodes.Status409Conflict, "application/json");
 
         group.MapGet("sessions/{sessionId:guid}", GetSession)
             .RequireAuthorization("CodeAnalysisRead")
@@ -42,17 +46,20 @@ public static partial class BrainstormEndpoints
         group.MapPost("sessions/{sessionId:guid}/messages", SendMessage)
             .RequireAuthorization("CodeAnalysis")
             .RequireRateLimiting("llm-operations")
-            .ProducesProblem(StatusCodes.Status400BadRequest, "application/json");
+            .ProducesProblem(StatusCodes.Status400BadRequest, "application/json")
+            .ProducesProblem(StatusCodes.Status409Conflict, "application/json");
 
         group.MapPost("sessions/{sessionId:guid}/advance", AdvancePhase)
             .RequireAuthorization("CodeAnalysis")
             .RequireRateLimiting("llm-operations")
-            .ProducesProblem(StatusCodes.Status400BadRequest, "application/json");
+            .ProducesProblem(StatusCodes.Status400BadRequest, "application/json")
+            .ProducesProblem(StatusCodes.Status409Conflict, "application/json");
 
         group.MapPost("sessions/{sessionId:guid}/abandon", AbandonSession)
             .RequireAuthorization("CodeAnalysis")
             .Produces(StatusCodes.Status204NoContent)
-            .ProducesProblem(StatusCodes.Status400BadRequest, "application/json");
+            .ProducesProblem(StatusCodes.Status400BadRequest, "application/json")
+            .ProducesProblem(StatusCodes.Status409Conflict, "application/json");
 
         group.MapPost("sessions/{sessionId:guid}/generate-tasks", GenerateTasks)
             .RequireAuthorization("TaskManagement")
@@ -75,7 +82,7 @@ public static partial class BrainstormEndpoints
 
         return result.IsSuccess
             ? TypedResults.Ok(BrainstormDtoMapper.ToDto(result.Value))
-            : Error(result.Error, StatusCodes.Status400BadRequest);
+            : WriteFailure(result.Error);
     }
 
     /// <summary>Get a brainstorm session by ID including all messages.</summary>
@@ -128,7 +135,7 @@ public static partial class BrainstormEndpoints
 
         return result.IsSuccess
             ? TypedResults.Ok(BrainstormDtoMapper.ToDto(result.Value))
-            : Error(result.Error, StatusCodes.Status400BadRequest);
+            : WriteFailure(result.Error);
     }
 
     /// <summary>Advance the brainstorm session to the next phase.</summary>
@@ -143,7 +150,7 @@ public static partial class BrainstormEndpoints
 
         return result.IsSuccess
             ? TypedResults.Ok(BrainstormDtoMapper.ToDto(result.Value))
-            : Error(result.Error, StatusCodes.Status400BadRequest);
+            : WriteFailure(result.Error);
     }
 
     /// <summary>Abandon a brainstorm session.</summary>
@@ -158,10 +165,13 @@ public static partial class BrainstormEndpoints
 
         return result.IsSuccess
             ? TypedResults.NoContent()
-            : Error(result.Error, StatusCodes.Status400BadRequest);
+            : WriteFailure(result.Error);
     }
 
-    /// <summary>Generate tasks from a brainstorm session's implementation plan.</summary>
+    /// <summary>
+    ///     Generate tasks from a brainstorm session's implementation plan. Every failure answers 400: once the tasks exist,
+    ///     the service redoes a lost save itself and never answers the retry text, which would create them again (R83).
+    /// </summary>
     public static async Task<Results<Ok<List<TaskDto>>, ApiJsonResult<ErrorBody>>> GenerateTasks(
         Guid sessionId, [FromServices] IBrainstormService brainstormService,
         [FromServices] ILoggerFactory loggerFactory, CancellationToken ct)
@@ -175,6 +185,10 @@ public static partial class BrainstormEndpoints
             ? TypedResults.Ok(result.Value)
             : Error(result.Error, StatusCodes.Status400BadRequest);
     }
+
+    /// <summary>A failed write: 409 when its session save lost a race to another write (R83), else 400.</summary>
+    private static ApiJsonResult<ErrorBody> WriteFailure(string error) =>
+        Error(error, SaveConflict.IsConflict(error) ? StatusCodes.Status409Conflict : StatusCodes.Status400BadRequest);
 
     private static ApiJsonResult<ErrorBody> Error(string error, int statusCode) =>
         ApiJson.Of(new ErrorBody(error), statusCode);

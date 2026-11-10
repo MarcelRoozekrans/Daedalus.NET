@@ -1,6 +1,3 @@
-#pragma warning disable CA1819 // Use byte[] instead of property returning array (EF Core concurrency token standard pattern)
-#pragma warning disable S1144 // EF Core sets TasksCompleted and RowVersion via reflection (unused private setters are required)
-
 using ZeroAlloc.Results;
 
 namespace Daedalus.Domain.Entities;
@@ -24,13 +21,7 @@ public sealed class ExecutionSession : AggregateRoot<Guid>
     public bool IsActive { get; private set; } = true;
 
     /// <summary>Gets the number of tasks completed by this session.</summary>
-    public int TasksCompleted { get; private set; }
-
-    /// <summary>
-    ///     Gets the concurrency token (row version) for optimistic locking.
-    ///     Prevents lost updates in concurrent scenarios (e.g., heartbeat vs. shutdown).
-    /// </summary>
-    public byte[]? RowVersion { get; private set; }
+    public int TasksCompleted { get; }
 
     /// <summary>
     ///     Creates a new execution session.
@@ -52,5 +43,3 @@ public sealed class ExecutionSession : AggregateRoot<Guid>
         });
     }
 }
-#pragma warning restore S1144
-#pragma warning restore CA1819

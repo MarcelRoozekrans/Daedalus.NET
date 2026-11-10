@@ -8,8 +8,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <RootNamespace>Daedalus.Cli</RootNamespace>
         <AssemblyName>Daedalus.Cli</AssemblyName>
-        <!-- AOT disabled, like Daedalus.Api: EF Core's ApplyConfigurationsFromAssembly and the
-             Thalos agent stack need reflection/dynamic code. -->
+        <!-- AOT disabled, like Daedalus.Api: the Thalos agent stack needs reflection/dynamic code. -->
         <PublishAot>false</PublishAot>
         <TrimMode>none</TrimMode>
         <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
@@ -36,12 +35,6 @@
         <PackageReference Include="Microsoft.Extensions.Configuration" />
         <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
         <PackageReference Include="Microsoft.Extensions.Logging" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
         <PackageReference Include="ZeroAlloc.Results" />
         <PackageReference Include="Thalos.NET.Ollama" />
     </ItemGroup>

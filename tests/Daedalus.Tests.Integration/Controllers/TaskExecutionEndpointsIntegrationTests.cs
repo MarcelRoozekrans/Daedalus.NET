@@ -2,12 +2,10 @@ using Daedalus.Api.Endpoints;
 using Daedalus.Api.Services;
 using Daedalus.Application.DTOs;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Daedalus.Tests.Shared;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Task = System.Threading.Tasks.Task;
 
@@ -22,37 +20,19 @@ public class TaskExecutionEndpointsIntegrationTests(PostgresFixture fixture) : I
 {
     private readonly ILoggerFactory _loggerFactory = Substitute.For<ILoggerFactory>();
 
-    private ApplicationDbContext _dbContext = null!;
     private ITaskExecutionQueryService _executionQueryService = null!;
 
     public async Task InitializeAsync()
     {
-        var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
-
-        _dbContext = new ApplicationDbContext(options);
-
         // Don't reset database - rely on fixture's respawn initialization
         // Just ensure our required project exists
-        var projectId = IntegrationTestFactory.GetDefaultProjectId();
-        var existingProject = await _dbContext.Projects.AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == projectId);
-        if (existingProject == null)
-        {
-            var project = IntegrationTestFactory.CreateProject(projectId);
-            _dbContext.Projects.Add(project);
-            await _dbContext.SaveChangesAsync();
-        }
+        await StoreSeed.AddProjectIfAbsentAsync(
+            fixture.Db, IntegrationTestFactory.CreateProject(IntegrationTestFactory.GetDefaultProjectId()));
 
-        _executionQueryService = new TaskExecutionQueryService(_dbContext);
+        _executionQueryService = new TaskExecutionQueryService(fixture.Db);
     }
 
-    public async Task DisposeAsync()
-    {
-        if (_dbContext != null)
-        {
-            await _dbContext.DisposeAsync();
-        }
-    }
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact(Timeout = 5000)]
     public async Task GetByTaskId_WithValidTaskId_Returns200()
@@ -74,9 +54,8 @@ public class TaskExecutionEndpointsIntegrationTests(PostgresFixture fixture) : I
             ExecutionDuration = TimeSpan.FromSeconds(1)
         };
 
-        _dbContext.Tasks.Add(task);
-        _dbContext.TaskExecutions.Add(execution);
-        await _dbContext.SaveChangesAsync();
+        await StoreSeed.AddTasksAsync(fixture.Db, task);
+        await StoreSeed.AddExecutionsAsync(fixture.ConnectionString, execution);
 
         var (page, pageSize) = await PagingQueryBinding.BindAsync(new DefaultHttpContext(), string.Empty);
 
@@ -110,9 +89,8 @@ public class TaskExecutionEndpointsIntegrationTests(PostgresFixture fixture) : I
             ExecutionDuration = TimeSpan.FromSeconds(1)
         };
 
-        _dbContext.Tasks.Add(task);
-        _dbContext.TaskExecutions.Add(execution);
-        await _dbContext.SaveChangesAsync();
+        await StoreSeed.AddTasksAsync(fixture.Db, task);
+        await StoreSeed.AddExecutionsAsync(fixture.ConnectionString, execution);
 
         var (page, pageSize) = await PagingQueryBinding.BindAsync(new DefaultHttpContext(), string.Empty);
 

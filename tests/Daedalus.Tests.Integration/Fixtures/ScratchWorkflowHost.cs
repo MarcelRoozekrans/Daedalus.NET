@@ -2,9 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Daedalus.Agents.Workflow;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
-using Daedalus.Migrations;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Thalos;
@@ -134,7 +132,7 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
         ApiWebApplicationFactory? factory = null;
         try
         {
-            await MigrateAsync(connectionString);
+            await DatabaseSchema.ApplyAsync(connectionString, CancellationToken.None);
 
             // The AGENT.md final newline is there because Thalos's base-file reader adds one (Thalos issue #245); the
             // no-final-newline and CRLF cases stay untested until #245 is fixed.
@@ -319,25 +317,6 @@ internal sealed class ScratchWorkflowHost : IAsyncDisposable
             {
                 LocalGitRemote.DeleteReadOnly(hostToolsRoot);
             }
-        }
-    }
-
-    private static async Task MigrateAsync(string connectionString)
-    {
-        await using (var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(connectionString)))
-        {
-            await db.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector");
-            await db.Database.MigrateAsync();
-        }
-
-        // The workflow engine's raw-SQL schema through the step Daedalus.Migrations runs at deploy, so the sources and
-        // their order cannot drift from it.
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        var outcome = await WorkflowEngineMigrator.ApplyAsync(connection);
-        if (outcome.IsFailure)
-        {
-            throw new InvalidOperationException($"The workflow engine migration was refused: {outcome.Error}");
         }
     }
 

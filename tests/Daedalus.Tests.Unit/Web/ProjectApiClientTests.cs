@@ -101,6 +101,27 @@ public sealed class ProjectApiClientTests
     }
 
     /// <summary>
+    ///     A write the server refuses shows the server's reason after what failed: the <c>error</c> of the
+    ///     <c>{ "error": "..." }</c> body the project endpoints answer, such as a lost race's 409, or a ProblemDetails
+    ///     <c>detail</c>; a body in neither shape is shown as it came. Red: show the raw body, as before; the text
+    ///     carries the JSON.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Writes))]
+    public async Task A_refused_write_shows_the_servers_reason(string write)
+    {
+        const string Refusal = "The project was modified by another operation. Please retry.";
+
+        var error = await Write(Refusing(HttpStatusCode.Conflict, $$"""{"error":"{{Refusal}}"}"""), write);
+        var problem = await Write(Refusing(HttpStatusCode.Conflict, $$"""{"title":"Conflict","detail":"{{Refusal}}"}"""), write);
+        var plain = await Write(Refusing(HttpStatusCode.BadRequest, "Name taken"), write);
+
+        error.Should().Be($"{Refused(write)}: {Refusal}");
+        problem.Should().Be($"{Refused(write)}: {Refusal}");
+        plain.Should().Be($"{Refused(write)}: Name taken");
+    }
+
+    /// <summary>
     ///     Any other exception is a defect and propagates, rather than becoming a message on the page.
     ///     Red: restore the catch-all in CreateProjectAsync; create returns a failure. Red: the same in
     ///     UpdateProjectAsync. Red: the same in DeleteProjectAsync.
@@ -134,6 +155,16 @@ public sealed class ProjectApiClientTests
         "update" => "Error updating project",
         _ => "Error deleting project",
     };
+
+    private static string Refused(string write) => write switch
+    {
+        "create" => "Failed to create project",
+        "update" => "Failed to update project",
+        _ => "Failed to delete project",
+    };
+
+    private static ProjectApiClient Refusing(HttpStatusCode status, string body) =>
+        Client(() => new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
 
     private static ProjectApiClient Throwing(Exception exception) => Client(() => throw exception);
 

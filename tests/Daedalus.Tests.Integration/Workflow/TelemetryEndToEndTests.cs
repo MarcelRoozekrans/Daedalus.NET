@@ -1,15 +1,13 @@
 using System.Diagnostics;
 using Daedalus.Agents.Decisions;
 using Daedalus.Agents.Workflow;
-using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs.WorkflowRuns;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Thalos;
@@ -168,11 +166,7 @@ public sealed class TelemetryEndToEndTests(PostgresFixture fixture)
         var task = DomainTask.Create(
             Guid.NewGuid(), project.Id, taskCode, title, description, Priority.Medium, "Testing", 1, Complexity.Medium, prompt).Value;
         project.AddTask(task).IsSuccess.Should().BeTrue();
-        await using (var db = await host.Factory.Services.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContextAsync())
-        {
-            db.Projects.Add(project);
-            await db.SaveChangesAsync();
-        }
+        await StoreSeed.AddProjectAsync(host.Factory.Services.GetRequiredService<DaedalusDb>(), project);
 
         using var client = host.Client("a-developer", "developer");
         var start = await client.PostAsync($"/api/tasks/{task.Id}/manufacture", content: null);

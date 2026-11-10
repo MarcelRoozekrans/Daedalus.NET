@@ -7,8 +7,6 @@ using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Infrastructure.Agents;
 using Daedalus.Infrastructure.Configuration;
 using Daedalus.Infrastructure.Extensions;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -87,7 +85,6 @@ public sealed class AgentFactoryTests
         environment.EnvironmentName.Returns("Development");
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         services.AddSingleton(Substitute.For<IPullRequestFactory>());
         services.AddExternalServices(configuration);
         services.AddAgentFrameworkServices(configuration);

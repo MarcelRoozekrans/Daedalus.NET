@@ -19,7 +19,7 @@ public sealed class ProjectApiClient(HttpClient httpClient) : IProjectApiClient
             var response = await httpClient.PostAsJsonAsync("/api/projects", request, WebJsonContext.Default.CreateProjectDto, ct).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                var error = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                var error = await ReadRefusalAsync(response, ct).ConfigureAwait(false);
                 return Result<ProjectDto>.Failure($"Failed to create project: {error}");
             }
 
@@ -48,7 +48,7 @@ public sealed class ProjectApiClient(HttpClient httpClient) : IProjectApiClient
             var response = await httpClient.PutAsJsonAsync($"/api/projects/{id}", request, WebJsonContext.Default.UpdateProjectDto, ct).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                var error = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                var error = await ReadRefusalAsync(response, ct).ConfigureAwait(false);
                 return Result<ProjectDto>.Failure($"Failed to update project: {error}");
             }
 
@@ -77,7 +77,7 @@ public sealed class ProjectApiClient(HttpClient httpClient) : IProjectApiClient
             var response = await httpClient.DeleteAsync(uri, ct).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                var error = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                var error = await ReadRefusalAsync(response, ct).ConfigureAwait(false);
                 return Result<bool>.Failure($"Failed to delete project: {error}");
             }
 
@@ -90,6 +90,29 @@ public sealed class ProjectApiClient(HttpClient httpClient) : IProjectApiClient
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or ExecutionRejectedException)
         {
             return Result<bool>.Failure($"Error deleting project: {ex.Message}");
+        }
+    }
+    /// <summary>
+    ///     The reason the server refused a write: the <c>error</c> of the <c>{ "error": "..." }</c> body the project
+    ///     endpoints answer, such as a lost race's 409, or a ProblemDetails <c>detail</c>; a body in neither shape is
+    ///     shown as it came. <c>ApiClient</c> reads the same two shapes.
+    /// </summary>
+    private static async Task<string> ReadRefusalAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var refusal = JsonSerializer.Deserialize(body, WebJsonContext.Default.FailureBody);
+            if (!string.IsNullOrWhiteSpace(refusal?.Detail))
+            {
+                return refusal.Detail;
+            }
+
+            return !string.IsNullOrWhiteSpace(refusal?.Error) ? refusal.Error : body;
+        }
+        catch (JsonException)
+        {
+            return body;
         }
     }
 }

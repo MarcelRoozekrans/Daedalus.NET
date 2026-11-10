@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Daedalus.Application.DTOs;
+using Daedalus.Application.Services;
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -17,7 +18,9 @@ namespace Daedalus.Api.Endpoints;
 ///     <see cref="CancelAnalysisResponse"/>, written through <see cref="ApiJson.Of"/> so the endpoint declares a
 ///     bodiless 200, as MVC's <c>[ProducesResponseType(200)]</c> did (R52). The controller had no catch-all, so
 ///     neither do the handlers (R47). The two <c>ModelState.IsValid</c> checks are dropped (R10), and the blank
-///     repository URL check became <c>[Required]</c> on its parameter (R52).
+///     repository URL check became <c>[Required]</c> on its parameter (R52). A write whose guarded save lost a race to
+///     another write, iterate, finalize or cancel, answers 409 with the refusal as its detail, matched by
+///     <see cref="SaveConflict.IsConflict"/>, as projects and brainstorm sessions do (R95).
 /// </remarks>
 public static partial class CodeAnalysisEndpoints
 {
@@ -45,19 +48,22 @@ public static partial class CodeAnalysisEndpoints
             .RequireRateLimiting("llm-operations")
             .Produces(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest, "application/json")
-            .ProducesProblem(StatusCodes.Status404NotFound, "application/json");
+            .ProducesProblem(StatusCodes.Status404NotFound, "application/json")
+            .ProducesProblem(StatusCodes.Status409Conflict, "application/json");
 
         group.MapPost("{requestId:guid}/finalize", FinalizeAnalysis)
             .RequireAuthorization("CodeAnalysis")
             .RequireRateLimiting("llm-operations")
             .ProducesProblem(StatusCodes.Status400BadRequest, "application/json")
-            .ProducesProblem(StatusCodes.Status404NotFound, "application/json");
+            .ProducesProblem(StatusCodes.Status404NotFound, "application/json")
+            .ProducesProblem(StatusCodes.Status409Conflict, "application/json");
 
         group.MapPost("{requestId:guid}/cancel", CancelAnalysis)
             .RequireAuthorization("CodeAnalysis")
             .Produces(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest, "application/json")
-            .ProducesProblem(StatusCodes.Status404NotFound, "application/json");
+            .ProducesProblem(StatusCodes.Status404NotFound, "application/json")
+            .ProducesProblem(StatusCodes.Status409Conflict, "application/json");
 
         group.MapGet("next-pending", GetNextPending)
             .RequireAuthorization("CodeAnalysisRead");
@@ -183,7 +189,7 @@ public static partial class CodeAnalysisEndpoints
 
         if (iterateResult.IsFailure)
         {
-            return Problem(context, StatusCodes.Status400BadRequest, "Iteration Error", iterateResult.Error);
+            return WriteFailure(context, "Iteration Error", iterateResult.Error);
         }
 
         return ApiJson.Of(new IterateAnalysisResponse(requestId, nextIteration), StatusCodes.Status200OK);
@@ -208,7 +214,7 @@ public static partial class CodeAnalysisEndpoints
 
         if (completeResult.IsFailure)
         {
-            return Problem(context, StatusCodes.Status400BadRequest, "Finalization Error", completeResult.Error);
+            return WriteFailure(context, "Finalization Error", completeResult.Error);
         }
 
         // Fetch the completed entity to return the PR URL if available
@@ -230,6 +236,11 @@ public static partial class CodeAnalysisEndpoints
 
         if (cancelResult.IsFailure)
         {
+            if (SaveConflict.IsConflict(cancelResult.Error))
+            {
+                return Problem(context, StatusCodes.Status409Conflict, "Conflict", cancelResult.Error);
+            }
+
             if (cancelResult.Error.Contains("not found", StringComparison.OrdinalIgnoreCase))
             {
                 return Problem(context, StatusCodes.Status404NotFound, "Not Found", cancelResult.Error);
@@ -309,7 +320,17 @@ public static partial class CodeAnalysisEndpoints
         return TypedResults.Ok(dtos);
     }
 
-    private static ApiProblemResult Problem(HttpContext context, int status, string title, string detail) =>
+    /// <summary>
+    ///     The answer to a refused write: 409 Conflict for a save that lost a race to another write, else 400 with
+    ///     <paramref name="title"/>; the refusal is the detail either way. A failure without a text, which only a test
+    ///     double gives, answers 400, as before.
+    /// </summary>
+    private static ApiProblemResult WriteFailure(HttpContext context, string title, string? error) =>
+        error is not null && SaveConflict.IsConflict(error)
+            ? Problem(context, StatusCodes.Status409Conflict, "Conflict", error)
+            : Problem(context, StatusCodes.Status400BadRequest, title, error);
+
+    private static ApiProblemResult Problem(HttpContext context, int status, string title, string? detail) =>
         ApiProblem.AsGiven(context, new ProblemDetails { Title = title, Detail = detail, Status = status });
 
     /// <summary>Maps a CodeAnalysisRequest entity to a CodeAnalysisRequestDto.</summary>

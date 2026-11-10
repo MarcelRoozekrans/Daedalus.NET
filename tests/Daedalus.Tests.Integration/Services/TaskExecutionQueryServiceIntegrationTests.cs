@@ -1,8 +1,7 @@
 using Daedalus.Api.Services;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Shared;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Services;
@@ -13,32 +12,24 @@ namespace Daedalus.Tests.Integration.Services;
 [Collection(DatabaseCollection.Name)]
 public class TaskExecutionQueryServiceIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
 {
-    private ApplicationDbContext _dbContext = null!;
+    private SeedBatch _seed = null!;
     private TaskExecutionQueryService _sut = null!;
 
     public async Task InitializeAsync()
     {
         await fixture.DatabaseResetter.ResetAsync();
 
-        var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
-
-        _dbContext = new ApplicationDbContext(options);
+        _seed = new SeedBatch(fixture.Db, fixture.ConnectionString);
 
         // Create default project for tests
         var project = IntegrationTestFactory.CreateProject(IntegrationTestFactory.GetDefaultProjectId());
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync();
+        _seed.Projects.Add(project);
+        await _seed.SaveChangesAsync();
 
-        _sut = new TaskExecutionQueryService(_dbContext);
+        _sut = new TaskExecutionQueryService(fixture.Db);
     }
 
-    public async Task DisposeAsync()
-    {
-        if (_dbContext != null)
-        {
-            await _dbContext.DisposeAsync();
-        }
-    }
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact(Timeout = 5000)]
     public async Task GetByTaskIdAsync_ReturnsExecutionsForTask()
@@ -59,9 +50,9 @@ public class TaskExecutionQueryServiceIntegrationTests(PostgresFixture fixture) 
             CompletionPromiseFound = false,
             ExecutionDuration = TimeSpan.FromSeconds(1)
         };
-        _dbContext.Tasks.Add(task);
-        _dbContext.TaskExecutions.Add(execution);
-        await _dbContext.SaveChangesAsync();
+        _seed.Tasks.Add(task);
+        _seed.TaskExecutions.Add(execution);
+        await _seed.SaveChangesAsync();
 
         // Act
         var result = await _sut.GetByTaskIdAsync(taskId);
@@ -90,9 +81,9 @@ public class TaskExecutionQueryServiceIntegrationTests(PostgresFixture fixture) 
             CompletionPromiseFound = false,
             ExecutionDuration = TimeSpan.FromSeconds(1)
         };
-        _dbContext.Tasks.Add(task);
-        _dbContext.TaskExecutions.Add(execution);
-        await _dbContext.SaveChangesAsync();
+        _seed.Tasks.Add(task);
+        _seed.TaskExecutions.Add(execution);
+        await _seed.SaveChangesAsync();
 
         // Act
         var result = await _sut.GetBySessionIdAsync(sessionId);

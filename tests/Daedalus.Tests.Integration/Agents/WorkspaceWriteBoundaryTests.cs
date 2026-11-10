@@ -4,12 +4,13 @@ using Daedalus.Agents;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Workflow;
-using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.ScheduledRuns;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using Thalos;
 using Thalos.Workflow;
 using Thalos.Workspaces;
@@ -263,8 +264,10 @@ public sealed class WorkspaceWriteBoundaryTests(PostgresFixture fixture) : IAsyn
     /// </summary>
     private static async Task<ISecurityContext> ScheduledPrincipalFromShippedConfig(ScratchWorkflowHost host)
     {
-        await using var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(host.ConnectionString));
-        var schedule = await db.ScheduledRuns.AsNoTracking().SingleAsync(s => s.Name == "daily-digest");
+        await using var dataSource = NpgsqlDataSource.Create(host.ConnectionString);
+        await using var connection = await new DaedalusDb(dataSource).OpenAsync(CancellationToken.None);
+        var schedule = (await new ScheduledRunSql(connection).ListAllAsync(CancellationToken.None))
+            .Single(s => string.Equals(s.Name, "daily-digest", StringComparison.Ordinal));
         schedule.Roles.Should().NotBeEmpty("otherwise the scheduled caller fails the policy for the wrong reason");
 
         SubagentRunRequest? captured = null;

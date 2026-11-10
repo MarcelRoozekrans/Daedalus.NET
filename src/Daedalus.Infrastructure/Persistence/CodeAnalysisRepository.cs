@@ -1,28 +1,53 @@
 using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.CodeAnalysisRequests;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.ORM;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Persistence;
 
 /// <summary>
-///     EF Core repository implementation for CodeAnalysisRequest
+///     Stores code analysis requests and their iterations on ZeroAlloc.ORM, one pooled connection per call.
 /// </summary>
+/// <remarks>
+///     <para>
+///         Every write loads the request, applies its domain method and saves, on one connection. The six lifecycle
+///         writes, <see cref="UpdateStatusAsync"/>, <see cref="UpdateIterationAsync"/>,
+///         <see cref="RecordValidationAsync"/>, <see cref="CompleteAsync"/>, <see cref="FailAsync"/> and
+///         <see cref="CancelAsync"/>, are guarded by the <c>xmin</c> the request was read with (#290): a request another
+///         write changed since its load is refused with <see cref="ModifiedByAnotherOperation"/> and nothing is
+///         written; one deleted since answers the method's logged failure. <see cref="UpdateIterationAsync"/> writes
+///         the iteration count and inserts the iteration in one transaction. <see cref="UpdateWorkTreePathAsync"/> and
+///         <see cref="UpdateLastPromptAsync"/> are independent: they write only their own columns, by id, with no
+///         version check; a request deleted since their load answers their logged failure.
+///     </para>
+///     <para>
+///         No save reads the new <c>xmin</c> back into an instance (rulings R58, R70): every write here reads the row
+///         itself, so a caller never carries a version from one call into another. A caller holding a request from
+///         <see cref="GetByIdAsync"/> reads it again for fresh values after a write.
+///     </para>
+///     <para>
+///         Failure texts carry no exception message; the exception is logged with the request id (ruling R79).
+///     </para>
+/// </remarks>
 public sealed partial class CodeAnalysisRepository(
-    ApplicationDbContext dbContext,
+    DaedalusDb db,
     ILogger<CodeAnalysisRepository> logger) : ICodeAnalysisRepository
 {
+    /// <summary>The failure of a guarded save that lost a race with another write to the request.</summary>
+    public const string ModifiedByAnotherOperation =
+        "The analysis request was modified by another operation. Please retry.";
+
     public async Task<Result<CodeAnalysisRequest>> GetByIdAsync(
         Guid requestId,
         CancellationToken ct = default)
     {
         try
         {
-            var request = await dbContext.CodeAnalysisRequests
-                .AsNoTracking()
-                .Include(r => r.Iterations)
-                .FirstOrDefaultAsync(r => r.Id == requestId, ct)
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var request = await new CodeAnalysisSql(connection).FindWithIterationsAsync(requestId, ct)
                 .ConfigureAwait(false);
 
             return request is not null
@@ -32,7 +57,8 @@ public sealed partial class CodeAnalysisRepository(
         catch (Exception ex)
         {
             LogErrorRetrievingAnalysisRequest(logger, ex, requestId);
-            return Result<CodeAnalysisRequest>.Failure($"Error retrieving analysis request: {ex.Message}");
+            return Result<CodeAnalysisRequest>.Failure(
+                $"Error retrieving analysis request {requestId}. The cause is logged.");
         }
     }
 
@@ -42,22 +68,15 @@ public sealed partial class CodeAnalysisRepository(
     {
         try
         {
-            var requests = await dbContext.CodeAnalysisRequests
-                .AsNoTracking()
-                .Where(r => r.Status == AnalysisStatus.Pending || r.Status == AnalysisStatus.Ready)
-                .OrderBy(r => r.Priority)
-                .ThenBy(r => r.CreatedAt)
-                .Take(batchSize)
-                .ToListAsync(ct)
-                .ConfigureAwait(false);
-
-            return Result<IReadOnlyList<CodeAnalysisRequest>>.Success((IReadOnlyList<CodeAnalysisRequest>)requests);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var requests = await new CodeAnalysisSql(connection).ListPendingAsync(batchSize, ct).ConfigureAwait(false);
+            return Result<IReadOnlyList<CodeAnalysisRequest>>.Success(requests);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingPendingRequests(logger, ex);
             return Result<IReadOnlyList<CodeAnalysisRequest>>.Failure(
-                $"Error retrieving pending requests: {ex.Message}");
+                "Error retrieving pending requests. The cause is logged.");
         }
     }
 
@@ -67,19 +86,15 @@ public sealed partial class CodeAnalysisRepository(
     {
         try
         {
-            var requests = await dbContext.CodeAnalysisRequests
-                .AsNoTracking()
-                .Where(r => r.Status == status)
-                .OrderByDescending(r => r.CreatedAt)
-                .ToListAsync(ct)
-                .ConfigureAwait(false);
-
-            return Result<IReadOnlyList<CodeAnalysisRequest>>.Success((IReadOnlyList<CodeAnalysisRequest>)requests);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var requests = await new CodeAnalysisSql(connection).ListByStatusAsync(status, ct).ConfigureAwait(false);
+            return Result<IReadOnlyList<CodeAnalysisRequest>>.Success(requests);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingRequestsByStatus(logger, ex, status);
-            return Result<IReadOnlyList<CodeAnalysisRequest>>.Failure($"Error retrieving requests: {ex.Message}");
+            return Result<IReadOnlyList<CodeAnalysisRequest>>.Failure(
+                "Error retrieving requests. The cause is logged.");
         }
     }
 
@@ -89,19 +104,16 @@ public sealed partial class CodeAnalysisRepository(
     {
         try
         {
-            var requests = await dbContext.CodeAnalysisRequests
-                .AsNoTracking()
-                .Where(r => r.Repository.Url == repositoryUrl)
-                .OrderByDescending(r => r.CreatedAt)
-                .ToListAsync(ct)
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var requests = await new CodeAnalysisSql(connection).ListByRepositoryAsync(repositoryUrl, ct)
                 .ConfigureAwait(false);
-
-            return Result<IReadOnlyList<CodeAnalysisRequest>>.Success((IReadOnlyList<CodeAnalysisRequest>)requests);
+            return Result<IReadOnlyList<CodeAnalysisRequest>>.Success(requests);
         }
         catch (Exception ex)
         {
             LogErrorRetrievingRequestsByRepository(logger, ex, repositoryUrl);
-            return Result<IReadOnlyList<CodeAnalysisRequest>>.Failure($"Error retrieving requests: {ex.Message}");
+            return Result<IReadOnlyList<CodeAnalysisRequest>>.Failure(
+                "Error retrieving requests. The cause is logged.");
         }
     }
 
@@ -111,10 +123,8 @@ public sealed partial class CodeAnalysisRepository(
     {
         try
         {
-            // Request should already be created by factory method
-            // Just persist to database
-            dbContext.CodeAnalysisRequests.Add(request);
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            await new CodeAnalysisSql(connection).InsertAsync(request, ct).ConfigureAwait(false);
 
             if (logger.IsEnabled(LogLevel.Information))
             {
@@ -128,59 +138,49 @@ public sealed partial class CodeAnalysisRepository(
         }
         catch (Exception ex)
         {
-            LogErrorCreatingRequest(logger, ex);
-            return Result<CodeAnalysisRequest>.Failure($"Error creating analysis request: {ex.Message}");
+            LogErrorCreatingRequest(logger, ex, request.Id);
+            return Result<CodeAnalysisRequest>.Failure(
+                $"Error creating analysis request {request.Id}. The cause is logged.");
         }
     }
 
+    /// <summary>
+    ///     Starts or cancels the request, the two transitions this method supports, under the <c>xmin</c> guard; a lost
+    ///     race answers <see cref="ModifiedByAnotherOperation"/>.
+    /// </summary>
     public async Task<Result> UpdateStatusAsync(
         Guid requestId,
         AnalysisStatus newStatus,
         CancellationToken ct = default)
     {
-        try
-        {
-            var request = await dbContext.CodeAnalysisRequests
-                .FirstOrDefaultAsync(r => r.Id == requestId, ct)
-                .ConfigureAwait(false);
-
-            if (request is null)
-            {
-                return Result.Failure($"Analysis request {requestId} not found");
-            }
-
-            // Call appropriate domain method based on new status
-            var updateResult = newStatus switch
+        var result = await SaveGuardedAsync(
+            requestId,
+            request => newStatus switch
             {
                 AnalysisStatus.AnalysisInProgress => request.StartAnalysis(),
                 AnalysisStatus.Cancelled => request.Cancel(),
                 _ => Result.Failure($"Status transition to {newStatus} not supported via this method")
-            };
+            },
+            static (sql, request, ct) => sql.SaveLifecycleAsync(request, ct),
+            LogErrorUpdatingRequestStatus,
+            $"Error updating status of analysis request {requestId}. The cause is logged.",
+            ct).ConfigureAwait(false);
 
-            if (updateResult.IsFailure)
-            {
-                return updateResult;
-            }
-
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation(
-                    "Updated analysis request {RequestId} status to {Status}",
-                    requestId,
-                    newStatus);
-            }
-
-            return Result.Success();
-        }
-        catch (Exception ex)
+        if (result.IsSuccess && logger.IsEnabled(LogLevel.Information))
         {
-            LogErrorUpdatingRequestStatus(logger, ex);
-            return Result.Failure($"Error updating status: {ex.Message}");
+            logger.LogInformation(
+                "Updated analysis request {RequestId} status to {Status}",
+                requestId,
+                newStatus);
         }
+
+        return result;
     }
 
+    /// <summary>
+    ///     Records an iteration: the iteration count, under the <c>xmin</c> guard, and the iteration's row, in one
+    ///     transaction; a lost race answers <see cref="ModifiedByAnotherOperation"/> and stores neither.
+    /// </summary>
     public async Task<Result> UpdateIterationAsync(
         Guid requestId,
         int iteration,
@@ -188,219 +188,143 @@ public sealed partial class CodeAnalysisRepository(
         string response,
         CancellationToken ct = default)
     {
-        try
-        {
-            var request = await dbContext.CodeAnalysisRequests
-                .FirstOrDefaultAsync(r => r.Id == requestId, ct)
-                .ConfigureAwait(false);
-
-            if (request is null)
+        AnalysisIteration? analysisIteration = null;
+        var result = await SaveGuardedAsync(
+            requestId,
+            request =>
             {
-                return Result.Failure($"Analysis request {requestId} not found");
-            }
+                var iterationResult = AnalysisIteration.Create(Guid.NewGuid(), requestId, iteration, prompt, response);
+                if (iterationResult.IsFailure)
+                {
+                    return Result.Failure(iterationResult.Error);
+                }
 
-            // Create analysis iteration using factory method
-            var iterationResult = AnalysisIteration.Create(
-                Guid.NewGuid(),
-                requestId,
+                analysisIteration = iterationResult.Value;
+                return request.RecordIteration(analysisIteration);
+            },
+            (sql, request, ct) => sql.SaveIterationAsync(request, analysisIteration!, ct),
+            LogErrorUpdatingRequestIteration,
+            $"Error updating iteration of analysis request {requestId}. The cause is logged.",
+            ct).ConfigureAwait(false);
+
+        if (result.IsSuccess && logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation(
+                "Recorded iteration {Iteration} for analysis request {RequestId}",
                 iteration,
-                prompt,
-                response);
-
-            if (iterationResult.IsFailure)
-            {
-                return Result.Failure(iterationResult.Error);
-            }
-
-            var analysisIteration = iterationResult.Value;
-
-            // Record iteration using domain method
-            var recordResult = request.RecordIteration(analysisIteration);
-            if (recordResult.IsFailure)
-            {
-                return recordResult;
-            }
-
-            dbContext.AnalysisIterations.Add(analysisIteration);
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation(
-                    "Recorded iteration {Iteration} for analysis request {RequestId}",
-                    iteration,
-                    requestId);
-            }
-
-            return Result.Success();
+                requestId);
         }
-        catch (Exception ex)
-        {
-            LogErrorUpdatingRequestIteration(logger, ex);
-            return Result.Failure($"Error updating iteration: {ex.Message}");
-        }
+
+        return result;
     }
 
+    /// <summary>
+    ///     Records validation under the <c>xmin</c> guard; a lost race answers <see cref="ModifiedByAnotherOperation"/>.
+    /// </summary>
     public async Task<Result> RecordValidationAsync(
         Guid requestId,
         string validationResult,
         bool hasFailed,
         CancellationToken ct = default)
     {
-        try
+        var result = await SaveGuardedAsync(
+            requestId,
+            request => request.RecordValidation(validationResult, hasFailed),
+            static (sql, request, ct) => sql.SaveLifecycleAsync(request, ct),
+            LogErrorRecordingValidation,
+            $"Error recording validation of analysis request {requestId}. The cause is logged.",
+            ct).ConfigureAwait(false);
+
+        if (result.IsSuccess && logger.IsEnabled(LogLevel.Information))
         {
-            var request = await dbContext.CodeAnalysisRequests
-                .FirstOrDefaultAsync(r => r.Id == requestId, ct)
-                .ConfigureAwait(false);
-
-            if (request is null)
-            {
-                return Result.Failure($"Analysis request {requestId} not found");
-            }
-
-            // Record validation using domain method
-            var recordResult = request.RecordValidation(validationResult, hasFailed);
-            if (recordResult.IsFailure)
-            {
-                return recordResult;
-            }
-
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation(
-                    "Recorded validation for analysis request {RequestId}. Failed: {HasFailed}",
-                    requestId,
-                    hasFailed);
-            }
-
-            return Result.Success();
+            logger.LogInformation(
+                "Recorded validation for analysis request {RequestId}. Failed: {HasFailed}",
+                requestId,
+                hasFailed);
         }
-        catch (Exception ex)
-        {
-            LogErrorRecordingValidation(logger, ex);
-            return Result.Failure($"Error recording validation: {ex.Message}");
-        }
+
+        return result;
     }
 
+    /// <summary>
+    ///     Completes the request under the <c>xmin</c> guard; a lost race answers <see cref="ModifiedByAnotherOperation"/>.
+    /// </summary>
     public async Task<Result> CompleteAsync(
         Guid requestId,
         string? prUrl = null,
         string? finalCommitSha = null,
         CancellationToken ct = default)
     {
-        try
+        var result = await SaveGuardedAsync(
+            requestId,
+            request => request.Complete(prUrl, finalCommitSha),
+            static (sql, request, ct) => sql.SaveLifecycleAsync(request, ct),
+            LogErrorCompletingRequest,
+            $"Error completing analysis request {requestId}. The cause is logged.",
+            ct).ConfigureAwait(false);
+
+        if (result.IsSuccess && logger.IsEnabled(LogLevel.Information))
         {
-            var request = await dbContext.CodeAnalysisRequests
-                .FirstOrDefaultAsync(r => r.Id == requestId, ct)
-                .ConfigureAwait(false);
-
-            if (request is null)
-            {
-                return Result.Failure($"Analysis request {requestId} not found");
-            }
-
-            // Complete using domain method
-            var completeResult = request.Complete(prUrl, finalCommitSha);
-            if (completeResult.IsFailure)
-            {
-                return completeResult;
-            }
-
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation(
-                    "Completed analysis request {RequestId}. PR: {PrUrl}",
-                    requestId,
-                    prUrl);
-            }
-
-            return Result.Success();
+            logger.LogInformation(
+                "Completed analysis request {RequestId}. PR: {PrUrl}",
+                requestId,
+                prUrl);
         }
-        catch (Exception ex)
-        {
-            LogErrorCompletingRequest(logger, ex);
-            return Result.Failure($"Error completing request: {ex.Message}");
-        }
+
+        return result;
     }
 
+    /// <summary>
+    ///     Fails the request under the <c>xmin</c> guard; a lost race answers <see cref="ModifiedByAnotherOperation"/>.
+    /// </summary>
     public async Task<Result> FailAsync(
         Guid requestId,
         string failureReason,
         CancellationToken ct = default)
     {
-        try
+        var result = await SaveGuardedAsync(
+            requestId,
+            request => request.Fail(failureReason),
+            static (sql, request, ct) => sql.SaveLifecycleAsync(request, ct),
+            LogErrorFailingRequest,
+            $"Error failing analysis request {requestId}. The cause is logged.",
+            ct).ConfigureAwait(false);
+
+        if (result.IsSuccess)
         {
-            var request = await dbContext.CodeAnalysisRequests
-                .FirstOrDefaultAsync(r => r.Id == requestId, ct)
-                .ConfigureAwait(false);
-
-            if (request is null)
-            {
-                return Result.Failure($"Analysis request {requestId} not found");
-            }
-
-            // Fail using domain method
-            var failResult = request.Fail(failureReason);
-            if (failResult.IsFailure)
-            {
-                return failResult;
-            }
-
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-
             logger.LogError("Analysis request {RequestId} failed: {Reason}", requestId, failureReason);
+        }
 
-            return Result.Success();
-        }
-        catch (Exception ex)
-        {
-            LogErrorFailingRequest(logger, ex);
-            return Result.Failure($"Error failing request: {ex.Message}");
-        }
+        return result;
     }
 
+    /// <summary>
+    ///     Cancels the request under the <c>xmin</c> guard; a lost race answers <see cref="ModifiedByAnotherOperation"/>.
+    /// </summary>
     public async Task<Result> CancelAsync(
         Guid requestId,
         CancellationToken ct = default)
     {
-        try
+        var result = await SaveGuardedAsync(
+            requestId,
+            static request => request.Cancel(),
+            static (sql, request, ct) => sql.SaveLifecycleAsync(request, ct),
+            LogErrorCancellingRequest,
+            $"Error cancelling analysis request {requestId}. The cause is logged.",
+            ct).ConfigureAwait(false);
+
+        if (result.IsSuccess && logger.IsEnabled(LogLevel.Information))
         {
-            var request = await dbContext.CodeAnalysisRequests
-                .FirstOrDefaultAsync(r => r.Id == requestId, ct)
-                .ConfigureAwait(false);
-
-            if (request is null)
-            {
-                return Result.Failure($"Analysis request {requestId} not found");
-            }
-
-            // Cancel using domain method
-            var cancelResult = request.Cancel();
-            if (cancelResult.IsFailure)
-            {
-                return cancelResult;
-            }
-
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation("Cancelled analysis request {RequestId}", requestId);
-            }
-
-            return Result.Success();
+            logger.LogInformation("Cancelled analysis request {RequestId}", requestId);
         }
-        catch (Exception ex)
-        {
-            LogErrorCancellingRequest(logger, ex);
-            return Result.Failure($"Error cancelling request: {ex.Message}");
-        }
+
+        return result;
     }
 
+    /// <summary>
+    ///     Writes the work tree path alone, by id, with no version check: it never fails on a concurrent write of the
+    ///     request's other columns.
+    /// </summary>
     public async Task<Result> UpdateWorkTreePathAsync(
         Guid requestId,
         string workTreePath,
@@ -408,23 +332,22 @@ public sealed partial class CodeAnalysisRepository(
     {
         try
         {
-            var request = await dbContext.CodeAnalysisRequests
-                .FirstOrDefaultAsync(r => r.Id == requestId, ct)
-                .ConfigureAwait(false);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var sql = new CodeAnalysisSql(connection);
+            var request = await sql.FindAsync(requestId, ct).ConfigureAwait(false);
 
             if (request is null)
             {
                 return Result.Failure($"Analysis request {requestId} not found");
             }
 
-            // Set work tree path using domain method
             var setResult = request.SetWorkTreePath(workTreePath);
             if (setResult.IsFailure)
             {
                 return setResult;
             }
 
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+            await sql.SetWorkTreePathAsync(requestId, request.LocalWorkTreePath, ct).ConfigureAwait(false);
 
             if (logger.IsEnabled(LogLevel.Information))
             {
@@ -439,10 +362,15 @@ public sealed partial class CodeAnalysisRepository(
         catch (Exception ex)
         {
             LogErrorUpdatingWorkTreePath(logger, ex, requestId);
-            return Result.Failure($"Error updating work tree path: {ex.Message}");
+            return Result.Failure(
+                $"Error updating work tree path of analysis request {requestId}. The cause is logged.");
         }
     }
 
+    /// <summary>
+    ///     Writes the last prompt and response alone, by id, with no version check: it never fails on a concurrent write
+    ///     of the request's other columns.
+    /// </summary>
     public async Task<Result> UpdateLastPromptAsync(
         Guid requestId,
         string lastPrompt,
@@ -451,23 +379,23 @@ public sealed partial class CodeAnalysisRepository(
     {
         try
         {
-            var request = await dbContext.CodeAnalysisRequests
-                .FirstOrDefaultAsync(r => r.Id == requestId, ct)
-                .ConfigureAwait(false);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var sql = new CodeAnalysisSql(connection);
+            var request = await sql.FindAsync(requestId, ct).ConfigureAwait(false);
 
             if (request is null)
             {
                 return Result.Failure($"Analysis request {requestId} not found");
             }
 
-            // Record prompt and response using domain method
             var recordResult = request.RecordPromptAndResponse(lastPrompt, lastResponse ?? "");
             if (recordResult.IsFailure)
             {
                 return recordResult;
             }
 
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+            await sql.SetLastPromptAsync(requestId, request.LastPromptSent, request.LastAiResponse, ct)
+                .ConfigureAwait(false);
 
             if (logger.IsEnabled(LogLevel.Information))
             {
@@ -481,7 +409,66 @@ public sealed partial class CodeAnalysisRepository(
         catch (Exception ex)
         {
             LogErrorUpdatingLastPrompt(logger, ex, requestId);
-            return Result.Failure($"Error updating last prompt: {ex.Message}");
+            return Result.Failure(
+                $"Error updating last prompt of analysis request {requestId}. The cause is logged.");
+        }
+    }
+
+    /// <summary>
+    ///     Loads the request without its iterations, applies <paramref name="change"/> and runs <paramref name="save"/>,
+    ///     which is guarded by the <c>xmin</c> the request was read with, on one connection. A request not stored answers
+    ///     not found, as before; a refused change answers its own failure. A save that matches no row answers
+    ///     <see cref="ModifiedByAnotherOperation"/> while the row still exists, and <paramref name="failure"/>, logged,
+    ///     when it was deleted since the load (ruling R68), as does any other error.
+    /// </summary>
+    private async Task<Result> SaveGuardedAsync(
+        Guid requestId,
+        Func<CodeAnalysisRequest, Result> change,
+        Func<CodeAnalysisSql, CodeAnalysisRequest, CancellationToken, Task> save,
+        Action<ILogger, Exception, Guid> logError,
+        string failure,
+        CancellationToken ct)
+    {
+        try
+        {
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var sql = new CodeAnalysisSql(connection);
+            var request = await sql.FindAsync(requestId, ct).ConfigureAwait(false);
+
+            if (request is null)
+            {
+                return Result.Failure($"Analysis request {requestId} not found");
+            }
+
+            var changed = change(request);
+            if (changed.IsFailure)
+            {
+                return changed;
+            }
+
+            ZeroAllocOrmConcurrencyException conflict;
+            try
+            {
+                await save(sql, request, ct).ConfigureAwait(false);
+                return Result.Success();
+            }
+            catch (ZeroAllocOrmConcurrencyException ex)
+            {
+                conflict = ex;
+            }
+
+            if (await sql.ExistsAsync(requestId, ct).ConfigureAwait(false))
+            {
+                return Result.Failure(ModifiedByAnotherOperation);
+            }
+
+            logError(logger, conflict, requestId);
+            return Result.Failure(failure);
+        }
+        catch (Exception ex)
+        {
+            logError(logger, ex, requestId);
+            return Result.Failure(failure);
         }
     }
 
@@ -501,26 +488,30 @@ public sealed partial class CodeAnalysisRepository(
     private static partial void LogErrorRetrievingRequestsByRepository(ILogger logger, Exception exception,
         string repositoryUrl);
 
-    [LoggerMessage(EventId = 34, Level = LogLevel.Error, Message = "Error creating code analysis request")]
-    private static partial void LogErrorCreatingRequest(ILogger logger, Exception exception);
+    [LoggerMessage(EventId = 34, Level = LogLevel.Error, Message = "Error creating code analysis request {RequestId}")]
+    private static partial void LogErrorCreatingRequest(ILogger logger, Exception exception, Guid requestId);
 
-    [LoggerMessage(EventId = 35, Level = LogLevel.Error, Message = "Error updating analysis request status")]
-    private static partial void LogErrorUpdatingRequestStatus(ILogger logger, Exception exception);
+    [LoggerMessage(EventId = 35, Level = LogLevel.Error,
+        Message = "Error updating status of analysis request {RequestId}")]
+    private static partial void LogErrorUpdatingRequestStatus(ILogger logger, Exception exception, Guid requestId);
 
-    [LoggerMessage(EventId = 36, Level = LogLevel.Error, Message = "Error updating analysis request iteration")]
-    private static partial void LogErrorUpdatingRequestIteration(ILogger logger, Exception exception);
+    [LoggerMessage(EventId = 36, Level = LogLevel.Error,
+        Message = "Error updating iteration of analysis request {RequestId}")]
+    private static partial void LogErrorUpdatingRequestIteration(ILogger logger, Exception exception, Guid requestId);
 
-    [LoggerMessage(EventId = 37, Level = LogLevel.Error, Message = "Error recording validation")]
-    private static partial void LogErrorRecordingValidation(ILogger logger, Exception exception);
+    [LoggerMessage(EventId = 37, Level = LogLevel.Error,
+        Message = "Error recording validation of analysis request {RequestId}")]
+    private static partial void LogErrorRecordingValidation(ILogger logger, Exception exception, Guid requestId);
 
-    [LoggerMessage(EventId = 38, Level = LogLevel.Error, Message = "Error completing analysis request")]
-    private static partial void LogErrorCompletingRequest(ILogger logger, Exception exception);
+    [LoggerMessage(EventId = 38, Level = LogLevel.Error, Message = "Error completing analysis request {RequestId}")]
+    private static partial void LogErrorCompletingRequest(ILogger logger, Exception exception, Guid requestId);
 
-    [LoggerMessage(EventId = 39, Level = LogLevel.Error, Message = "Error marking analysis request as failed")]
-    private static partial void LogErrorFailingRequest(ILogger logger, Exception exception);
+    [LoggerMessage(EventId = 39, Level = LogLevel.Error,
+        Message = "Error marking analysis request {RequestId} as failed")]
+    private static partial void LogErrorFailingRequest(ILogger logger, Exception exception, Guid requestId);
 
-    [LoggerMessage(EventId = 40, Level = LogLevel.Error, Message = "Error cancelling analysis request")]
-    private static partial void LogErrorCancellingRequest(ILogger logger, Exception exception);
+    [LoggerMessage(EventId = 40, Level = LogLevel.Error, Message = "Error cancelling analysis request {RequestId}")]
+    private static partial void LogErrorCancellingRequest(ILogger logger, Exception exception, Guid requestId);
 
     [LoggerMessage(EventId = 41, Level = LogLevel.Error,
         Message = "Error updating work tree path for request {RequestId}")]

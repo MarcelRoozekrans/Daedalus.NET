@@ -73,13 +73,12 @@ public sealed class ApiHostChannelWiringTests(PostgresFixture fixture) : IAsyncL
             "TreatWarningsAsErrors. This assertion is defence in depth against a registration shape dedupe would " +
             "not catch — a factory-lambda or wrapper-type registration of a second worker over the same table");
 
-        // IOutboxWriter<T> is scoped (it shares the ambient IOutboxStore/DbContext — see ScheduledRunStore's
-        // remarks), so it cannot resolve from the host's root provider; a scope is required, same as
-        // ChannelOutboxTests' WriteAsync helper.
+        // The writers are keyed by the channel pipeline's name and built on its scoped store, so they cannot
+        // resolve from the host's root provider; a scope is required, same as ChannelOutboxTests' WriteAsync helper.
         using var scope = services.CreateScope();
-        scope.ServiceProvider.GetRequiredService<IOutboxWriter<ScheduledRunDue>>().Should().NotBeNull();
-        scope.ServiceProvider.GetRequiredService<IOutboxWriter<RunScoutStep>>().Should().NotBeNull();
-        scope.ServiceProvider.GetRequiredService<IOutboxWriter<RunWriterStep>>().Should().NotBeNull();
-        scope.ServiceProvider.GetRequiredService<IOutboxWriter<DeliverDigest>>().Should().NotBeNull();
+        scope.ServiceProvider.ChannelWriter<ScheduledRunDue>().Should().NotBeNull();
+        scope.ServiceProvider.ChannelWriter<RunScoutStep>().Should().NotBeNull();
+        scope.ServiceProvider.ChannelWriter<RunWriterStep>().Should().NotBeNull();
+        scope.ServiceProvider.ChannelWriter<DeliverDigest>().Should().NotBeNull();
     }
 }

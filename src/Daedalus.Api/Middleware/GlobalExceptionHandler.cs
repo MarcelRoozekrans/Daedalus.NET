@@ -1,13 +1,13 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using ZeroAlloc.ORM;
 
 namespace Daedalus.Api.Middleware;
 
 /// <summary>
 ///     Global exception handler that converts unhandled exceptions into RFC 7807 ProblemDetails responses.
 ///     Handles specific exception types with appropriate HTTP status codes:
-///     - DbUpdateConcurrencyException: 409 Conflict (optimistic locking violation)
+///     - ZeroAllocOrmConcurrencyException: 409 Conflict (a guarded write lost an optimistic concurrency race)
 ///     - OperationCanceledException: 499 Client Closed Request (client disconnected)
 ///     - All others: 500 Internal Server Error
 /// </summary>
@@ -32,7 +32,7 @@ public sealed partial class GlobalExceptionHandler(ILogger<GlobalExceptionHandle
     {
         var problemDetails = exception switch
         {
-            DbUpdateConcurrencyException concurrencyEx => HandleConcurrencyException(concurrencyEx),
+            ZeroAllocOrmConcurrencyException concurrencyEx => HandleConcurrencyException(concurrencyEx),
             OperationCanceledException => HandleCancelledException(),
             _ => HandleUnexpectedException(exception, httpContext)
         };
@@ -48,7 +48,7 @@ public sealed partial class GlobalExceptionHandler(ILogger<GlobalExceptionHandle
         return true;
     }
 
-    private ProblemDetails HandleConcurrencyException(DbUpdateConcurrencyException exception)
+    private ProblemDetails HandleConcurrencyException(ZeroAllocOrmConcurrencyException exception)
     {
         LogConcurrencyConflict(logger, exception.Message);
 

@@ -1,6 +1,6 @@
 using Daedalus.Domain.Entities;
+using Daedalus.Infrastructure.Persistence.Orm.ScheduledRunExecutions;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Task = System.Threading.Tasks.Task;
 
@@ -9,7 +9,8 @@ namespace Daedalus.Tests.Integration.Scheduling;
 /// <summary>
 ///     Integration tests proving <see cref="ScheduledRunExecution"/> round-trips through Postgres and that the
 ///     unique <c>(ScheduleId, OccurrenceAt)</c> index — the saga's old correlation key, expressed as a database
-///     constraint — actually rejects a second row for the same occurrence.
+///     constraint — actually rejects a second row for the same occurrence. Ported from EF Core to
+///     <see cref="ScheduledRunExecutionSql"/> in Task 21 (ruling R127); the assertions are the ones EF's tests made.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class ScheduledRunExecutionPersistenceTests(PostgresFixture fixture) : IAsyncLifetime
@@ -27,16 +28,11 @@ public sealed class ScheduledRunExecutionPersistenceTests(PostgresFixture fixtur
     [Fact]
     public async Task An_execution_round_trips_including_its_roles_and_its_step()
     {
-        await using (var db = fixture.CreateContext())
-        {
-            db.ScheduledRunExecutions.Add(ScheduledRunExecution.Create(
-                ScheduleId, Occurrence, "telegram", "123456", "schedule:daedalus",
-                ["reader", "digest"], Now).Value);
-            await db.SaveChangesAsync();
-        }
+        await ScheduleTables.InsertAsync(fixture, ScheduledRunExecution.Create(
+            ScheduleId, Occurrence, "telegram", "123456", "schedule:daedalus",
+            ["reader", "digest"], Now).Value);
 
-        await using var read = fixture.CreateContext();
-        var loaded = await read.ScheduledRunExecutions.SingleAsync(e => e.ScheduleId == ScheduleId);
+        var loaded = await ScheduleTables.SingleExecutionAsync(fixture);
 
         loaded.Roles.Should().BeEquivalentTo(["reader", "digest"]);
         loaded.Step.Should().Be(RunStep.Pending);
@@ -46,17 +42,12 @@ public sealed class ScheduledRunExecutionPersistenceTests(PostgresFixture fixtur
     [Fact]
     public async Task A_failed_execution_round_trips_the_step_it_failed_at()
     {
-        await using (var db = fixture.CreateContext())
-        {
-            var execution = Execution();
-            execution.BeginScout(Now);
-            execution.Fail("scout timed out", Now);
-            db.ScheduledRunExecutions.Add(execution);
-            await db.SaveChangesAsync();
-        }
+        var execution = Execution();
+        execution.BeginScout(Now);
+        execution.Fail("scout timed out", Now);
+        await ScheduleTables.InsertAsync(fixture, execution);
 
-        await using var read = fixture.CreateContext();
-        var loaded = await read.ScheduledRunExecutions.SingleAsync(e => e.ScheduleId == ScheduleId);
+        var loaded = await ScheduleTables.SingleExecutionAsync(fixture);
 
         loaded.Step.Should().Be(RunStep.Failed);
         loaded.FailedAtStep.Should().Be(RunStep.Scout);
@@ -65,31 +56,57 @@ public sealed class ScheduledRunExecutionPersistenceTests(PostgresFixture fixtur
     [Fact]
     public async Task A_second_row_for_the_same_schedule_and_occurrence_is_rejected_by_the_database()
     {
-        // the idempotency guarantee, enforced where no handler can forget it
-        await using var db = fixture.CreateContext();
-        db.ScheduledRunExecutions.Add(Execution());
-        await db.SaveChangesAsync();
-        db.ChangeTracker.Clear();
+        // The idempotency guarantee, enforced where no handler can forget it. The claim's insert absorbs the
+        // conflict (it answers false), so the index itself is pinned with a plain INSERT that has no ON CONFLICT.
+        await ScheduleTables.InsertAsync(fixture, Execution());
 
-        db.ScheduledRunExecutions.Add(Execution());
-        var act = async () => await db.SaveChangesAsync();
+        var act = async () => await InsertWithoutConflictClauseAsync(Execution());
 
-        (await act.Should().ThrowAsync<DbUpdateException>()
-                .WithInnerException<DbUpdateException, PostgresException>())
+        (await act.Should().ThrowAsync<PostgresException>())
             .Which.SqlState.Should().Be(PostgresErrorCodes.UniqueViolation);
+        (await ScheduleTables.ExecutionCountAsync(fixture)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task The_claim_insert_answers_false_for_an_occurrence_that_is_already_taken()
+    {
+        await ScheduleTables.InsertAsync(fixture, Execution());
+
+        await using var connection = await fixture.Db.OpenAsync(CancellationToken.None);
+        await using var tx = await connection.BeginTransactionAsync(CancellationToken.None);
+        var inserted = await new ScheduledRunExecutionSql(connection).TryInsertAsync(Execution(), tx, CancellationToken.None);
+        await tx.CommitAsync(CancellationToken.None);
+
+        inserted.Should().BeFalse();
+        (await ScheduleTables.ExecutionCountAsync(fixture)).Should().Be(1);
     }
 
     [Fact]
     public async Task A_different_occurrence_of_the_same_schedule_is_allowed()
     {
-        await using var db = fixture.CreateContext();
-        db.ScheduledRunExecutions.Add(Execution());
-        db.ScheduledRunExecutions.Add(ScheduledRunExecution.Create(
-            ScheduleId, Occurrence.AddDays(1), "telegram", "123456", "schedule:daedalus", ["reader"], Now).Value);
+        await ScheduleTables.InsertAsync(
+            fixture,
+            Execution(),
+            ScheduledRunExecution.Create(
+                ScheduleId, Occurrence.AddDays(1), "telegram", "123456", "schedule:daedalus", ["reader"], Now).Value);
 
-        await db.SaveChangesAsync();
+        (await ScheduleTables.ExecutionCountAsync(fixture)).Should().Be(2);
+    }
 
-        (await db.ScheduledRunExecutions.CountAsync()).Should().Be(2);
+    private async Task InsertWithoutConflictClauseAsync(ScheduledRunExecution execution)
+    {
+        await using var command = fixture.DataSource.CreateCommand("""
+            INSERT INTO "ScheduledRunExecutions"
+                ("Id", "ScheduleId", "OccurrenceAt", "Step", "Findings", "Digest", "ChannelId", "ConversationId",
+                 "PrincipalId", "Roles", "Attempts", "CreatedAt", "UpdatedAt")
+            VALUES (@id, @scheduleId, @occurrenceAt, 'Pending', NULL, NULL, 'telegram', '123456',
+                    'schedule:daedalus', 'reader', 0, @now, @now)
+            """);
+        command.Parameters.AddWithValue("id", execution.Id);
+        command.Parameters.AddWithValue("scheduleId", execution.ScheduleId);
+        command.Parameters.AddWithValue("occurrenceAt", execution.OccurrenceAt);
+        command.Parameters.AddWithValue("now", Now);
+        await command.ExecuteNonQueryAsync();
     }
 
     private static ScheduledRunExecution Execution() =>

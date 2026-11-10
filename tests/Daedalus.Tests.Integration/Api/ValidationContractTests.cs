@@ -1,6 +1,6 @@
 using Daedalus.Application.DTOs;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
+using Daedalus.Tests.Shared;
 using Microsoft.AspNetCore.Mvc;
 using Thalos;
 using Task = System.Threading.Tasks.Task;
@@ -77,11 +77,7 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
     public async Task Partial_update_touching_only_title_succeeds()
     {
         var projectId = Guid.NewGuid();
-        await using (var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(fixture.ConnectionString)))
-        {
-            db.Projects.Add(IntegrationTestFactory.CreateProject(projectId));
-            await db.SaveChangesAsync();
-        }
+        await StoreSeed.AddProjectAsync(fixture.Db, IntegrationTestFactory.CreateProject(projectId));
 
         var create = await Send(new
         {
@@ -108,11 +104,7 @@ public sealed class ValidationContractTests(PostgresFixture fixture) : IAsyncLif
     public async Task Creating_a_task_with_only_project_title_and_description_succeeds()
     {
         var projectId = Guid.NewGuid();
-        await using (var db = new ApplicationDbContext(PostgresFixture.CreateDbContextOptions(fixture.ConnectionString)))
-        {
-            db.Projects.Add(IntegrationTestFactory.CreateProject(projectId));
-            await db.SaveChangesAsync();
-        }
+        await StoreSeed.AddProjectAsync(fixture.Db, IntegrationTestFactory.CreateProject(projectId));
 
         var response = await Send(new { projectId, title = "Only three fields", description = "The description" });
 

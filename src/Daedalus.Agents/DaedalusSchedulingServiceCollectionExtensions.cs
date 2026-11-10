@@ -1,12 +1,10 @@
 using Daedalus.Agents.Scheduling;
 using Daedalus.Application.Abstractions;
-using Daedalus.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 
 namespace Daedalus.Agents;
 
@@ -36,8 +34,9 @@ public static class DaedalusSchedulingServiceCollectionExtensions
     ///     </para>
     ///     <para>
     ///     <b>Do not call <c>AddChannelOutbox</c> or any <c>AddOutbox</c> here.</b> The outbox — including the
-    ///     four scheduling step writers — is wired by <c>AddDaedalusAgents</c>; a second call would register a
-    ///     second <c>OutboxWorkerService</c> racing the same table. See
+    ///     four scheduling step writers — is wired by <c>AddDaedalusAgents</c>; a second call would register the
+    ///     channel pipeline's store again, which ZeroAlloc.Outbox refuses, or a second pipeline polling the same
+    ///     table. See
     ///     <see cref="Channels.DaedalusChannelsServiceCollectionExtensions.AddDaedalusChannels"/> for the same
     ///     hazard on the channels side.
     ///     </para>
@@ -87,24 +86,23 @@ public static class DaedalusSchedulingServiceCollectionExtensions
         // forever. TryAddSingleton is a no-op wherever a host already has one and never overrides it.
         services.TryAddSingleton(TimeProvider.System);
 
-        // Scoped, not singleton: both stores share ApplicationDbContext (also scoped) with the outbox writers they
-        // call — see ScheduledRunStore's and ScheduledRunExecutionStore's own remarks for why. ISubagentRunExecutor
-        // follows the same rule so it is safe to depend on regardless of what lifetime Thalos gives ISubagentRunner.
+        // Scoped, not singleton: both stores take the channel pipeline's keyed writers, resolved per scope — see
+        // their own remarks. ISubagentRunExecutor follows the same rule so it is safe to depend on regardless of
+        // what lifetime Thalos gives ISubagentRunner.
         services.AddScoped<ScheduledRunStore>();
         services.AddScoped<ScheduledRunExecutionStore>();
         services.AddScoped<ISubagentRunExecutor, SubagentRunExecutor>();
 
-        // Scoped, not singleton — same rule as the two stores above: ScheduleDiagnostics takes ApplicationDbContext
-        // directly, and EfCoreOutboxStore.EnqueueAsync needs connection identity with whatever else is in the scope.
+        // Scoped like the stores above; it only reads, over DaedalusDb.
         services.AddScoped<IScheduleDiagnostics, ScheduleDiagnostics>();
         services.Configure<ScheduleDiagnosticsOptions>(configuration.GetSection(ScheduleDiagnosticsOptions.SectionName));
 
-        // IOutboxDashboardStore, which ScheduleDiagnostics and ScheduleDeliveryActions read, needs no registration
-        // here: AddChannelOutbox's WithEfCore<ApplicationDbContext>() registers it as the same scoped
-        // EfCoreOutboxStore instance as IOutboxStore since ZeroAlloc.Outbox.EfCore 3.0.
+        // IOutboxRequeue, which ScheduleDeliveryActions resends through, needs no registration here:
+        // AddChannelOutbox's WithOrm registers it keyed by the channel pipeline's name, as the same scoped
+        // OrmOutboxStore instance as the pipeline's IOutboxStore.
 
-        // Scoped, same rule as ScheduleDiagnostics: ScheduleDeliveryActions also takes ApplicationDbContext
-        // directly. Deliberately its own registration rather than added to IScheduleDiagnostics — see
+        // Scoped, because the keyed IOutboxRequeue it takes is. Deliberately its own registration rather than
+        // added to IScheduleDiagnostics — see
         // IScheduleDeliveryActions's remarks for why the read-only seam handed to agent tools must stay read-only.
         services.AddScoped<IScheduleDeliveryActions, ScheduleDeliveryActions>();
 

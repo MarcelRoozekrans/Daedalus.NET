@@ -11,7 +11,7 @@ namespace Daedalus.Domain.Entities;
 /// </summary>
 /// <remarks>
 ///     Not an <see cref="Entity{TId}"/>: the key is the composite (<see cref="Name"/>, <see cref="ContentHash"/>) pair,
-///     not a single id, so it follows <see cref="Skill"/>'s own style instead — <c>private SkillVersion()</c> for EF,
+///     not a single id, so it follows <see cref="Skill"/>'s own style instead — a private constructor,
 ///     a validating static factory, read-only properties. Limits mirror <see cref="Skill"/>'s own constants exactly,
 ///     since a version is a snapshot of a document that was already validated as a <see cref="Skill"/> once.
 /// </remarks>
@@ -40,7 +40,7 @@ public sealed class SkillVersion
     /// <summary>Gets when this version was created (UTC) — the synced document's own <c>UpdatedAt</c>, not the row's insert time.</summary>
     public DateTime CreatedAt { get; private set; }
 
-    private SkillVersion() { } // EF Core
+    private SkillVersion() { }
 
     /// <summary>Creates a version snapshot from a synced document's fields. Rejects the same shapes <see cref="Skill.Create"/> rejects.</summary>
     /// <returns>A Result containing the new version or the first validation error.</returns>
@@ -72,6 +72,37 @@ public sealed class SkillVersion
         };
         version._tags.AddRange(fields.Value);
         return Result<SkillVersion>.Success(version);
+    }
+
+    /// <summary>
+    ///     Rebuilds a stored version from its columns. For persistence only: it sets every value as given and
+    ///     validates nothing, so a row written before a rule of <see cref="Create"/> existed still loads.
+    /// </summary>
+    /// <param name="name">The skill name this is a version of.</param>
+    /// <param name="contentHash">The hash of the raw file.</param>
+    /// <param name="description">The one-line description as it read at this version.</param>
+    /// <param name="body">The procedure body, verbatim.</param>
+    /// <param name="tags">The tags as stored.</param>
+    /// <param name="sourcePath">The repo-relative path the version was synced from.</param>
+    /// <param name="createdAt">When the version was created.</param>
+    /// <returns>The version the row holds.</returns>
+    public static SkillVersion Rehydrate(
+        string name, string contentHash, string description, string body, IEnumerable<string> tags,
+        string sourcePath, DateTime createdAt)
+    {
+        ArgumentNullException.ThrowIfNull(tags);
+
+        var version = new SkillVersion
+        {
+            Name = name,
+            ContentHash = contentHash,
+            Description = description,
+            Body = body,
+            SourcePath = sourcePath,
+            CreatedAt = createdAt,
+        };
+        version._tags.AddRange(tags);
+        return version;
     }
 
     /// <summary>Same rule as the Thalos skill name: <c>^[a-z][a-z0-9_-]{0,63}$</c>.</summary>

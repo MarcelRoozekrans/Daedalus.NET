@@ -1,18 +1,15 @@
-using System.Data.Async.Adapters;
 using System.Text;
 using System.Text.Json;
 using AwesomeAssertions.Execution;
 using Daedalus.Agents.Workflow;
 using Daedalus.Tests.Integration.Fixtures;
+using Daedalus.Tests.Shared;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Thalos;
 using Thalos.Skills;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
-using ZeroAlloc.ORM.Migrations;
-using ZeroAlloc.Outbox.Orm;
-using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;
@@ -48,7 +45,7 @@ public sealed class WorkflowOutboxDispatchEndToEndTests(PostgresFixture fixture)
 
         try
         {
-            await MigrateAsync(connectionString);
+            await DatabaseSchema.ApplyAsync(connectionString, CancellationToken.None);
 
             var options = new WorkflowOrmOptions { ConnectionString = connectionString };
             var definitions = new OrmProcessDefinitionStore(options);
@@ -160,17 +157,6 @@ public sealed class WorkflowOutboxDispatchEndToEndTests(PostgresFixture fixture)
     {
         await using var command = dataSource.CreateCommand($"SELECT COUNT(*) FROM outboxmessages WHERE {where}");
         return (long)(await command.ExecuteScalarAsync())!;
-    }
-
-    private static async Task MigrateAsync(string connectionString)
-    {
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        var asyncConnection = connection.AsAsync();
-        var dialect = new PostgresMigrationDialect();
-
-        await new MigrationRunner(asyncConnection, OutboxOrmMigrations.Postgres, dialect).RunAsync();
-        await new MigrationRunner(asyncConnection, WorkflowOrmMigrations.Postgres, dialect).RunAsync();
     }
 
     private async Task ExecuteOnServerAsync(string sql)

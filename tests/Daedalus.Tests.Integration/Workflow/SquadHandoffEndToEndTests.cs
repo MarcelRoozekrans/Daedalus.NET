@@ -1,5 +1,3 @@
-using System.Data.Async.Adapters;
-using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AwesomeAssertions.Execution;
@@ -9,11 +7,9 @@ using Daedalus.Agents.Memory;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Tools;
 using Daedalus.Agents.Workflow;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Shared;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -22,9 +18,6 @@ using Thalos.Skills;
 using Thalos.Workflow;
 using Thalos.Workflow.Orm;
 using Thalos.Workspaces;
-using ZeroAlloc.ORM.Migrations;
-using ZeroAlloc.Outbox.Orm;
-using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
 using WorkflowRunRecord = Daedalus.Domain.Entities.WorkflowRunRecord;
 
@@ -798,12 +791,6 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
 
     private sealed record FindingPayload(string File, int Line, string Scenario);
 
-    /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
-    private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => fixture.CreateDbContext();
-    }
-
     private static async Task AssertNoProposalAtTheGateAsync(RunOutcome result)
     {
         result.PlantsReported.Should().Be(1, "otherwise the attack was never attempted and this test proves nothing");
@@ -896,7 +883,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
 
         try
         {
-            await MigrateAsync(connectionString);
+            await DatabaseSchema.ApplyAsync(connectionString, CancellationToken.None);
 
             var options = new WorkflowOrmOptions { ConnectionString = connectionString };
             var definitions = new OrmProcessDefinitionStore(options);
@@ -915,7 +902,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
             var runner = new ScriptedRunner(
                 retrospectProposal ?? DefaultRetrospectProposal, plantAt, retrospectOutcome, rejectFirstReview, malformedPass, forgeHostKeys,
                 filesTouched);
-            var records = new WorkflowRunRecordStore(new FixtureDbContextFactory(fixture));
+            var records = new WorkflowRunRecordStore(fixture.Db);
             var overrideChecks = new List<OverrideCheck>();
             var (provider, references, catalog) = BuildProvider(store, definitions, runner, squadEnabled, skills, records, decisions, overrideChecks);
             await using var disposable = provider;
@@ -1440,17 +1427,6 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
                 ],
                 TimeSpan.FromSeconds(1));
         }
-    }
-
-    private static async Task MigrateAsync(string connectionString)
-    {
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        var asyncConnection = connection.AsAsync();
-        var dialect = new PostgresMigrationDialect();
-
-        await new MigrationRunner(asyncConnection, OutboxOrmMigrations.Postgres, dialect).RunAsync();
-        await new MigrationRunner(asyncConnection, WorkflowOrmMigrations.Postgres, dialect).RunAsync();
     }
 
     private async Task ExecuteOnServerAsync(string sql)

@@ -1,9 +1,7 @@
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -11,7 +9,6 @@ using Microsoft.Extensions.Time.Testing;
 using Thalos;
 using Thalos.Testing;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Scheduling;
@@ -385,16 +382,13 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
             name, "0 7 * * *", "RepoDigestSaga", channelId, conversationId, principalId, roles,
             ScheduleOrigin.Config, Occurrence, repository: "owner/repo").Value;
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRuns.Add(schedule);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, schedule);
         return schedule.Id;
     }
 
     private async Task<ScheduledRunExecution> SingleExecutionRowAsync()
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRunExecutions.AsNoTracking().SingleAsync();
+        return await ScheduleTables.SingleExecutionAsync(fixture);
     }
 
     private async Task<Guid> SingleExecutionIdAsync() => (await SingleExecutionRowAsync()).Id;
@@ -410,17 +404,11 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
 
     private async Task<int> ExecutionCountAsync()
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRunExecutions.CountAsync();
+        return await ScheduleTables.ExecutionCountAsync(fixture);
     }
 
     /// <summary>Counts outbox rows of type <typeparamref name="T"/>, by the same type-name column ZeroAlloc.Outbox's generated writer stamps.</summary>
-    private async Task<int> OutboxCountAsync<T>()
-    {
-        var typeName = typeof(T).FullName;
-        await using var db = fixture.CreateDbContext();
-        return await db.OutboxMessages.CountAsync(m => m.TypeName == typeName);
-    }
+    private Task<int> OutboxCountAsync<T>() => ChannelOutboxRows.CountAsync<T>(fixture);
 
     /// <summary>
     ///     Reads the single <see cref="ChannelMessageQueued"/> outbox row written so far, deserializes it with the
@@ -432,10 +420,7 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
     {
         var serializer = _serializer
             ?? throw new InvalidOperationException($"{nameof(BuildStore)}() must be called before draining the channel outbox.");
-        var typeName = typeof(ChannelMessageQueued).FullName;
-
-        await using var db = fixture.CreateDbContext();
-        var row = await db.OutboxMessages.AsNoTracking().SingleAsync(m => m.TypeName == typeName);
+        var row = await ChannelOutboxRows.SingleAsync<ChannelMessageQueued>(fixture);
         var message = serializer.Deserialize<ChannelMessageQueued>(row.Payload);
 
         var dispatcher = new ChannelMessageQueuedDispatcher([adapter], NullLogger<ChannelMessageQueuedDispatcher>.Instance);
@@ -444,8 +429,8 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
 
     /// <summary>
     ///     A store resolved from its own scope, wired like production: the real generated
-    ///     <c>IOutboxWriter&lt;T&gt;</c> for each of the four message types shares the scope's single
-    ///     <see cref="ApplicationDbContext"/> with the store itself. Each call builds an entirely separate DI
+    ///     <c>IOutboxWriter&lt;T&gt;</c> for each of the four message types, handed the store's own transaction.
+    ///     Each call builds an entirely separate DI
     ///     container - the same "brand-new store" fiction <c>ScheduledRunExecutionStoreTests</c> uses to model an
     ///     independent process, which is what the restart test relies on.
     /// </summary>
@@ -464,32 +449,28 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<TimeProvider>(_time);
-        services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
-        services.AddOutbox(o => { })
-            .WithEfCore<ApplicationDbContext>()
-            .AddRunScoutStepOutbox()
-            .AddRunWriterStepOutbox()
-            .AddDeliverDigestOutbox()
-            .AddChannelMessageQueuedOutbox()
-            .WithSystemTextJsonSerializer();
+        services.AddChannelOutboxOver(fixture);
         services.AddScoped<ScheduledRunExecutionStore>();
 
         if (wrapRunWriterStepWriter is not null)
         {
-            services.AddTransient<IOutboxWriter<RunWriterStep>>(sp => wrapRunWriterStepWriter(
-                new RunWriterStepOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+            services.WrapChannelWriter<RunWriterStep>(
+                (store, serializer) => new RunWriterStepOutboxWriter(store, serializer),
+                (real, _) => wrapRunWriterStepWriter(real));
         }
 
         if (wrapDeliverDigestWriter is not null)
         {
-            services.AddTransient<IOutboxWriter<DeliverDigest>>(sp => wrapDeliverDigestWriter(
-                new DeliverDigestOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+            services.WrapChannelWriter<DeliverDigest>(
+                (store, serializer) => new DeliverDigestOutboxWriter(store, serializer),
+                (real, _) => wrapDeliverDigestWriter(real));
         }
 
         if (wrapChannelWriter is not null)
         {
-            services.AddTransient<IOutboxWriter<ChannelMessageQueued>>(sp => wrapChannelWriter(
-                new ChannelMessageQueuedOutboxWriter(sp.GetRequiredService<IOutboxStore>(), sp.GetRequiredService<IOutboxSerializer>())));
+            services.WrapChannelWriter<ChannelMessageQueued>(
+                (store, serializer) => new ChannelMessageQueuedOutboxWriter(store, serializer),
+                (real, _) => wrapChannelWriter(real));
         }
 
         var provider = services.BuildServiceProvider();

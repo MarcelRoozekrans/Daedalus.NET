@@ -1,6 +1,5 @@
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Tests.Shared;
 using Npgsql;
 using Testcontainers.PostgreSql;
 
@@ -17,6 +16,8 @@ public sealed class PostgresFixture : IAsyncLifetime
     private const int _retryDelayMs = 500;
     private PostgreSqlContainer? _container;
     private RespawnDatabaseResetter? _databaseResetter;
+    private NpgsqlDataSource? _dataSource;
+    private DaedalusDb? _db;
 
     /// <summary>
     ///     Gets the connection string for the test database.
@@ -56,22 +57,17 @@ public sealed class PostgresFixture : IAsyncLifetime
     }
 
     /// <summary>
-    ///     Builds <see cref="DbContextOptions{TContext}"/> for <paramref name="connectionString"/>. Every test context should
-    ///     still come from here so options stay in one place.
+    ///     Gets the <see cref="DaedalusDb"/> over the fixture database, the way a host's ZeroAlloc.ORM stores reach it:
+    ///     one data source for the fixture's lifetime, a pooled connection per call.
     /// </summary>
-    public static DbContextOptions<ApplicationDbContext> CreateDbContextOptions(string connectionString) =>
-        new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql(connectionString)
-            .Options;
+    public DaedalusDb Db => _db ?? throw new InvalidOperationException("Container not initialized. Call InitializeAsync first.");
 
-    /// <summary>Builds <see cref="DbContextOptions{TContext}"/> for the fixture database.</summary>
-    public DbContextOptions<ApplicationDbContext> CreateDbContextOptions() => CreateDbContextOptions(ConnectionString);
-
-    /// <summary>Creates a new <see cref="ApplicationDbContext"/> over the fixture database (caller disposes).</summary>
-    public ApplicationDbContext CreateDbContext() => new(CreateDbContextOptions());
-
-    /// <summary>Alias for <see cref="CreateDbContext"/>, for tests that read more naturally as "give me a context".</summary>
-    public ApplicationDbContext CreateContext() => CreateDbContext();
+    /// <summary>
+    ///     Gets the fixture's one <see cref="NpgsqlDataSource"/>, the one <see cref="Db"/> opens from. A test provider
+    ///     registers this instance, so the container does not dispose it.
+    /// </summary>
+    public NpgsqlDataSource DataSource =>
+        _dataSource ?? throw new InvalidOperationException("Container not initialized. Call InitializeAsync first.");
 
     /// <summary>
     ///     Starts the PostgreSQL container with retry logic.
@@ -104,6 +100,8 @@ public sealed class PostgresFixture : IAsyncLifetime
                 await ApplyMigrationsAsync();
                 // Initialize Respawn checkpoint after schema is created
                 await InitializeRespawnerAsync();
+                _dataSource = NpgsqlDataSource.Create(ConnectionString);
+                _db = new DaedalusDb(_dataSource);
                 return;
             }
             catch (Exception ex)
@@ -129,6 +127,11 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// </summary>
     public async Task DisposeAsync()
     {
+        if (_dataSource != null)
+        {
+            await _dataSource.DisposeAsync();
+        }
+
         if (_container != null)
         {
             try
@@ -145,23 +148,15 @@ public sealed class PostgresFixture : IAsyncLifetime
     }
 
     /// <summary>
-    ///     Applies database migrations to the test database.
+    ///     Applies the real migrations to the test database.
     /// </summary>
     private async Task ApplyMigrationsAsync()
     {
         try
         {
-            var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-                .UseNpgsql(ConnectionString)
-                .LogTo(System.Console.WriteLine, LogLevel.Information)
-                .Options;
-
-            using var dbContext = new ApplicationDbContext(options);
-            // Rag.NET's rag_chunks (Thalos memory index) needs the pgvector extension; EnsureCreatedAsync runs no migration SQL
-            await dbContext.Database.ExecuteSqlRawAsync("CREATE EXTENSION IF NOT EXISTS vector;");
-            // For tests, create schema directly from model (EnsureCreatedAsync)
-            // In production, use MigrateAsync() with actual migration files
-            await dbContext.Database.EnsureCreatedAsync();
+            // The schema Daedalus.Migrations builds in production: the Daedalus migration source, then the workflow
+            // engine's.
+            await DatabaseSchema.ApplyAsync(ConnectionString, CancellationToken.None);
             System.Console.WriteLine("✓ Database schema created successfully");
         }
         catch (Exception ex)

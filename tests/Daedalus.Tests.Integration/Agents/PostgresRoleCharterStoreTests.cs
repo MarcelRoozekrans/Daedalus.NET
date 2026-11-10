@@ -1,8 +1,6 @@
 using Daedalus.Agents.Charters;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Thalos;
 using Thalos.Skills.Charters;
 using Thalos.Testing;
@@ -25,7 +23,7 @@ public sealed class PostgresRoleCharterStoreTests(PostgresFixture fixture) : Rol
     // Upserts carry their own UpdatedAt (they are synced from files), but DeactivateMissingAsync stamps the
     // clock: the row records when its role stopped being seen, so the store needs the contract's clock.
     protected override ValueTask<IRoleCharterStore> CreateStoreAsync(TimeProvider clock) =>
-        new(new PostgresRoleCharterStore(new FixtureDbContextFactory(fixture), clock));
+        new(new PostgresRoleCharterStore(fixture.Db, clock));
 
     /// <summary>
     ///     Daedalus-specific: a charter that violates the aggregate's rules comes back as SkillValidationFailed,
@@ -75,11 +73,5 @@ public sealed class PostgresRoleCharterStoreTests(PostgresFixture fixture) : Rol
 
         var all = (await store.ListVersionsAsync(CancellationToken.None)).Value;
         all.Single().Model.Should().BeNull();
-    }
-
-    /// <summary>The store disposes every context it creates, so the factory needs no tracking.</summary>
-    private sealed class FixtureDbContextFactory(PostgresFixture fixture) : IDbContextFactory<ApplicationDbContext>
-    {
-        public ApplicationDbContext CreateDbContext() => fixture.CreateDbContext();
     }
 }

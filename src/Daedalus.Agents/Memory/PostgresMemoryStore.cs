@@ -1,16 +1,18 @@
+using System.Data.Common;
 using System.Runtime.CompilerServices;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.AgentMemories;
 using Thalos;
 using Thalos.Memory;
+using ZeroAlloc.ORM;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.Memory;
 
 /// <summary>
-///     Thalos memory store over <see cref="ApplicationDbContext"/> (table <c>AgentMemories</c>). Records only — vectors live
-///     in the Rag.NET index. Fresh short-lived DbContext per call (the store is a singleton), time from the injected
+///     Thalos memory store over <see cref="AgentMemorySql"/> (table <c>AgentMemories</c>). Records only — vectors live
+///     in the Rag.NET index. One pooled connection per call (the store is a singleton), time from the injected
 ///     <see cref="TimeProvider"/>, atomic <c>UPDATE</c>s for counters. Same patterns as <c>PostgresAgentSessionStore</c>.
 /// </summary>
 /// <remarks>
@@ -26,23 +28,23 @@ public sealed class PostgresMemoryStore : IMemoryStore
     /// <summary>Rows fetched per keyset page in <see cref="StreamAsync"/>.</summary>
     internal const int DefaultStreamBatchSize = 256;
 
-    private readonly IDbContextFactory<ApplicationDbContext> _contextFactory;
+    private readonly DaedalusDb _db;
     private readonly TimeProvider _clock;
     private readonly int _streamBatchSize;
 
-    /// <summary>Creates the store; DbContexts come from <paramref name="contextFactory"/>, time from <paramref name="clock"/>.</summary>
-    public PostgresMemoryStore(IDbContextFactory<ApplicationDbContext> contextFactory, TimeProvider clock)
-        : this(contextFactory, clock, DefaultStreamBatchSize)
+    /// <summary>Creates the store; connections come from <paramref name="db"/>, time from <paramref name="clock"/>.</summary>
+    public PostgresMemoryStore(DaedalusDb db, TimeProvider clock)
+        : this(db, clock, DefaultStreamBatchSize)
     {
     }
 
-    /// <summary>Test seam: a small <paramref name="streamBatchSize"/> exercises the keyset paging of <see cref="StreamAsync"/>.</summary>
-    internal PostgresMemoryStore(IDbContextFactory<ApplicationDbContext> contextFactory, TimeProvider clock, int streamBatchSize)
+    /// <summary>Test seam: a smaller keyset page makes the paging seam reachable with a handful of rows.</summary>
+    internal PostgresMemoryStore(DaedalusDb db, TimeProvider clock, int streamBatchSize)
     {
-        ArgumentNullException.ThrowIfNull(contextFactory);
+        ArgumentNullException.ThrowIfNull(db);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentOutOfRangeException.ThrowIfLessThan(streamBatchSize, 1);
-        _contextFactory = contextFactory;
+        _db = db;
         _clock = clock;
         _streamBatchSize = streamBatchSize;
     }
@@ -64,12 +66,11 @@ public sealed class PostgresMemoryStore : IMemoryStore
 
         try
         {
-            await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-            db.AgentMemories.Add(created.Value);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+            await new AgentMemorySql(connection).InsertAsync(created.Value, ct).ConfigureAwait(false);
             return Result<MemoryRecord, AgentError>.Success(ToRecord(created.Value));
         }
-        catch (DbUpdateException ex)
+        catch (DbException ex)
         {
             return Result<MemoryRecord, AgentError>.Failure(AgentError.MemoryStoreFailed("Could not store the memory.", ex.GetType().Name));
         }
@@ -78,10 +79,8 @@ public sealed class PostgresMemoryStore : IMemoryStore
     /// <inheritdoc />
     public async ValueTask<Result<MemoryRecord, AgentError>> GetAsync(MemoryId id, CancellationToken ct)
     {
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var row = await db.AgentMemories.AsNoTracking()
-            .FirstOrDefaultAsync(m => m.Id == id.Value, ct)
-            .ConfigureAwait(false);
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        var row = await new AgentMemorySql(connection).FindAsync(id.Value, ct).ConfigureAwait(false);
 
         return row is null
             ? Result<MemoryRecord, AgentError>.Failure(AgentError.MemoryNotFound(id))
@@ -93,8 +92,9 @@ public sealed class PostgresMemoryStore : IMemoryStore
     {
         ArgumentNullException.ThrowIfNull(update);
 
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var row = await db.AgentMemories.FirstOrDefaultAsync(m => m.Id == id.Value, ct).ConfigureAwait(false);
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        var sql = new AgentMemorySql(connection);
+        var row = await sql.FindAsync(id.Value, ct).ConfigureAwait(false);
         if (row is null)
         {
             return Result<MemoryRecord, AgentError>.Failure(AgentError.MemoryNotFound(id));
@@ -109,14 +109,18 @@ public sealed class PostgresMemoryStore : IMemoryStore
 
         try
         {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            // Only the supplied fields are written, as EF's change tracking wrote only the modified columns: a recall
+            // counted between the read above and this write must stand.
+            await sql.WriteUpdateAsync(
+                row, update.Text is not null, update.Tags is not null, update.Importance is not null,
+                update.IsArchived is not null, update.IndexPending is not null, ct).ConfigureAwait(false);
         }
-        catch (DbUpdateConcurrencyException)
+        catch (ZeroAllocOrmConcurrencyException)
         {
-            // Hard-deleted between the read and the save: to the caller the memory no longer exists.
+            // Hard-deleted between the read and the write: to the caller the memory no longer exists.
             return Result<MemoryRecord, AgentError>.Failure(AgentError.MemoryNotFound(id));
         }
-        catch (DbUpdateException ex)
+        catch (DbException ex)
         {
             return Result<MemoryRecord, AgentError>.Failure(AgentError.MemoryStoreFailed("Could not update the memory.", ex.GetType().Name));
         }
@@ -127,11 +131,8 @@ public sealed class PostgresMemoryStore : IMemoryStore
     /// <inheritdoc />
     public async ValueTask<UnitResult<AgentError>> DeleteAsync(MemoryId id, CancellationToken ct)
     {
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var affected = await db.AgentMemories
-            .Where(m => m.Id == id.Value)
-            .ExecuteDeleteAsync(ct)
-            .ConfigureAwait(false);
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        var affected = await new AgentMemorySql(connection).DeleteAsync(id.Value, ct).ConfigureAwait(false);
 
         return affected == 1 ? UnitResult<AgentError>.Success() : UnitResult<AgentError>.Failure(AgentError.MemoryNotFound(id));
     }
@@ -144,21 +145,23 @@ public sealed class PostgresMemoryStore : IMemoryStore
         var page = Math.Max(1, query.Page);
         var size = Math.Clamp(query.PageSize, 1, MemoryQuery.MaxPageSize);
 
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var filtered = Apply(db.AgentMemories.AsNoTracking(), query);
-        var total = await filtered.CountAsync(ct).ConfigureAwait(false);
+        // A blank query tag matches nothing, like MemoryQuery.Matches: no statement is needed to say so.
+        if (ToFilter(query) is not { } filter)
+        {
+            return Result<MemoryPage, AgentError>.Success(new MemoryPage([], page, size, 0));
+        }
+
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        var sql = new AgentMemorySql(connection);
+        var total = await sql.CountAsync(filter, ct).ConfigureAwait(false);
 
         // Skip in long: Page may be int.MaxValue; a page beyond the matches is simply empty.
         var skip = (long)(page - 1) * size;
         IReadOnlyList<MemoryRecord> items = [];
         if (skip < total)
         {
-            var rows = await filtered
-                .OrderByDescending(m => m.UpdatedAt).ThenByDescending(m => m.Id)
-                .Skip((int)skip).Take(size)
-                .ToListAsync(ct)
-                .ConfigureAwait(false);
-            items = rows.ConvertAll(ToRecord);
+            var rows = await sql.ListPageAsync(filter, skip, size, ct).ConfigureAwait(false);
+            items = [.. rows.Select(ToRecord)];
         }
 
         return Result<MemoryPage, AgentError>.Success(new MemoryPage(items, page, size, total));
@@ -173,16 +176,10 @@ public sealed class PostgresMemoryStore : IMemoryStore
             return UnitResult<AgentError>.Success();
         }
 
-        // ids are a set (duplicates count once); "= ANY(@guids)" touches each row once anyway, distinct keeps the parameter small.
-        var guids = ids.Select(i => i.Value).Distinct().ToList();
-        var when = at.UtcDateTime;
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        await db.AgentMemories
-            .Where(m => guids.Contains(m.Id))
-            .ExecuteUpdateAsync(set => set
-                .SetProperty(m => m.RecallCount, m => m.RecallCount + 1)
-                .SetProperty(m => m.LastRecalledAt, when), ct)
-            .ConfigureAwait(false);
+        // AgentMemorySql counts a repeated id once.
+        var guids = ids.Select(i => i.Value).ToList();
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        await new AgentMemorySql(connection).MarkRecalledAsync(guids, at.UtcDateTime, ct).ConfigureAwait(false);
 
         return UnitResult<AgentError>.Success();
     }
@@ -196,24 +193,21 @@ public sealed class PostgresMemoryStore : IMemoryStore
 
     private async IAsyncEnumerable<MemoryRecord> StreamCoreAsync(MemoryQuery query, [EnumeratorCancellation] CancellationToken ct)
     {
+        if (ToFilter(query) is not { } filter)
+        {
+            yield break; // a blank query tag matches nothing
+        }
+
         // Row-value keyset paging: ORDER BY ("CreatedAt", "Id") and WHERE ("CreatedAt", "Id") > (@lastCreatedAt, @lastId) use the
         // same total order in SQL (uuid byte order), so ties on CreatedAt need no client-side bookkeeping.
         (DateTime CreatedAt, Guid Id)? last = null;
         while (true)
         {
-            List<AgentMemory> batch;
-            await using (var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false))
+            IReadOnlyList<AgentMemory> batch;
+            await using (var connection = await _db.OpenAsync(ct).ConfigureAwait(false))
             {
-                var q = Apply(db.AgentMemories.AsNoTracking(), query);
-                if (last is { } after)
-                {
-                    q = q.Where(m => EF.Functions.GreaterThan(ValueTuple.Create(m.CreatedAt, m.Id), ValueTuple.Create(after.CreatedAt, after.Id)));
-                }
-
-                batch = await q
-                    .OrderBy(m => m.CreatedAt).ThenBy(m => m.Id)
-                    .Take(_streamBatchSize)
-                    .ToListAsync(ct)
+                batch = await new AgentMemorySql(connection)
+                    .StreamPageAsync(filter, last, _streamBatchSize, ct)
                     .ConfigureAwait(false);
             }
 
@@ -231,55 +225,32 @@ public sealed class PostgresMemoryStore : IMemoryStore
         }
     }
 
-    /// <summary>The <see cref="MemoryQuery.Matches"/> semantics in SQL: null/empty filter lists mean "no filter".</summary>
-    private static IQueryable<AgentMemory> Apply(IQueryable<AgentMemory> source, MemoryQuery query)
+    /// <summary>
+    ///     The <see cref="MemoryQuery.Matches"/> semantics as a SQL filter: null/empty filter lists mean "no filter". Null when
+    ///     a query tag is blank, because that matches nothing.
+    /// </summary>
+    private static AgentMemoryFilter? ToFilter(MemoryQuery query)
     {
-        var q = source;
-
-        if (query.OwnerIds is { Count: > 0 })
+        // Every listed tag must be present (AND), normalised like stored tags. A blank query tag matches nothing.
+        var tags = new List<string>();
+        foreach (var raw in query.Tags ?? [])
         {
-            var owners = query.OwnerIds.ToList();
-            q = q.Where(m => owners.Contains(m.OwnerId));
-        }
-
-        if (query.AgentId is { } agent)
-        {
-            var agentGuid = agent.Value;
-            q = q.Where(m => m.AgentId == agentGuid); // pinned to this agent only (owner-wide rows need AgentId = null)
-        }
-
-        if (query.Kinds is { Count: > 0 })
-        {
-            var kinds = query.Kinds.Select(k => k.Value).ToList();
-            q = q.Where(m => kinds.Contains(m.Kind));
-        }
-
-        if (query.Tags is { Count: > 0 })
-        {
-            // Every listed tag must be present (AND), normalised like stored tags. A blank query tag matches nothing.
-            foreach (var raw in query.Tags)
+            var tag = NormaliseTag(raw);
+            if (string.IsNullOrEmpty(tag))
             {
-                var tag = NormaliseTag(raw);
-                if (string.IsNullOrEmpty(tag))
-                {
-                    return q.Where(m => false);
-                }
-
-                q = q.Where(m => EF.Property<List<string>>(m, "_tags").Contains(tag)); // Npgsql: @tag = ANY("Tags")
+                return null;
             }
+
+            tags.Add(tag);
         }
 
-        if (!query.IncludeArchived)
-        {
-            q = q.Where(m => !m.IsArchived);
-        }
-
-        if (query.IndexPending is { } pending)
-        {
-            q = q.Where(m => m.IndexPending == pending);
-        }
-
-        return q;
+        return new AgentMemoryFilter(
+            query.OwnerIds is { Count: > 0 } ? [.. query.OwnerIds] : [],
+            query.AgentId?.Value, // pinned to this agent only (owner-wide rows need AgentId = null)
+            query.Kinds is { Count: > 0 } ? [.. query.Kinds.Select(k => k.Value)] : [],
+            tags,
+            query.IncludeArchived,
+            query.IndexPending);
     }
 
 #pragma warning disable CA1308 // tags are lowercase identifiers by definition, not user-facing text

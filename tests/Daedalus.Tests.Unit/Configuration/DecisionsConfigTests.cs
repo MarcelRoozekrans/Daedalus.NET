@@ -1,9 +1,9 @@
 using AwesomeAssertions.Execution;
 using Daedalus.Agents;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 
 namespace Daedalus.Tests.Unit.Configuration;
@@ -31,7 +31,7 @@ public sealed class DecisionsConfigTests
 
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
+        services.TryAddSingleton<DaedalusDb>();
         return (services, options, configuration, environment);
     }
 

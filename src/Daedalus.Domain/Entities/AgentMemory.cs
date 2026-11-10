@@ -75,7 +75,7 @@ public sealed class AgentMemory : Entity<Guid>
     /// <summary>Gets a value indicating whether the vector still has to be (re)built in the index.</summary>
     public bool IndexPending { get; private set; }
 
-    private AgentMemory() { } // EF Core
+    private AgentMemory() { }
 
     /// <summary>
     ///     Creates a memory; all timestamps are supplied by the caller (UTC). The optional trailing parameters let the store
@@ -154,6 +154,52 @@ public sealed class AgentMemory : Entity<Guid>
         };
         memory._tags.AddRange(normalisedTags.Value);
         return Result<AgentMemory>.Success(memory);
+    }
+
+    /// <summary>
+    ///     Rebuilds a stored memory from its columns. For persistence only: it sets every value as given and validates
+    ///     nothing, so a row written before a rule of <see cref="Create"/> existed still loads.
+    /// </summary>
+    /// <param name="id">The memory id.</param>
+    /// <param name="ownerId">The owner subject.</param>
+    /// <param name="agentId">The pinned agent, or <see langword="null"/> for owner-wide.</param>
+    /// <param name="kind">The kind identifier as stored.</param>
+    /// <param name="text">The memory text as stored.</param>
+    /// <param name="tags">The tags as stored.</param>
+    /// <param name="source">The provenance as stored.</param>
+    /// <param name="importance">The importance as stored.</param>
+    /// <param name="createdAt">When the memory was created.</param>
+    /// <param name="updatedAt">When the content was last changed.</param>
+    /// <param name="lastRecalledAt">When the memory was last recalled, or <see langword="null"/>.</param>
+    /// <param name="recallCount">How many times the memory was recalled.</param>
+    /// <param name="isArchived">Whether the memory is soft-deleted.</param>
+    /// <param name="indexPending">Whether the vector still has to be built.</param>
+    /// <returns>The memory the row holds.</returns>
+    public static AgentMemory Rehydrate(
+        Guid id, string ownerId, Guid? agentId, string kind, string text, IEnumerable<string> tags, string source,
+        double importance, DateTime createdAt, DateTime updatedAt, DateTime? lastRecalledAt, int recallCount,
+        bool isArchived, bool indexPending)
+    {
+        ArgumentNullException.ThrowIfNull(tags);
+
+        var memory = new AgentMemory
+        {
+            Id = id,
+            OwnerId = ownerId,
+            AgentId = agentId,
+            Kind = kind,
+            Text = text,
+            Source = source,
+            Importance = importance,
+            CreatedAt = createdAt,
+            UpdatedAt = updatedAt,
+            LastRecalledAt = lastRecalledAt,
+            RecallCount = recallCount,
+            IsArchived = isArchived,
+            IndexPending = indexPending,
+        };
+        memory._tags.AddRange(tags);
+        return memory;
     }
 
     /// <summary>

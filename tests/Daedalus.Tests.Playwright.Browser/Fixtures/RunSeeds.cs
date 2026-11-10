@@ -1,5 +1,6 @@
 using Daedalus.Agents.Workflow;
-using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.Tasks;
 using Thalos.Workflow;
 using Task = System.Threading.Tasks.Task;
 using WorkflowRunRecord = Daedalus.Domain.Entities.WorkflowRunRecord;
@@ -204,14 +205,16 @@ public sealed class RunSeeds(IWorkflowStore store, IServiceScopeFactory scopes)
     private async Task AttachToTaskAsync(Guid runId, string taskCode, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var task = await db.Tasks.SingleAsync(t => t.TaskId == taskCode, ct).ConfigureAwait(false);
+        await using var connection = await scope.ServiceProvider.GetRequiredService<DaedalusDb>().OpenAsync(ct).ConfigureAwait(false);
+        var sql = new TaskSql(connection);
+        var (_, tasks) = await sql.PageAsync(0, int.MaxValue, ct).ConfigureAwait(false);
+        var task = tasks.Single(t => string.Equals(t.TaskId, taskCode, StringComparison.Ordinal));
         var attached = task.AttachRun(runId);
         if (attached.IsFailure)
         {
             throw new InvalidOperationException($"Attaching run {runId} to {taskCode} failed: {attached.Error}");
         }
 
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        await sql.UpdateAsync(task, ct).ConfigureAwait(false);
     }
 }

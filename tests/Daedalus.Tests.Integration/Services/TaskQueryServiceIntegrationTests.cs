@@ -1,8 +1,7 @@
 using Daedalus.Api.Services;
 using Daedalus.Application.Services;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Shared;
 using SystemTask = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Services;
@@ -14,32 +13,24 @@ namespace Daedalus.Tests.Integration.Services;
 [Collection(DatabaseCollection.Name)]
 public class TaskQueryServiceIntegrationTests(PostgresFixture fixture) : IAsyncLifetime
 {
-    private ApplicationDbContext _dbContext = null!;
+    private SeedBatch _seed = null!;
     private TaskQueryService _sut = null!;
 
     public async SystemTask InitializeAsync()
     {
         await fixture.DatabaseResetter.ResetAsync();
 
-        var options = PostgresFixture.CreateDbContextOptions(fixture.ConnectionString);
-
-        _dbContext = new ApplicationDbContext(options);
+        _seed = new SeedBatch(fixture.Db, fixture.ConnectionString);
 
         // Create default project for tests
         var project = IntegrationTestFactory.CreateProject(IntegrationTestFactory.GetDefaultProjectId());
-        _dbContext.Projects.Add(project);
-        await _dbContext.SaveChangesAsync();
+        _seed.Projects.Add(project);
+        await _seed.SaveChangesAsync();
 
-        _sut = new TaskQueryService(_dbContext, new DisabledWorkflowRunStatusReader());
+        _sut = new TaskQueryService(fixture.Db, new DisabledWorkflowRunStatusReader());
     }
 
-    public async SystemTask DisposeAsync()
-    {
-        if (_dbContext != null)
-        {
-            await _dbContext.DisposeAsync();
-        }
-    }
+    public SystemTask DisposeAsync() => SystemTask.CompletedTask;
 
     [Fact(Timeout = 5000)]
     public async SystemTask GetAllAsync_WithTasks_ReturnsPaginatedResults()
@@ -50,8 +41,8 @@ public class TaskQueryServiceIntegrationTests(PostgresFixture fixture) : IAsyncL
         var task1 = IntegrationTestFactory.CreateTask(taskId1, prompt: "Task 1");
         var task2 = IntegrationTestFactory.CreateTask(taskId2, prompt: "Task 2");
 
-        _dbContext.Tasks.AddRange(task1, task2);
-        await _dbContext.SaveChangesAsync();
+        _seed.Tasks.AddRange(task1, task2);
+        await _seed.SaveChangesAsync();
 
         // Act
         var result = await _sut.GetAllAsync();
@@ -68,8 +59,8 @@ public class TaskQueryServiceIntegrationTests(PostgresFixture fixture) : IAsyncL
         var taskId = Guid.NewGuid();
         var task = IntegrationTestFactory.CreateTask(taskId, prompt: "Test Task");
 
-        _dbContext.Tasks.Add(task);
-        await _dbContext.SaveChangesAsync();
+        _seed.Tasks.Add(task);
+        await _seed.SaveChangesAsync();
 
         // Act
         var result = await _sut.GetByIdAsync(taskId);

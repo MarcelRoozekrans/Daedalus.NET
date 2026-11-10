@@ -1,12 +1,12 @@
-using System.Diagnostics.CodeAnalysis;
 using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
@@ -116,9 +116,10 @@ public static class AspireExtensions
     }
 
     /// <summary>
-    ///     Adds database context with connection string resolution.
+    ///     Adds the <see cref="NpgsqlDataSource"/> and the <see cref="DaedalusDb"/> the ZeroAlloc.ORM stores open their
+    ///     connections from, on the connection string named <paramref name="connectionStringKey"/>, else
+    ///     <paramref name="fallbackConnectionString"/>, else <see cref="DatabaseSettings.GetDefaultConnectionString"/>.
     /// </summary>
-    [RequiresUnreferencedCode("EF Core model building; removed with EF Core in milestone 3 phase 3.5")]
     public static IServiceCollection AddApplicationDatabase(
         this IServiceCollection services,
         IConfiguration configuration,
@@ -128,11 +129,11 @@ public static class AspireExtensions
         fallbackConnectionString ??= DatabaseSettings.GetDefaultConnectionString();
         var connectionString = configuration.GetConnectionString(connectionStringKey) ?? fallbackConnectionString;
 
-        services.AddDbContextPool<ApplicationDbContext>(options => options.UseNpgsql(connectionString));
-
-        // Singleton consumers (e.g. the Thalos IAgentSessionStore) need IDbContextFactory<T>; the pooled factory shares
-        // the IDbContextPool<T> registered above (both use TryAdd), so contexts come from one pool either way.
-        services.AddPooledDbContextFactory<ApplicationDbContext>(options => options.UseNpgsql(connectionString));
+        // The stores open their connections from one data source. TryAdd, as AddDaedalusAgents' registration is, so the
+        // workflow poller and the stores share this one instance whichever call runs first (ruling R4). A factory, so
+        // the container disposes it on shutdown.
+        services.TryAddSingleton(_ => NpgsqlDataSource.Create(connectionString));
+        services.TryAddSingleton<DaedalusDb>();
 
         return services;
     }

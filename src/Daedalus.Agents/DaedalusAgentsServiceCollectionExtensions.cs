@@ -2,7 +2,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using AI.Sentinel;
-using AI.Sentinel.Detection;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Charters;
 using Daedalus.Agents.Decisions;
@@ -145,8 +144,8 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     without one the index is unavailable — remember stores <c>index_pending</c>, recall adds nothing.
     /// </param>
     /// <remarks>
-    ///     Requires <c>IDbContextFactory&lt;ApplicationDbContext&gt;</c> (see <c>AddApplicationDatabase</c>) and the
-    ///     Infrastructure services behind the knowledge tools (<c>IFailurePatternDatabase</c>) to be registered by the host.
+    ///     Requires <c>DaedalusDb</c> (see <c>AddApplicationDatabase</c>) and the Infrastructure services behind the
+    ///     knowledge tools (<c>IFailurePatternDatabase</c>) to be registered by the host.
     ///     Nothing here needs <c>ANTHROPIC_API_KEY</c> at registration time; the provider reads it lazily on first use.
     /// </remarks>
     /// <exception cref="InvalidOperationException">
@@ -210,10 +209,10 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         services.AddScoped<ScheduleReconciler>();
         services.AddHostedService<ScheduleReconcilerHostedService>();
 
-        // Durable outbound chat delivery: writer + EF Core store + poller for ChannelMessageQueued; see
-        // AddChannelOutbox for the chosen polling/batch/retry values. AddDaedalusChannels Replaces the
-        // library default with ChannelMessageQueuedDispatcher. Nothing writes to this outbox in phase 1.4 —
-        // it is durability laid down for 1.5 proactive pushes. See the design doc, section 9.
+        // Durable outbound chat and scheduling delivery: the named channel pipeline, its writers, its
+        // ZeroAlloc.Outbox.Orm store on the "OutboxMessages" table and its poller; see AddChannelOutbox for the
+        // chosen polling/batch/retry values. AddDaedalusChannels Replaces the library default with
+        // ChannelMessageQueuedDispatcher. See the design doc, section 9.
         services.AddChannelOutbox();
 
         // The deadline every detached agent turn runs under: SubagentRunExecutor applies it to the scheduling
@@ -323,16 +322,14 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
             ValidateCSharpWriteBindings(options.ToolPolicies, mcpConfigPath);
         }
 
-        // Phase 2.2 Part B: the workflow engine's own NpgsqlDataSource — used by WorkflowOutboxDispatchService's
-        // poller, not by OrmWorkflowStore itself, which opens its own `new NpgsqlConnection(_options.ConnectionString)`
-        // per call (Thalos.NET.Workflow.Orm gives it no seam to accept a shared data source instead). Registered
-        // here anyway so the poller's connections are visible to the same pooling/health surface as everything
-        // else built on Npgsql, deliberately not ApplicationDbContext's connection — the whole point of
-        // Thalos.NET.Workflow.Orm is that it is EF-free (EF Core is Milestone 3's AOT blocker). Same physical
-        // "daedalus" database as ApplicationDbContext — the AppHost declares only one Postgres resource — reached
-        // through a completely separate ADO.NET path. Factory registration (not AddSingleton(instance)) so the
-        // host's container disposes it on shutdown. Gated on Workflow.Enabled — see that option's own remarks
-        // for why a host whose database has none of these tables must not wire any of this at all.
+        // Phase 2.2 Part B: the NpgsqlDataSource WorkflowOutboxDispatchService's poller reads from — not
+        // OrmWorkflowStore itself, which opens its own `new NpgsqlConnection(_options.ConnectionString)` per call
+        // (Thalos.NET.Workflow.Orm gives it no seam to accept a shared data source instead). Phase 3.5, ruling R4: it
+        // is the host's one data source, the same instance AddApplicationDatabase registers for the ZeroAlloc.ORM
+        // stores, so both use TryAdd and whichever runs first wins; both read the "daedalus" connection string.
+        // Factory registration (not AddSingleton(instance)) so the host's container disposes it on shutdown. Gated
+        // on Workflow.Enabled — see that option's own remarks for why a host whose database has none of these tables
+        // must not wire any of this at all; a host that calls AddApplicationDatabase has the data source either way.
         var processesRoot = ResolveContentRoot(options.Workflow.ProcessesRoot, environment);
         var dataRoot = ResolveDataRoot(options.Workflow.DataRoot);
         var standingInstructionsPath = "";
@@ -351,7 +348,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         services.TryAddSingleton(options.Workflow);
         if (options.Workflow.Enabled)
         {
-            services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
+            services.TryAddSingleton(_ => NpgsqlDataSource.Create(connectionString));
         }
 
         // Always registered, engine on or off — see IManufactureRunStarter's own remarks. AddDaedalusWorkflow
@@ -391,8 +388,8 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 // (process_definition.content_hash, NOT NULL, no default) is not backward compatible with
                 // pre-1004 code, so applying it ahead of a rolling deploy would break process syncing with
                 // 23502 on every instance not yet replaced. Daedalus.Migrations applies WorkflowOrmMigrations
-                // explicitly, as the same pre-boot deploy step it already runs ApplicationDbContext's EF Core
-                // migrations as — see that project's Program.cs.
+                // explicitly, as the same pre-boot deploy step it runs Daedalus' own migrations as — see
+                // that project's Program.cs.
                 thalos.AddWorkflowOrm(o =>
                 {
                     o.ConnectionString = connectionString;
@@ -596,7 +593,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
         services.AddSingleton<WorkflowRunGateway>();
 
         // Task B6: the host's append-only record of a run, which the write audit and the review lenses append to.
-        // A singleton is safe: the store takes a fresh DbContext from IDbContextFactory on every call.
+        // A singleton is safe: the store opens a pooled connection from DaedalusDb on every call.
         services.AddSingleton<IWorkflowRunRecordStore, WorkflowRunRecordStore>();
 
         // Phase 2.8: writes each completed agent node's usage, for cost analytics. Resolves the record store from a scope

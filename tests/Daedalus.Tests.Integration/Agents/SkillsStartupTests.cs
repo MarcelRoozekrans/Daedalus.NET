@@ -1,10 +1,12 @@
 using Daedalus.Agents;
-using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.Skills;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 using Thalos.Skills;
 using Task = System.Threading.Tasks.Task;
 
@@ -41,9 +43,9 @@ public sealed class SkillsStartupTests(PostgresFixture fixture) : IAsyncLifetime
             all.Value.Should().OnlyContain(s => s.IsActive && s.Description.Length > 0 && s.ContentHash.Length > 0);
 
             var migrations = await store.GetAsync(SkillName.Parse("daedalus-migrations"), CancellationToken.None);
-            migrations.Value.Description.Should().Be("How to add, verify and apply an EF Core migration in the Daedalus repo.");
-            migrations.Value.Tags.Should().Contain("ef");
-            migrations.Value.Body.Should().Contain("dotnet ef migrations add")
+            migrations.Value.Description.Should().Be("How to add, verify and apply a schema migration in the Daedalus repo.");
+            migrations.Value.Tags.Should().Contain("zeroalloc-orm");
+            migrations.Value.Body.Should().Contain("dotnet run --project src/Daedalus.Migrations")
                 .And.NotContain("---", "the frontmatter is parsed off; the body is everything after it");
             migrations.Value.SourcePath.Should().EndWith("SKILL.md");
         }
@@ -64,18 +66,18 @@ public sealed class SkillsStartupTests(PostgresFixture fixture) : IAsyncLifetime
         }
 
         DateTimeOffset firstUpdatedAt;
-        using (var db = fixture.CreateDbContext())
+        await using (var connection = await fixture.Db.OpenAsync(CancellationToken.None))
         {
-            var row = await db.Skills.AsNoTracking().SingleAsync(s => s.Id == "daedalus-migrations");
-            firstUpdatedAt = new DateTimeOffset(row.UpdatedAt, TimeSpan.Zero);
+            var row = await new SkillSql(connection).FindAsync("daedalus-migrations", CancellationToken.None);
+            firstUpdatedAt = new DateTimeOffset(row!.UpdatedAt, TimeSpan.Zero);
         }
 
         using var second = BuildHost();
         await second.StartAsync();
         try
         {
-            using var db = fixture.CreateDbContext();
-            var rows = await db.Skills.AsNoTracking().ToListAsync();
+            await using var connection = await fixture.Db.OpenAsync(CancellationToken.None);
+            var rows = await new SkillSql(connection).ListAsync([], [], includeInactive: true, CancellationToken.None);
             rows.Should().HaveCount(6, "the two starter skills plus manufacture-implement/-review/-retrospect/-publish");
             new DateTimeOffset(rows.Single(r => string.Equals(r.Id, "daedalus-migrations", StringComparison.Ordinal)).UpdatedAt, TimeSpan.Zero)
                 .Should().Be(firstUpdatedAt, "an unchanged content hash means the file is skipped entirely");
@@ -94,17 +96,19 @@ public sealed class SkillsStartupTests(PostgresFixture fixture) : IAsyncLifetime
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             ["ConnectionStrings:daedalus"] = fixture.ConnectionString,
-            // Same reason ApiWebApplicationFactory sets this: PostgresFixture's EnsureCreatedAsync builds only the
-            // EF Core model, never Thalos.NET.Workflow.Orm's raw-SQL tables. This test is about skill sync, not the
-            // workflow engine, but processes/manufacture.yaml (Task 11) is now a real file on Thalos:Workflow's
-            // ProcessesRoot and flows into this host's output the same way skills/*.SKILL.md does - left enabled,
-            // ProcessDefinitionSyncHostedService.StartAsync has something to sync, and unlike the periodic workflow
-            // services its failure is not caught, so the host would fail to start on 42P01 rather than degrade.
+            // Same reason ApiWebApplicationFactory sets this: this test is about skill sync, not the workflow
+            // engine. processes/manufacture.yaml (Task 11) is a real file on Thalos:Workflow's ProcessesRoot and flows
+            // into this host's output the same way skills/*.SKILL.md does - left enabled,
+            // ProcessDefinitionSyncHostedService.StartAsync would sync it into the shared database, and unlike the
+            // periodic workflow services its failure is not caught, so a failing sync would stop the host.
             ["Thalos:Workflow:Enabled"] = "false",
         });
 
-        builder.Services.AddPooledDbContextFactory<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment);
+        // A real host gets the data source and DaedalusDb from AddApplicationDatabase; with the workflow engine off
+        // AddDaedalusAgents registers no data source, and the charter store needs both to resolve.
+        builder.Services.TryAddSingleton(_ => NpgsqlDataSource.Create(fixture.ConnectionString));
+        builder.Services.TryAddSingleton<DaedalusDb>();
         return builder.Build();
     }
 }

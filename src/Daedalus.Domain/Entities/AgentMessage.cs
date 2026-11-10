@@ -33,7 +33,7 @@ public sealed class AgentMessage : Entity<Guid>
     /// <summary>Gets when the message was stored (UTC).</summary>
     public DateTime CreatedAt { get; private set; }
 
-    private AgentMessage() { } // EF Core
+    private AgentMessage() { }
 
     /// <summary>Creates a new message with validated parameters.</summary>
     /// <param name="sessionId">The owning session id.</param>

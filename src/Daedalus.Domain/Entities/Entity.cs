@@ -8,7 +8,7 @@ namespace Daedalus.Domain.Entities;
 /// </summary>
 public abstract class Entity<TId> where TId : notnull
 {
-    /// <summary>Gets the unique identifier. Set only during creation or by EF Core materialization.</summary>
+    /// <summary>Gets the unique identifier. Set only during creation or by a <c>Rehydrate</c> factory.</summary>
     public TId Id { get; init; } = default!;
 
     /// <summary>

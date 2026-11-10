@@ -1,17 +1,17 @@
+using System.Data.Common;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
-using Npgsql;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.Skills;
 using Thalos;
 using Thalos.Skills;
+using ZeroAlloc.ORM;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Agents.Skills;
 
 /// <summary>
-///     Thalos skill store over <see cref="ApplicationDbContext"/> (table <c>Skills</c>). Documents only — the skill
-///     index is an in-process, rebuildable cache. Fresh short-lived DbContext per call (the store is a singleton), same
-///     patterns as <see cref="Memory.PostgresMemoryStore"/>.
+///     Thalos skill store over <see cref="SkillSql"/> (tables <c>Skills</c> and <c>SkillVersions</c>). Documents only — the
+///     skill index is an in-process, rebuildable cache. One pooled connection per call (the store is a singleton).
 /// </summary>
 /// <remarks>
 ///     Files are the source of truth, so <see cref="UpsertAsync"/> is a <b>full replace</b> keyed on the name rather
@@ -21,10 +21,9 @@ namespace Daedalus.Agents.Skills;
 ///     the moment the file was found missing. Validation failures come back as <see cref="AgentError"/>s;
 ///     Npgsql/connection exceptions propagate, the session-store policy.
 /// </remarks>
-public sealed class PostgresSkillStore(IDbContextFactory<ApplicationDbContext> contextFactory, TimeProvider clock) : ISkillStore
+public sealed class PostgresSkillStore(DaedalusDb db, TimeProvider clock) : ISkillStore
 {
-    private readonly IDbContextFactory<ApplicationDbContext> _contextFactory =
-        contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
+    private readonly DaedalusDb _db = db ?? throw new ArgumentNullException(nameof(db));
 
     private readonly TimeProvider _clock = clock ?? throw new ArgumentNullException(nameof(clock));
 
@@ -34,8 +33,10 @@ public sealed class PostgresSkillStore(IDbContextFactory<ApplicationDbContext> c
         ArgumentNullException.ThrowIfNull(skill);
 
         var name = skill.Name.Value;
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var row = await db.Skills.FirstOrDefaultAsync(s => s.Id == name, ct).ConfigureAwait(false);
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        var sql = new SkillSql(connection);
+        var row = await sql.FindAsync(name, ct).ConfigureAwait(false);
+        var skillExists = row is not null;
 
         if (row is null)
         {
@@ -47,7 +48,6 @@ public sealed class PostgresSkillStore(IDbContextFactory<ApplicationDbContext> c
                 return Result<SkillDocument, AgentError>.Failure(AgentError.SkillValidationFailed(created.Error));
             }
 
-            db.Skills.Add(created.Value);
             row = created.Value;
         }
         else
@@ -65,7 +65,7 @@ public sealed class PostgresSkillStore(IDbContextFactory<ApplicationDbContext> c
         // replaces the current Skills row above or DeactivateMissingAsync marks it inactive. Skipped when the hash
         // has already been captured (an unchanged file re-synced, or the same content re-uploaded under the name).
         SkillVersion? addedVersion = null;
-        var versionExists = await db.SkillVersions.AnyAsync(v => v.Name == name && v.ContentHash == skill.ContentHash, ct).ConfigureAwait(false);
+        var versionExists = await sql.VersionExistsAsync(name, skill.ContentHash, ct).ConfigureAwait(false);
         if (!versionExists)
         {
             var version = SkillVersion.Create(name, skill.ContentHash, skill.Description, skill.Body, skill.Tags, skill.SourcePath, skill.UpdatedAt.UtcDateTime);
@@ -75,32 +75,18 @@ public sealed class PostgresSkillStore(IDbContextFactory<ApplicationDbContext> c
             }
 
             addedVersion = version.Value;
-            db.SkillVersions.Add(addedVersion);
         }
 
+        // One transaction for the skill and its version, as EF's single SaveChanges was. Another host syncing the
+        // same content between the check above and this write loses nothing: Daedalus.Api and Daedalus.Cli both
+        // sync skills into these shared tables at start, and the version insert is ON CONFLICT DO NOTHING because
+        // a version row is a pure function of its key. Two hosts both creating the same Skills row is still a
+        // failure: the loser's insert breaks the primary key and rolls both rows back.
         try
         {
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            await sql.StoreAsync(row, skillExists, addedVersion, ct).ConfigureAwait(false);
         }
-        catch (DbUpdateException ex) when (addedVersion is not null && IsLostVersionInsert(ex))
-        {
-            // Another host synced the same content between the AnyAsync check above and this save: Daedalus.Api and
-            // Daedalus.Cli both sync skills into these shared tables at start. Its row is keyed on the same
-            // (Name, ContentHash), and a version row is a pure function of that content, so the row we meant to write
-            // is already there and losing the race is success. The failed save rolled back its whole transaction,
-            // including this call's update to the Skills row, so the version is detached and the rest saved again.
-            db.Entry(addedVersion).State = EntityState.Detached;
-            try
-            {
-                await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            }
-            catch (DbUpdateException retry)
-            {
-                return Result<SkillDocument, AgentError>.Failure(
-                    AgentError.SkillStoreFailed("Could not store the skill.", retry.GetType().Name));
-            }
-        }
-        catch (DbUpdateException ex)
+        catch (Exception ex) when (ex is DbException or ZeroAllocOrmConcurrencyException)
         {
             return Result<SkillDocument, AgentError>.Failure(
                 AgentError.SkillStoreFailed("Could not store the skill.", ex.GetType().Name));
@@ -109,27 +95,13 @@ public sealed class PostgresSkillStore(IDbContextFactory<ApplicationDbContext> c
         return Result<SkillDocument, AgentError>.Success(ToDocument(row));
     }
 
-    /// <summary>
-    ///     Whether <paramref name="ex"/> is a primary-key violation on <c>SkillVersions</c>, the only table whose
-    ///     insert this store treats as safe to lose. A violation anywhere else, such as two hosts both creating
-    ///     the same <c>Skills</c> row, is still a failure.
-    /// </summary>
-    private static bool IsLostVersionInsert(DbUpdateException ex) =>
-        ex.InnerException is PostgresException
-        {
-            SqlState: PostgresErrorCodes.UniqueViolation,
-            TableName: SkillVersionsTable,
-        };
-
-    private const string SkillVersionsTable = "SkillVersions";
-
     /// <inheritdoc />
     public async ValueTask<Result<SkillDocument, AgentError>> GetVersionAsync(SkillName name, string contentHash, CancellationToken ct)
     {
         var key = name.Value;
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var version = await db.SkillVersions.AsNoTracking()
-            .FirstOrDefaultAsync(v => v.Name == key && v.ContentHash == contentHash, ct).ConfigureAwait(false);
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        var sql = new SkillSql(connection);
+        var version = await sql.FindVersionAsync(key, contentHash, ct).ConfigureAwait(false);
 
         if (version is null)
         {
@@ -138,7 +110,7 @@ public sealed class PostgresSkillStore(IDbContextFactory<ApplicationDbContext> c
 
         // IsActive comes from the current Skills row, not the version: a version has no activity of its own, and a
         // skill whose file has since disappeared must still report IsActive false for a run reading a pinned copy.
-        var current = await db.Skills.AsNoTracking().FirstOrDefaultAsync(s => s.Id == key, ct).ConfigureAwait(false);
+        var current = await sql.FindAsync(key, ct).ConfigureAwait(false);
         return Result<SkillDocument, AgentError>.Success(ToDocument(version, current?.IsActive ?? false));
     }
 
@@ -146,8 +118,8 @@ public sealed class PostgresSkillStore(IDbContextFactory<ApplicationDbContext> c
     public async ValueTask<Result<SkillDocument, AgentError>> GetAsync(SkillName name, CancellationToken ct)
     {
         var key = name.Value;
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var row = await db.Skills.AsNoTracking().FirstOrDefaultAsync(s => s.Id == key, ct).ConfigureAwait(false);
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        var row = await new SkillSql(connection).FindAsync(key, ct).ConfigureAwait(false);
 
         return row is null
             ? Result<SkillDocument, AgentError>.Failure(AgentError.SkillNotFound(key))
@@ -159,43 +131,30 @@ public sealed class PostgresSkillStore(IDbContextFactory<ApplicationDbContext> c
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var q = db.Skills.AsNoTracking().AsQueryable();
+        IReadOnlyList<string> names = query.Names is { Count: > 0 } ? [.. query.Names.Select(n => n.Value)] : [];
 
-        if (query.Names is { Count: > 0 })
+        // Every listed tag must be present (AND), normalised like stored tags. A blank query tag matches nothing.
+        var tags = new List<string>();
+        foreach (var raw in query.Tags ?? [])
         {
-            var names = query.Names.Select(n => n.Value).ToList();
-            q = q.Where(s => names.Contains(s.Id));
-        }
-
-        if (query.Tags is { Count: > 0 })
-        {
-            // Every listed tag must be present (AND), normalised like stored tags. A blank query tag matches nothing.
-            foreach (var raw in query.Tags)
+            var tag = NormaliseTag(raw);
+            if (string.IsNullOrEmpty(tag))
             {
-                var tag = NormaliseTag(raw);
-                if (string.IsNullOrEmpty(tag))
-                {
-                    q = q.Where(s => false);
-                    break;
-                }
-
-                q = q.Where(s => EF.Property<List<string>>(s, "_tags").Contains(tag)); // Npgsql: @tag = ANY("Tags")
+                return Result<IReadOnlyList<SkillDocument>, AgentError>.Success([]);
             }
+
+            tags.Add(tag);
         }
 
-        if (!query.IncludeInactive)
-        {
-            q = q.Where(s => s.IsActive);
-        }
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        var rows = await new SkillSql(connection).ListAsync(names, tags, query.IncludeInactive, ct).ConfigureAwait(false);
 
         // Sorted by name: the catalogue is rendered in this order (design section 5). The sort is ordinal and therefore
         // deliberately NOT done in SQL: the contract requires code-point order ("a-b" < "a0b" < "a_b" < "aab"), and a
         // Postgres database collation such as en_US.UTF-8 treats punctuation as variable-weight and returns a different
         // order. Filtering stays in SQL; only the ordering is client-side, and the table is repo-sized.
-        var rows = await q.ToListAsync(ct).ConfigureAwait(false);
-        rows.Sort(static (a, b) => string.CompareOrdinal(a.Id, b.Id));
-        return Result<IReadOnlyList<SkillDocument>, AgentError>.Success(rows.ConvertAll(ToDocument));
+        IReadOnlyList<SkillDocument> documents = [.. rows.OrderBy(static r => r.Id, StringComparer.Ordinal).Select(ToDocument)];
+        return Result<IReadOnlyList<SkillDocument>, AgentError>.Success(documents);
     }
 
     /// <inheritdoc />
@@ -208,12 +167,8 @@ public sealed class PostgresSkillStore(IDbContextFactory<ApplicationDbContext> c
         // means an already-inactive skill is never stamped a second time by a later sweep.
         var names = seen.Select(n => n.Value).Distinct(StringComparer.Ordinal).ToList();
         var now = _clock.GetUtcNow().UtcDateTime;
-        await using var db = await _contextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        await db.Skills
-            .Where(s => s.IsActive && !names.Contains(s.Id))
-            .ExecuteUpdateAsync(
-                set => set.SetProperty(s => s.IsActive, false).SetProperty(s => s.UpdatedAt, now), ct)
-            .ConfigureAwait(false);
+        await using var connection = await _db.OpenAsync(ct).ConfigureAwait(false);
+        await new SkillSql(connection).DeactivateMissingAsync(names, now, ct).ConfigureAwait(false);
 
         return UnitResult<AgentError>.Success();
     }

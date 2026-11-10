@@ -220,6 +220,36 @@ public class ProjectsPageBrowserTests : BrowserTestBase
     }
 
     /// <summary>
+    ///     Ruling R74: an edit that lost a race to another write is answered 409 with the API's <c>{ "error" }</c> body;
+    ///     the dialog says why in the server's words, not the JSON, and stays open. The PUT is answered by a stub, so the
+    ///     seeded project stays for the other tests.
+    ///     Red: show the raw body in ProjectApiClient.UpdateProjectAsync, as before; the toast carries the JSON.
+    /// </summary>
+    [Test]
+    [Description("An edit that lost a race says why and the dialog stays open")]
+    public async Task ProjectsPage_EditThatLostARace_SaysWhyAndStaysOpen()
+    {
+        await Page.RouteAsync("**/api/projects/*", route => string.Equals(route.Request.Method, "PUT", StringComparison.Ordinal)
+            ? route.FulfillAsync(new RouteFulfillOptions
+            {
+                Status = 409,
+                ContentType = "application/json",
+                Body = """{"error":"The project was modified by another operation. Please retry."}""",
+            })
+            : route.ContinueAsync()).ConfigureAwait(false);
+        await _projectsPage.NavigateAsync().ConfigureAwait(false);
+        await Expect(_projectsPage.DataGrid).ToBeVisibleAsync().ConfigureAwait(false);
+        await _projectsPage.GetEditButton("Test Project").ClickAsync().ConfigureAwait(false);
+
+        await _projectsPage.Dialog.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Save" }).ClickAsync().ConfigureAwait(false);
+
+        await Expect(_projectsPage.Notification).ToContainTextAsync(
+            "Failed to update project: The project was modified by another operation. Please retry.").ConfigureAwait(false);
+        await Expect(_projectsPage.Notification).Not.ToContainTextAsync("{").ConfigureAwait(false);
+        await Expect(_projectsPage.Dialog).ToBeVisibleAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
     ///     A refused create says why, in the words the dialog always used, and the dialog stays open.
     ///     Red: store a fixed "Failed to create" instead of the client's error; the server's reason is missing.
     ///     Red: close the dialog after the refusal's toast; the dialog is gone.

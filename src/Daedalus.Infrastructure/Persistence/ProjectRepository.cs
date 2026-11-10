@@ -1,25 +1,35 @@
 using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Infrastructure.Persistence.Orm;
+using Daedalus.Infrastructure.Persistence.Orm.Projects;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.ORM;
 using ZeroAlloc.Results;
 
 namespace Daedalus.Infrastructure.Persistence;
 
 /// <summary>
-///     Project repository for persistence and querying.
+///     Stores projects on ZeroAlloc.ORM, one pooled connection per call.
 /// </summary>
-public sealed partial class ProjectRepository(ApplicationDbContext dbContext, ILogger<ProjectRepository> logger)
+/// <remarks>
+///     <see cref="UpdateAsync"/> is guarded by the <c>xmin</c> the project was read with, so a save of a project another
+///     write changed since is refused with <see cref="ModifiedByAnotherOperation"/>. A save does not read the new
+///     <c>xmin</c> back into the instance: re-read a project with <see cref="GetByIdAsync"/> after
+///     <see cref="AddAsync"/> or <see cref="UpdateAsync"/> before its next guarded save, or that save is refused as
+///     modified by another operation (rulings R58, R70).
+/// </remarks>
+public sealed partial class ProjectRepository(DaedalusDb db, ILogger<ProjectRepository> logger)
     : IProjectRepository
 {
+    /// <summary>The failure of a guarded save that lost a race with another write to the project.</summary>
+    public const string ModifiedByAnotherOperation = "The project was modified by another operation. Please retry.";
+
     public async Task<Result<Project>> GetByIdAsync(Guid id, CancellationToken ct)
     {
         try
         {
-            var project = await dbContext.Projects
-                .AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Id == id, ct)
-                .ConfigureAwait(false);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var project = await new ProjectSql(connection).FindAsync(id, ct).ConfigureAwait(false);
 
             return project is not null
                 ? Result<Project>.Success(project)
@@ -36,8 +46,8 @@ public sealed partial class ProjectRepository(ApplicationDbContext dbContext, IL
     {
         try
         {
-            dbContext.Projects.Add(project);
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            await new ProjectSql(connection).InsertAsync(project, ct).ConfigureAwait(false);
             return Result<Project>.Success(project);
         }
         catch (Exception ex)
@@ -47,13 +57,35 @@ public sealed partial class ProjectRepository(ApplicationDbContext dbContext, IL
         }
     }
 
+    /// <summary>
+    ///     Writes the name, description, version and modification time when the row still has the <c>xmin</c> the
+    ///     project was read with. A row another write changed since answers <see cref="ModifiedByAnotherOperation"/>; a
+    ///     row deleted since keeps EF Core's answer, the logged "Error updating project {id}" (ruling R68).
+    /// </summary>
     public async Task<Result> UpdateAsync(Project project, CancellationToken ct)
     {
         try
         {
-            dbContext.Projects.Update(project);
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-            return Result.Success();
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var sql = new ProjectSql(connection);
+            ZeroAllocOrmConcurrencyException conflict;
+            try
+            {
+                await sql.UpdateAsync(project, ct).ConfigureAwait(false);
+                return Result.Success();
+            }
+            catch (ZeroAllocOrmConcurrencyException ex)
+            {
+                conflict = ex;
+            }
+
+            if (await sql.ExistsAsync(project.Id, ct).ConfigureAwait(false))
+            {
+                return Result.Failure(ModifiedByAnotherOperation);
+            }
+
+            LogErrorUpdatingProject(logger, conflict, project.Id);
+            return Result.Failure($"Error updating project {project.Id}. The cause is logged.");
         }
         catch (Exception ex)
         {
@@ -62,22 +94,17 @@ public sealed partial class ProjectRepository(ApplicationDbContext dbContext, IL
         }
     }
 
+    /// <summary>
+    ///     Deletes the project's row; the database's cascade removes its tasks. A delete that removes no row, a project
+    ///     not stored or deleted since the caller read it, answers "Project {id} not found" (ruling R69).
+    /// </summary>
     public async Task<Result> DeleteAsync(Guid id, CancellationToken ct)
     {
         try
         {
-            var project = await dbContext.Projects
-                .FirstOrDefaultAsync(p => p.Id == id, ct)
-                .ConfigureAwait(false);
-
-            if (project is null)
-            {
-                return Result.Failure($"Project {id} not found");
-            }
-
-            dbContext.Projects.Remove(project);
-            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
-            return Result.Success();
+            await using var connection = await db.OpenAsync(ct).ConfigureAwait(false);
+            var deleted = await new ProjectSql(connection).DeleteAsync(id, ct).ConfigureAwait(false);
+            return deleted > 0 ? Result.Success() : Result.Failure($"Project {id} not found");
         }
         catch (Exception ex)
         {

@@ -1,8 +1,118 @@
 # Session State
 
-**Last session:** 2026-11-04
+**Last session:** 2026-11-10
 
-## Current Position - phase 3.4 complete (2026-11-04), next phase 3.5
+## Current Position - phase 3.5 close-out (2026-11-10): Tasks 1-26 done; PR #443 still DRAFT, body update and ready pending
+
+**Milestone 3, phase 3.5, EF Core to ZeroAlloc.ORM.** Branch `phase/3.5-zeroalloc-orm`, worktree
+`.claude/worktrees/phase-3.5`. Draft PR #443 (label `native-publish`); release-please stays on hold.
+
+- **Done:** every plan task is ticked. Task 24: native publish passes for Api, Cli and Migrations (run 42807190590 on the
+  last head); the downloaded native CLI reaches "Application started" in 179 ms at 84 MiB; the native turn was not
+  tried, no API key on the VM (R136). Task 25: docs rewritten and reviewed. Task 26: local suites green apart from the
+  3 VM-only `RunScopedRoslynRoutingTests`; Release build 0 warnings; whole-branch review on opus found 0 Critical, its
+  Important and Minor findings are fixed (I1 migration history upgrade order, scalar writes) or filed; re-review clean;
+  `pre-push-review` PASS in `docs/pre-push-review-2026-11-10-*.md`. CI on `bc93f908`: all green incl. `aot-analysis` on
+  all five targets and Build & Test with the Browser suite; only `codecov/project` is red (floor, tracked by #438).
+- **Filed:** Daedalus #444 (ScheduleReconciler start failure, R117 stays until it lands), #445 (lost-save detection by
+  text match); comment on #377 (dropped child writes of `Project.AddTask` and `RemoveTask`). Earlier: #438, #439, #440,
+  #442, #293; upstream ZeroAlloc.ORM#466 open.
+- **Not done, needs the owner:** `gh pr edit 443 --body-file` (new body drafted at `.superpowers/sdd/2026-11-05-phase-3.5-zeroalloc-orm-plan/pr-443-body.md`: it adds
+  the native run, review summary, codecov note, owner items and R1-R137) and `gh pr ready 443` were blocked by the
+  auto-mode classifier. Do them, or ask for the permission, then the owner merges. After the merge run
+  `complete-phase` for 3.5, then start 3.6.
+- **For the owner to look at:** R78 (a session deleted under abandon or advance answers 400, not the retry text); R83
+  residual (after three lost saves a session stays in TaskCreation with "do not generate again"); R97 (an independent
+  write makes a concurrent guarded analysis save answer 409); stop every EF-build host before running
+  `Daedalus.Migrations`.
+- **SDD ledger:** `.superpowers/sdd/2026-11-05-phase-3.5-zeroalloc-orm-plan/progress.md` (git-ignored) is kept until the
+  PR merges. Rulings doc `docs/plans/2026-11-05-phase-3.5-rulings.md` R1-R137. Two rulings saved to long-term memory.
+- **Local environment facts:** the Browser suite times out locally under VM load, CI is the judge; do not reinstall
+  Playwright browsers.
+
+## Open Decisions
+
+None.
+
+## Blockers
+
+PR #443 body update and ready-for-review need a permission the auto-mode classifier denied.
+
+## Recommended Next Step
+
+Update the PR body, mark #443 ready, let the owner merge, then `complete-phase` 3.5 and begin 3.6 (native turn, #444).
+Rules: no Co-Authored-By or Claude signature; commit body lines at most 100, no nested parentheses; no local Native AOT
+publish; push with `phase/3.5-zeroalloc-orm:phase/3.5-zeroalloc-orm`.
+
+## Earlier Position - phase 3.5 planned and assumptions confirmed (2026-11-05), next: execute Task 1
+
+**Milestone 3, phase 3.5, EF Core to ZeroAlloc.ORM.** Branch `phase/3.5-zeroalloc-orm`, worktree
+`.claude/worktrees/phase-3.5`. No PR yet. Release-please stays on hold.
+
+- **Plan:** `docs/superpowers/plans/2026-11-05-phase-3.5-zeroalloc-orm-plan.md`, 26 tasks, linked in ROADMAP.md.
+  Tasks 1-3 foundation (packages + capability spike, baseline migration + frozen EF chain + adoption tests, Migrations
+  host + fixtures on real migrations); 4-16 one store each; 17 migration 2 (#290); 18-22 outbox partners and EF
+  removal, waiting on the `ZeroAlloc.Outbox.Orm` release; 23 dev-database proof; 24 native CLI; 25 docs; 26 close-out.
+- **Every EF save site is classified** guarded or independent in the store tasks (owner decision 5).
+- **Owner answers at `list-phase-assumptions`, 2026-11-05:** AgentSession and RepositoryConfiguration have only
+  independent saves, so their `RowVersion` is dropped, not guarded; a lost race on Project and CodeAnalysisRequest
+  returns "... was modified by another operation. Please retry."; ScheduleReconciler keeps EF's `xmin` guard, with an
+  issue filed for the host-start failure in Task 19; R2-R5 stand: `Rehydrate` public, maps and SQL classes in
+  `Daedalus.Infrastructure/Persistence/Sql`, now `Persistence/Orm` by R22, one `NpgsqlDataSource`, migrations embedded in Infrastructure.
+- **Execution:** subagent-driven, chosen by the owner.
+- **Rulings doc** `docs/plans/2026-11-05-phase-3.5-rulings.md` does not exist yet; Task 1 creates it.
+- **ZeroAlloc.ORM docs** are in `~/Projects/Prive/ZeroAlloc/ZeroAlloc.ORM` (`git show origin/main:docs/cookbook/linq.md`,
+  `migrations.md` "Adopting an EF Core database"); the local checkout may be behind origin.
+
+## Open Decisions
+
+None.
+
+## Blockers
+
+The Outbox.Orm release, for Tasks 18 to 22 only.
+
+## Recommended Next Step
+
+In a fresh session, in the worktree: mark phase 3.5 `active` in ROADMAP.md and MILESTONE.md, then run
+`superpowers:subagent-driven-development` on the plan from Task 1. Rules: no Co-Authored-By or Claude signature;
+commit body lines at most 100 characters, no nested parentheses; no local Native AOT publish; dotnet build/test one at
+a time with `DOTNET_USE_POLLING_FILE_WATCHER=1`; push with `phase/3.5-zeroalloc-orm:phase/3.5-zeroalloc-orm`; tick
+the plan's checkboxes as tasks finish.
+
+## Earlier Position - phase 3.5 design approved (2026-11-05), next: the plan
+
+**Milestone 3, phase 3.5, EF Core to ZeroAlloc.ORM.** Branch `phase/3.5-zeroalloc-orm`, worktree
+`.claude/worktrees/phase-3.5`, from `main` `fd97a9b4` (#437 merged). No PR yet. Release-please stays on hold.
+
+- **Design, approved by the owner 2026-11-05:** `docs/superpowers/specs/2026-11-05-phase-3.5-zeroalloc-orm-design.md`.
+  Owner decisions 1 to 6 are in it: start now; Outbox gap 4.5 fixed upstream; #290 fixed with a lost-update-only
+  `xmin` guard plus migration 2 dropping six dead `bytea` columns; `Rehydrate` factories in Domain; no EF rollback
+  (restore a backup instead).
+- **ZeroAlloc state, checked 2026-11-05:** ZeroAlloc.ORM and `ZeroAlloc.ORM.Linq` 2.13.0 released; gaps 4.1 to 4.3
+  released in 2.4.0; 4.4 covered by LINQ `Sql.Xmin` (2.9.0); 4.6 avoided (small migration numbers); 4.5 open.
+- **Outbox handover** for the ZeroAlloc session: `docs/plans/2026-11-05-zeroalloc-outbox-orm-handover.md`. The owner
+  takes it there. Only the outbox tasks (with `ScheduledRunStore`, `ScheduledRunExecutionStore`,
+  `ScheduleReconciler`) and EF removal wait on that release.
+- **Trap:** a worktree branch created from `origin/main` tracks `origin/main`; push with an explicit refspec
+  `phase/3.5-zeroalloc-orm:phase/3.5-zeroalloc-orm`. Upstream is now fixed to the phase branch.
+
+## Open Decisions
+
+None. The plan makes the builder's calls listed at the end of the design.
+
+## Blockers
+
+The Outbox.Orm release, for the outbox tasks only.
+
+## Recommended Next Step
+
+In a fresh session, in the worktree: `start-next-phase` routes to `superpowers:writing-plans` for 3.5 (Surface Data,
+no pre-plan hook). Plan from the design plus the gap audit `docs/plans/2026-10-17-zeroalloc-orm-gap-audit.md`
+(sections 2, 3.4, 5). Split tasks to one store each, transaction partners together, outbox tasks and EF removal
+last. Then `list-phase-assumptions`, then subagent-driven execution.
+
+## Earlier Position - phase 3.4 complete (2026-11-04), next phase 3.5
 
 **Milestone 3.** Phase 3.4, controllers to minimal APIs, merged as #427 (`87c573aa`) and marked complete in ROADMAP.md
 and MILESTONE.md. Renovate #402 closed: `Asp.Versioning.Mvc` left with MVC. Release-please stays on hold.

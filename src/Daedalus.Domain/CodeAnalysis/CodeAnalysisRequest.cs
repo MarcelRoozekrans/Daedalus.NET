@@ -1,5 +1,3 @@
-#pragma warning disable CA1819 // Use byte[] instead of property returning array (EF Core concurrency token standard pattern)
-
 using Daedalus.Domain.Entities;
 using ZeroAlloc.Results;
 
@@ -7,7 +5,6 @@ namespace Daedalus.Domain.CodeAnalysis;
 
 #pragma warning disable CA1056 // Uri properties should not be strings
 #pragma warning disable CA1054 // Uri parameters should not be strings
-#pragma warning disable S1144 // Unused private setters
 
 /// <summary>
 ///     Represents a code analysis request for iterative analysis processing.
@@ -64,8 +61,11 @@ public sealed class CodeAnalysisRequest : AggregateRoot<Guid>
     public Guid? CreatedBy { get; private set; }
     public Guid? AssignedTo { get; private set; }
 
-    // Concurrency
-    public byte[]? RowVersion { get; private set; }
+    /// <summary>
+    ///     Gets the row version the request was read with, PostgreSQL's <c>xmin</c>, which guards its lifecycle saves
+    ///     against a concurrent write; 0 for a request that was never read.
+    /// </summary>
+    public uint RowVersion { get; private set; }
 
     // Navigation - read-only collection
     public IReadOnlyList<AnalysisIteration> Iterations => _iterations.AsReadOnly();
@@ -82,6 +82,8 @@ public sealed class CodeAnalysisRequest : AggregateRoot<Guid>
     public string? CommitShaFinal => Outcome.CommitShaFinal;
     public string? ValidationResult => Outcome.ValidationResult;
     public bool HasFailedValidation => Outcome.HasFailedValidation;
+
+    private CodeAnalysisRequest() { }
 
     /// <summary>
     ///     Factory method to create a new CodeAnalysisRequest with validation.
@@ -159,6 +161,105 @@ public sealed class CodeAnalysisRequest : AggregateRoot<Guid>
             CompletionPromise = analysisGoals,
             Requirements = requirements?.Trim() ?? string.Empty
         });
+    }
+
+    /// <summary>
+    ///     Rebuilds a stored request, for persistence only: every value is taken as stored, nothing is validated and no
+    ///     domain event is raised.
+    /// </summary>
+    /// <param name="id">The request id.</param>
+    /// <param name="title">The title.</param>
+    /// <param name="description">The description.</param>
+    /// <param name="repository">The repository reference, as stored.</param>
+    /// <param name="location">The code location, as stored.</param>
+    /// <param name="type">The analysis type.</param>
+    /// <param name="priority">The priority.</param>
+    /// <param name="requirements">The requirements JSON document.</param>
+    /// <param name="referencedDocuments">The referenced documents JSON document, or null.</param>
+    /// <param name="externalReferences">The external references JSON document, or null.</param>
+    /// <param name="localWorkTreePath">The local work tree path, or null.</param>
+    /// <param name="featureBranchName">The feature branch name, or null.</param>
+    /// <param name="status">The status.</param>
+    /// <param name="currentIteration">The number of iterations recorded.</param>
+    /// <param name="maxIterations">The iteration limit.</param>
+    /// <param name="completionPromise">The analysis goals, or null.</param>
+    /// <param name="lastPromptSent">The last prompt sent, or null.</param>
+    /// <param name="lastAiResponse">The last AI response, or null.</param>
+    /// <param name="outcome">The outcome, as stored.</param>
+    /// <param name="createdAt">When the request was created.</param>
+    /// <param name="startedAt">When the analysis started, or null.</param>
+    /// <param name="completedAt">When the request completed or failed, or null.</param>
+    /// <param name="cancelledAt">When the request was cancelled, or null.</param>
+    /// <param name="failureReason">Why the request failed, or null.</param>
+    /// <param name="createdBy">Who created the request, or null.</param>
+    /// <param name="assignedTo">Who the request is assigned to, or null.</param>
+    /// <param name="rowVersion">The row version the request was read with.</param>
+    /// <param name="iterations">The request's iterations, in the order given.</param>
+    /// <returns>The request as stored.</returns>
+    public static CodeAnalysisRequest Rehydrate(
+        Guid id,
+        string title,
+        string description,
+        RepositoryReference repository,
+        CodeLocation location,
+        AnalysisType type,
+        int priority,
+        string requirements,
+        string? referencedDocuments,
+        string? externalReferences,
+        string? localWorkTreePath,
+        string? featureBranchName,
+        AnalysisStatus status,
+        int currentIteration,
+        int maxIterations,
+        string? completionPromise,
+        string? lastPromptSent,
+        string? lastAiResponse,
+        AnalysisOutcome outcome,
+        DateTime createdAt,
+        DateTime? startedAt,
+        DateTime? completedAt,
+        DateTime? cancelledAt,
+        string? failureReason,
+        Guid? createdBy,
+        Guid? assignedTo,
+        uint rowVersion,
+        IEnumerable<AnalysisIteration> iterations)
+    {
+        ArgumentNullException.ThrowIfNull(iterations);
+
+        var request = new CodeAnalysisRequest
+        {
+            Id = id,
+            Title = title,
+            Description = description,
+            Repository = repository,
+            Location = location,
+            Type = type,
+            Priority = priority,
+            Requirements = requirements,
+            ReferencedDocuments = referencedDocuments,
+            ExternalReferences = externalReferences,
+            LocalWorkTreePath = localWorkTreePath,
+            FeatureBranchName = featureBranchName,
+            Status = status,
+            CurrentIteration = currentIteration,
+            MaxIterations = maxIterations,
+            CompletionPromise = completionPromise,
+            LastPromptSent = lastPromptSent,
+            LastAiResponse = lastAiResponse,
+            Outcome = outcome,
+            CreatedAt = createdAt,
+            StartedAt = startedAt,
+            CompletedAt = completedAt,
+            CancelledAt = cancelledAt,
+            FailureReason = failureReason,
+            CreatedBy = createdBy,
+            AssignedTo = assignedTo,
+            RowVersion = rowVersion
+        };
+        request._iterations.AddRange(iterations);
+        return request;
     }
 
     /// <summary>
@@ -341,5 +442,3 @@ public sealed class CodeAnalysisRequest : AggregateRoot<Guid>
         return Result.Success();
     }
 }
-
-#pragma warning restore CA1819

@@ -94,7 +94,8 @@ public sealed class ScheduledRun : Entity<Guid>
     /// <summary>Gets the cumulative count of occurrences the reconciler determined were missed (e.g. after downtime).</summary>
     public int MissedOccurrences { get; private set; }
 
-    private ScheduledRun() { } // EF Core
+    // Used by Create and Rehydrate.
+    private ScheduledRun() { }
 
     /// <summary>Creates a new, enabled schedule with its first computed occurrence.</summary>
     /// <param name="name">The unique, human-assigned name of this schedule.</param>
@@ -153,6 +154,58 @@ public sealed class ScheduledRun : Entity<Guid>
             MissedOccurrences = 0,
         });
     }
+
+    /// <summary>
+    ///     Rebuilds a stored schedule, for persistence only: it sets every value as given, validates nothing and raises
+    ///     no domain event, so a row <see cref="Create"/> would refuse today still loads.
+    /// </summary>
+    /// <param name="id">The schedule's id.</param>
+    /// <param name="name">The unique, human-assigned name.</param>
+    /// <param name="cron">The cron expression, as stored.</param>
+    /// <param name="trigger">The identifier of what to run when the schedule fires.</param>
+    /// <param name="channelId">Which channel adapter receives the run's output.</param>
+    /// <param name="conversationId">The conversation that receives the run's output.</param>
+    /// <param name="principalId">The identity the run executes as.</param>
+    /// <param name="roles">The roles granted to the run's principal, in stored order.</param>
+    /// <param name="repository">The repository the workflow sweeps, or null.</param>
+    /// <param name="origin">Where the schedule's definition came from.</param>
+    /// <param name="nextRunAt">When the schedule next fires (UTC).</param>
+    /// <param name="lastRunAt">When the schedule last fired (UTC), or null.</param>
+    /// <param name="enabled">Whether the schedule is active.</param>
+    /// <param name="missedOccurrences">The cumulative count of missed occurrences.</param>
+    /// <returns>The schedule.</returns>
+    public static ScheduledRun Rehydrate(
+        Guid id,
+        string name,
+        string cron,
+        string trigger,
+        string channelId,
+        string conversationId,
+        string principalId,
+        IReadOnlyList<string> roles,
+        string? repository,
+        ScheduleOrigin origin,
+        DateTime nextRunAt,
+        DateTime? lastRunAt,
+        bool enabled,
+        int missedOccurrences) =>
+        new()
+        {
+            Id = id,
+            Name = name,
+            Cron = cron,
+            Trigger = trigger,
+            ChannelId = channelId,
+            ConversationId = conversationId,
+            PrincipalId = principalId,
+            Roles = roles,
+            Repository = repository,
+            Origin = origin,
+            NextRunAt = nextRunAt,
+            LastRunAt = lastRunAt,
+            Enabled = enabled,
+            MissedOccurrences = missedOccurrences,
+        };
 
     /// <summary>Records that this schedule fired, advancing it to its next occurrence.</summary>
     /// <param name="nextRunAtUtc">The next computed occurrence (UTC).</param>

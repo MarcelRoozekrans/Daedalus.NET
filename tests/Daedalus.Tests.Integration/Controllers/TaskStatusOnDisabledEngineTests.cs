@@ -1,7 +1,7 @@
 using Daedalus.Application.DTOs;
-using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
+using Daedalus.Tests.Shared;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Thalos;
@@ -39,11 +39,7 @@ public sealed class TaskStatusOnDisabledEngineTests(PostgresFixture fixture) : I
         var task = IntegrationTestFactory.CreateTask(projectId: project.Id);
         task.AttachRun(Guid.NewGuid()).IsSuccess.Should().BeTrue();
         project.AddTask(task).IsSuccess.Should().BeTrue();
-        await using (var db = await _factory.Services.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContextAsync())
-        {
-            db.Projects.Add(project);
-            await db.SaveChangesAsync();
-        }
+        await StoreSeed.AddProjectAsync(_factory.Services.GetRequiredService<DaedalusDb>(), project);
 
         await using (var connection = new NpgsqlConnection(fixture.ConnectionString))
         {

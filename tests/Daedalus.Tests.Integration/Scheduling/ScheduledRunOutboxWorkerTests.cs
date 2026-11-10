@@ -1,16 +1,11 @@
 using System.Diagnostics;
-using Daedalus.Agents.Channels;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Time.Testing;
 using Thalos;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Scheduling;
@@ -64,7 +59,7 @@ public sealed class ScheduledRunOutboxWorkerTests(PostgresFixture fixture) : IAs
             // returns. Waiting on the execution row directly would still be correct on the happy path, but
             // waiting on the outbox row's terminal state is what actually proves the dispatch fully completed,
             // rather than merely raced ahead of it.
-            await WaitUntilAsync(async () => (await ReadOutboxRowAsync<RunScoutStep>()).Status == OutboxMessageStatus.Succeeded);
+            await WaitUntilAsync(async () => (await ReadOutboxRowAsync<RunScoutStep>()).Status == ChannelOutboxStatus.Succeeded);
         }
         finally
         {
@@ -72,7 +67,7 @@ public sealed class ScheduledRunOutboxWorkerTests(PostgresFixture fixture) : IAs
         }
 
         var outboxRow = await ReadOutboxRowAsync<RunScoutStep>();
-        outboxRow.Status.Should().Be(OutboxMessageStatus.Succeeded,
+        outboxRow.Status.Should().Be(ChannelOutboxStatus.Succeeded,
             "the RunScoutStep row itself must leave the pending state, proving the type-name key round-tripped " +
             "through the real serializer and reached RunScoutStepDispatcher");
 
@@ -99,45 +94,30 @@ public sealed class ScheduledRunOutboxWorkerTests(PostgresFixture fixture) : IAs
             schedule.PrincipalId, schedule.Roles, now).Value;
         execution.BeginScout(now);
 
-        await using var db = fixture.CreateDbContext();
-        db.ScheduledRuns.Add(schedule);
-        db.ScheduledRunExecutions.Add(execution);
-        await db.SaveChangesAsync();
+        await ScheduleTables.InsertAsync(fixture, schedule);
+        await ScheduleTables.InsertAsync(fixture, execution);
         return execution.Id;
     }
 
     private async Task<ScheduledRunExecution> ReadExecutionAsync(Guid id)
     {
-        await using var db = fixture.CreateDbContext();
-        return await db.ScheduledRunExecutions.AsNoTracking().SingleAsync(e => e.Id == id);
+        return await ScheduleTables.ExecutionAsync(fixture, id);
     }
 
-    private async Task<OutboxMessageEntity> ReadOutboxRowAsync<T>()
-    {
-        var typeName = typeof(T).FullName;
-        await using var db = fixture.CreateDbContext();
-        return await db.OutboxMessages.AsNoTracking().SingleAsync(m => m.TypeName == typeName);
-    }
+    private Task<ChannelOutboxRow> ReadOutboxRowAsync<T>() => ChannelOutboxRows.SingleAsync<T>(fixture);
 
     private ServiceProvider BuildProvider(ISubagentRunExecutor executor)
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<TimeProvider>(_time);
-        services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
-        services.AddOutbox(o =>
+        services.AddChannelOutboxOver(fixture, o =>
             {
                 o.PollingInterval = _pollingInterval;
                 o.BatchSize = _batchSize;
                 o.MaxAttempts = _maxAttempts;
                 o.RetryBaseDelay = _retryBaseDelay;
-            })
-            .WithEfCore<ApplicationDbContext>()
-            .AddRunScoutStepOutbox()
-            .AddRunWriterStepOutbox()
-            .AddDeliverDigestOutbox()
-            .AddChannelMessageQueuedOutbox()
-            .WithSystemTextJsonSerializer();
+            });
 
         services.AddScoped<ScheduledRunExecutionStore>();
         services.AddSingleton(executor);
@@ -153,12 +133,12 @@ public sealed class ScheduledRunOutboxWorkerTests(PostgresFixture fixture) : IAs
     private static async Task WriteAsync(ServiceProvider provider, RunScoutStep message)
     {
         await using var scope = provider.CreateAsyncScope();
-        var writer = scope.ServiceProvider.GetRequiredService<IOutboxWriter<RunScoutStep>>();
+        var writer = scope.ServiceProvider.ChannelWriter<RunScoutStep>();
         await writer.WriteAsync(message, ct: CancellationToken.None);
     }
 
     private static OutboxWorkerService ResolveWorker(ServiceProvider provider) =>
-        provider.GetServices<IHostedService>().OfType<OutboxWorkerService>().Single();
+        provider.ChannelWorker();
 
     private static async Task WaitUntilAsync(Func<Task<bool>> condition)
     {
