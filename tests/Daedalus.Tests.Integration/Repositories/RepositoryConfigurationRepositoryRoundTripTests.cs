@@ -97,8 +97,8 @@ public sealed class RepositoryConfigurationRepositoryRoundTripTests(PostgresFixt
 
     /// <summary>
     ///     The overwrite writes every column the request carries, the name, URL, branch, authentication method,
-    ///     credential identifier, active flag, description and modification time, and not the platform, the creation
-    ///     time or the last-use time. Red, once: leave <c>Description</c> out of the update; the stored description
+    ///     credential identifier, active flag, description, modification time and last-use time, and not the platform
+    ///     or the creation time. Red, once: leave <c>Description</c> out of the update; the stored description
     ///     keeps its old value. Red, once: also set <c>Platform</c>; the stored platform changes.
     /// </summary>
     [Fact]
@@ -131,6 +131,26 @@ public sealed class RepositoryConfigurationRepositoryRoundTripTests(PostgresFixt
         stored.Platform.Should().Be("GitLab");
         stored.CreatedAt.Should().Be(_at);
         stored.LastUsedAt.Should().Be(_at.AddHours(2));
+    }
+
+    /// <summary>
+    ///     <c>RecordUsage</c> stamps the last-use time and the save stores it. Red: leave <c>LastUsedAt</c> out of
+    ///     <c>UpdateQuery</c>; the reload has no last-use time.
+    /// </summary>
+    [Fact]
+    public async SystemTask UpdateAsync_stores_the_last_use_time_RecordUsage_sets()
+    {
+        var stored = RepositoryConfiguration.Create(Guid.NewGuid(), "R", "https://example.com/r.git").Value;
+        (await Repository().AddAsync(stored, CancellationToken.None)).IsSuccess.Should().BeTrue();
+        var read = (await Repository().GetByIdAsync(stored.Id, CancellationToken.None)).Value;
+        read.LastUsedAt.Should().BeNull();
+
+        read.RecordUsage();
+        (await Repository().UpdateAsync(read, CancellationToken.None)).IsSuccess.Should().BeTrue();
+
+        var reloaded = (await Repository().GetByIdAsync(stored.Id, CancellationToken.None)).Value;
+        reloaded.LastUsedAt.Should().NotBeNull();
+        reloaded.LastUsedAt!.Value.Should().BeCloseTo(read.LastUsedAt!.Value, TimeSpan.FromMilliseconds(1));
     }
 
     /// <summary>

@@ -178,12 +178,13 @@ public sealed class ProjectRepositoryRoundTripTests(PostgresFixture fixture) : I
     }
 
     /// <summary>
-    ///     The update writes the name, description, version and modification time and nothing else: a repository URL
-    ///     and branch changed in memory are not stored. Red: also set <c>"RepositoryUrl"</c> in <c>UpdateQuery</c>; the
-    ///     stored URL changes.
+    ///     The update writes every column the domain methods change: the name, description, version, modification time,
+    ///     and the repository URL and default branch <c>UpdateRepositoryUrl</c> sets, and not the creation time. Red:
+    ///     leave <c>"RepositoryUrl"</c> or <c>"DefaultBranch"</c> out of <c>UpdateQuery</c>; the stored value keeps its
+    ///     old text.
     /// </summary>
     [Fact]
-    public async SystemTask Update_writes_only_the_columns_its_domain_methods_change()
+    public async SystemTask Update_writes_every_column_its_domain_methods_change()
     {
         var id = await AddProjectAsync();
         var project = (await Repository().GetByIdAsync(id, CancellationToken.None)).Value;
@@ -198,8 +199,8 @@ public sealed class ProjectRepositoryRoundTripTests(PostgresFixture fixture) : I
         stored.Description.Should().Be("New");
         stored.Version.Should().Be("4.0");
         stored.ModifiedAt.Should().BeCloseTo(project.ModifiedAt!.Value, TimeSpan.FromMilliseconds(1));
-        stored.RepositoryUrl.Should().Be("https://example.com/r.git");
-        stored.DefaultBranch.Should().Be("dev");
+        stored.RepositoryUrl.Should().Be("https://example.com/other.git");
+        stored.DefaultBranch.Should().Be("other");
         stored.CreatedAt.Should().Be(_at);
     }
 

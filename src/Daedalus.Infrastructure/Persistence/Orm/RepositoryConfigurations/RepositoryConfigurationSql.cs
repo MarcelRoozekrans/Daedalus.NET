@@ -63,7 +63,8 @@ public sealed partial class RepositoryConfigurationSql(IAsyncDbConnection connec
 
     /// <summary>
     ///     Overwrites the name, URL, default branch, authentication method, credential identifier, active flag,
-    ///     description and modification time, the columns <c>RepositoryConfiguration.Update</c> changes, whatever else
+    ///     description and modification time, the columns <c>RepositoryConfiguration.Update</c> changes, and the
+    ///     last-use time <c>RecordUsage</c> sets, whatever else
     ///     was written since the configuration was read.
     /// </summary>
     /// <param name="repository">The configuration as changed.</param>
@@ -75,7 +76,8 @@ public sealed partial class RepositoryConfigurationSql(IAsyncDbConnection connec
         ArgumentNullException.ThrowIfNull(repository);
         return Update(
             repository.Id, repository.Name, repository.Url, repository.DefaultBranch, repository.AuthenticationMethod,
-            repository.CredentialIdentifier, repository.IsActive, repository.Description, repository.ModifiedAt, ct);
+            repository.CredentialIdentifier, repository.IsActive, repository.Description, repository.ModifiedAt,
+            repository.LastUsedAt, ct);
     }
 
     /// <summary>Deletes the configuration's row.</summary>
@@ -114,11 +116,13 @@ public sealed partial class RepositoryConfigurationSql(IAsyncDbConnection connec
     [LinqCommand(nameof(UpdateQuery), ThrowOnNoRows = true)]
     private partial Task Update(
         Guid id, string name, string url, string defaultBranch, string? authenticationMethod,
-        string? credentialIdentifier, bool isActive, string? description, DateTime? modifiedAt, CancellationToken ct);
+        string? credentialIdentifier, bool isActive, string? description, DateTime? modifiedAt,
+        DateTime? lastUsedAt, CancellationToken ct);
 
     private static int UpdateQuery(
         Guid id, string name, string url, string defaultBranch, string? authenticationMethod,
-        string? credentialIdentifier, bool isActive, string? description, DateTime? modifiedAt) =>
+        string? credentialIdentifier, bool isActive, string? description, DateTime? modifiedAt,
+        DateTime? lastUsedAt) =>
         Sql.Table<RepositoryConfiguration>()
             .Where(r => r.Id == id)
             .ExecuteUpdate(set => set
@@ -129,7 +133,8 @@ public sealed partial class RepositoryConfigurationSql(IAsyncDbConnection connec
                 .SetProperty(r => r.CredentialIdentifier, credentialIdentifier)
                 .SetProperty(r => r.IsActive, isActive)
                 .SetProperty(r => r.Description, description)
-                .SetProperty(r => r.ModifiedAt, modifiedAt));
+                .SetProperty(r => r.ModifiedAt, modifiedAt)
+                .SetProperty(r => r.LastUsedAt, lastUsedAt));
 
     [LinqCommand(nameof(DeleteQuery))]
     private partial Task<int> Delete(Guid id, CancellationToken ct);

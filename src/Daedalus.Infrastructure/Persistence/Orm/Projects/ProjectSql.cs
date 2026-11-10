@@ -97,8 +97,8 @@ public sealed partial class ProjectSql(IAsyncDbConnection connection)
     public Task<bool> ExistsAsync(Guid id, CancellationToken ct) => Exists(id, ct);
 
     /// <summary>
-    ///     Writes the columns <c>UpdateMetadata</c> and <c>UpdateVersion</c> change, the name, description, version and
-    ///     modification time, when the row still has the <c>xmin</c> the project was read with. Its tasks are not
+    ///     Writes the columns <c>UpdateMetadata</c>, <c>UpdateVersion</c> and <c>UpdateRepositoryUrl</c> change, the
+    ///     name, description, version, modification time, repository URL and default branch, when the row still has the <c>xmin</c> the project was read with. Its tasks are not
     ///     written.
     /// </summary>
     /// <param name="project">The project as changed, carrying the row version it was read with.</param>
@@ -110,7 +110,7 @@ public sealed partial class ProjectSql(IAsyncDbConnection connection)
         ArgumentNullException.ThrowIfNull(project);
         return Update(
             project.Id, project.RowVersion, project.ProjectName, project.Description, project.Version,
-            project.ModifiedAt, ct);
+            project.ModifiedAt, project.RepositoryUrl, project.DefaultBranch, ct);
     }
 
     /// <summary>Deletes the project's row; the database's cascade removes its tasks and their executions.</summary>
@@ -195,17 +195,20 @@ public sealed partial class ProjectSql(IAsyncDbConnection connection)
     [LinqCommand(nameof(UpdateQuery), ThrowOnNoRows = true)]
     private partial Task Update(
         Guid id, uint rowVersion, string projectName, string description, string version, DateTime? modifiedAt,
-        CancellationToken ct);
+        string repositoryUrl, string defaultBranch, CancellationToken ct);
 
     private static int UpdateQuery(
-        Guid id, uint rowVersion, string projectName, string description, string version, DateTime? modifiedAt) =>
+        Guid id, uint rowVersion, string projectName, string description, string version, DateTime? modifiedAt,
+        string repositoryUrl, string defaultBranch) =>
         Sql.Table<Project>()
             .Where(p => p.Id == id && p.RowVersion == rowVersion)
             .ExecuteUpdate(set => set
                 .SetProperty(p => p.ProjectName, projectName)
                 .SetProperty(p => p.Description, description)
                 .SetProperty(p => p.Version, version)
-                .SetProperty(p => p.ModifiedAt, modifiedAt));
+                .SetProperty(p => p.ModifiedAt, modifiedAt)
+                .SetProperty(p => p.RepositoryUrl, repositoryUrl)
+                .SetProperty(p => p.DefaultBranch, defaultBranch));
 
     [LinqCommand(nameof(DeleteQuery))]
     private partial Task<int> Delete(Guid id, CancellationToken ct);
