@@ -1,9 +1,7 @@
 using AI.Sentinel;
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Orm;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -54,7 +52,6 @@ public sealed class ApiThalosConfigurationTests
 
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         services.TryAddSingleton<DaedalusDb>();
         services.AddDaedalusAgents(configuration, environment);
         return services;
@@ -392,7 +389,6 @@ public sealed class ApiThalosConfigurationTests
 
             var services = new ServiceCollection();
             services.AddLogging();
-            services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
             services.TryAddSingleton<DaedalusDb>();
             services.AddDaedalusAgents(LoadApiConfiguration(), env);
             await using var sp = services.BuildServiceProvider();

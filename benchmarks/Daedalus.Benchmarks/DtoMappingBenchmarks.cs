@@ -1,6 +1,4 @@
 using Daedalus.Application.Abstractions;
-using Daedalus.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 namespace Daedalus.Benchmarks;
 
 using ZLinq;
@@ -21,17 +19,11 @@ public class DtoMappingBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        // Nothing but the retired loop wrote a task's executions, and Task has no member that adds one. EF fills
-        // Task.Executions when it reads a row, by relationship fix-up. This context does the same for the tasks built
-        // here: attaching a task and its executions links them. The provider never connects, since nothing is queried.
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql("Host=unused;Database=unused")
-            .Options;
-        using var context = new ApplicationDbContext(options);
-
-        _singleTask = CreateTask(context, id: 1, ExecutionsPerTask);
+        // Nothing but the retired loop wrote a task's executions, and Task has no member that adds one. The store
+        // loads a task with its executions through Task.Rehydrate, and so does this setup.
+        _singleTask = CreateTask(id: 1, ExecutionsPerTask);
         _bulkTasks = Enumerable.Range(1, BulkSize)
-            .Select(i => CreateTask(context, i, ExecutionsPerTask))
+            .Select(i => CreateTask(i, ExecutionsPerTask))
             .ToList();
     }
 
@@ -87,7 +79,7 @@ public class DtoMappingBenchmarks
             .ToList();
     }
 
-    private static Task CreateTask(ApplicationDbContext context, int id, int executionCount)
+    private static Task CreateTask(int id, int executionCount)
     {
         var taskResult = Task.Create(
             Guid.NewGuid(),
@@ -102,10 +94,12 @@ public class DtoMappingBenchmarks
             $"Task {id} prompt content");
 
         var task = taskResult.Value;
-        context.Attach(task);
-        context.AttachRange(CreateExecutions(task, id, executionCount));
-        context.Entry(task).State = EntityState.Detached;
-        return task;
+        return Task.Rehydrate(
+            task.Id, task.TaskId, task.ProjectId, task.Title, task.Description, task.Priority, task.Status, task.Phase,
+            task.ParallelGroup, task.EstimatedComplexity, task.Prompt, task.CompletionPromise, task.MaxIterations,
+            task.CurrentSessionId, task.Result, task.IterationCount, task.CreatedAt, task.CompletedAt, task.Learnings,
+            task.LearningsUpdatedAt, task.Dependencies, task.FilesToModify, task.WorkflowRunId, task.RowVersion,
+            CreateExecutions(task, id, executionCount));
     }
 
     private static List<TaskExecution> CreateExecutions(Task task, int id, int executionCount)

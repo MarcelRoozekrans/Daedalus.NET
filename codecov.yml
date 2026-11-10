@@ -14,5 +14,3 @@ ignore:
   - "src/Daedalus.AppHost/**"
   - "src/Daedalus.Migrations/**"
   - "src/Daedalus.ServiceDefaults/**"
-  # EF Core's generated migrations and model snapshots, also excluded from collection in ci.yml (ruling R63).
-  - "src/Daedalus.Infrastructure/Migrations/*.cs"

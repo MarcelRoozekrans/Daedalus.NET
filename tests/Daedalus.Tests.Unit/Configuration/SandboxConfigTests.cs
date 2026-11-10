@@ -3,9 +3,7 @@ using AwesomeAssertions.Execution;
 using Daedalus.Agents;
 using Daedalus.Agents.Security;
 using Daedalus.Agents.Workflow;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Orm;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -740,7 +738,6 @@ public sealed partial class SandboxConfigTests : IDisposable
         options.Workflow.DataRoot = _dataRoot;
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         services.TryAddSingleton<DaedalusDb>();
         return (services, options, configuration, environment);
     }

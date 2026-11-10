@@ -3,13 +3,10 @@ using Daedalus.Agents.Scheduling;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.DTOs.Scheduling;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Thalos;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Controllers;
@@ -45,8 +42,8 @@ public sealed class SchedulesEndpointsIntegrationTests(PostgresFixture fixture) 
     [Fact]
     public void The_api_host_resolves_schedule_diagnostics_as_the_real_implementation()
     {
-        // Like every scheduling dispatcher in ApiHostSchedulingWiringTests, ScheduleDiagnostics depends on the
-        // scoped ApplicationDbContext, so it cannot resolve from the host's root provider — a scope is required.
+        // Like every scheduling dispatcher in ApiHostSchedulingWiringTests, ScheduleDiagnostics is registered scoped,
+        // so it cannot resolve from the host's root provider — a scope is required.
         using var scope = _factory.Services.CreateScope();
 
         scope.ServiceProvider.GetRequiredService<IScheduleDiagnostics>().Should().BeOfType<ScheduleDiagnostics>();
@@ -154,7 +151,7 @@ public sealed class SchedulesEndpointsIntegrationTests(PostgresFixture fixture) 
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
 
         var row = await SingleOutboxRowForAsync(execution.Id);
-        row.Status.Should().Be(OutboxMessageStatus.Pending,
+        row.Status.Should().Be(ChannelOutboxStatus.Pending,
             "a successful resend puts the message back in the ordinary poller's path, not merely returns 200");
     }
 
@@ -162,25 +159,20 @@ public sealed class SchedulesEndpointsIntegrationTests(PostgresFixture fixture) 
     {
         using var scope = _factory.Services.CreateScope();
         var serializer = scope.ServiceProvider.GetRequiredService<IOutboxSerializer>();
-        var typeName = typeof(ChannelMessageQueued).FullName;
-
-        await using var db = fixture.CreateDbContext();
-        var rows = await db.OutboxMessages.Where(m => m.TypeName == typeName).ToListAsync();
+        var rows = await ChannelOutboxRows.ListAsync<ChannelMessageQueued>(fixture);
         var row = rows.Single(r => serializer.Deserialize<ChannelMessageQueued>(r.Payload).ExecutionId == executionId);
-        row.Status = OutboxMessageStatus.DeadLetter;
+        row.Status = ChannelOutboxStatus.DeadLetter;
         row.DeadLetterError = error;
         row.RetryCount = retryCount;
-        await db.SaveChangesAsync();
+        await ChannelOutboxRows.UpdateAsync(fixture, row);
     }
 
-    private async Task<OutboxMessageEntity> SingleOutboxRowForAsync(Guid executionId)
+    private async Task<ChannelOutboxRow> SingleOutboxRowForAsync(Guid executionId)
     {
         using var scope = _factory.Services.CreateScope();
         var serializer = scope.ServiceProvider.GetRequiredService<IOutboxSerializer>();
-        var typeName = typeof(ChannelMessageQueued).FullName;
 
-        await using var db = fixture.CreateDbContext();
-        var rows = await db.OutboxMessages.Where(m => m.TypeName == typeName).ToListAsync();
+        var rows = await ChannelOutboxRows.ListAsync<ChannelMessageQueued>(fixture);
         return rows.Single(r => serializer.Deserialize<ChannelMessageQueued>(r.Payload).ExecutionId == executionId);
     }
 

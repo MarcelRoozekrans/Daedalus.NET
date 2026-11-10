@@ -1,9 +1,7 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Workflow;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -13,7 +11,6 @@ using Thalos.Git.Workspaces;
 using Thalos.Sandbox;
 using Thalos.Workflow;
 using Thalos.Workspaces;
-using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;

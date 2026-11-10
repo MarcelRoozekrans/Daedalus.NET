@@ -1,15 +1,11 @@
 using System.Diagnostics;
-using Daedalus.Agents.Channels;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using Thalos;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Scheduling;
@@ -63,7 +59,7 @@ public sealed class ScheduledRunOutboxWorkerTests(PostgresFixture fixture) : IAs
             // returns. Waiting on the execution row directly would still be correct on the happy path, but
             // waiting on the outbox row's terminal state is what actually proves the dispatch fully completed,
             // rather than merely raced ahead of it.
-            await WaitUntilAsync(async () => (await ReadOutboxRowAsync<RunScoutStep>()).Status == OutboxMessageStatus.Succeeded);
+            await WaitUntilAsync(async () => (await ReadOutboxRowAsync<RunScoutStep>()).Status == ChannelOutboxStatus.Succeeded);
         }
         finally
         {
@@ -71,7 +67,7 @@ public sealed class ScheduledRunOutboxWorkerTests(PostgresFixture fixture) : IAs
         }
 
         var outboxRow = await ReadOutboxRowAsync<RunScoutStep>();
-        outboxRow.Status.Should().Be(OutboxMessageStatus.Succeeded,
+        outboxRow.Status.Should().Be(ChannelOutboxStatus.Succeeded,
             "the RunScoutStep row itself must leave the pending state, proving the type-name key round-tripped " +
             "through the real serializer and reached RunScoutStepDispatcher");
 
@@ -108,12 +104,7 @@ public sealed class ScheduledRunOutboxWorkerTests(PostgresFixture fixture) : IAs
         return await ScheduleTables.ExecutionAsync(fixture, id);
     }
 
-    private async Task<OutboxMessageEntity> ReadOutboxRowAsync<T>()
-    {
-        var typeName = typeof(T).FullName;
-        await using var db = fixture.CreateDbContext();
-        return await db.OutboxMessages.AsNoTracking().SingleAsync(m => m.TypeName == typeName);
-    }
+    private Task<ChannelOutboxRow> ReadOutboxRowAsync<T>() => ChannelOutboxRows.SingleAsync<T>(fixture);
 
     private ServiceProvider BuildProvider(ISubagentRunExecutor executor)
     {

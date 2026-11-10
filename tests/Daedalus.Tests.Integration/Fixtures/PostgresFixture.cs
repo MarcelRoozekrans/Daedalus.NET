@@ -1,7 +1,5 @@
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Shared;
-using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Testcontainers.PostgreSql;
 
@@ -70,24 +68,6 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// </summary>
     public NpgsqlDataSource DataSource =>
         _dataSource ?? throw new InvalidOperationException("Container not initialized. Call InitializeAsync first.");
-
-    /// <summary>
-    ///     Builds <see cref="DbContextOptions{TContext}"/> for <paramref name="connectionString"/>. Every test context should
-    ///     still come from here so options stay in one place.
-    /// </summary>
-    public static DbContextOptions<ApplicationDbContext> CreateDbContextOptions(string connectionString) =>
-        new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseNpgsql(connectionString)
-            .Options;
-
-    /// <summary>Builds <see cref="DbContextOptions{TContext}"/> for the fixture database.</summary>
-    public DbContextOptions<ApplicationDbContext> CreateDbContextOptions() => CreateDbContextOptions(ConnectionString);
-
-    /// <summary>Creates a new <see cref="ApplicationDbContext"/> over the fixture database (caller disposes).</summary>
-    public ApplicationDbContext CreateDbContext() => new(CreateDbContextOptions());
-
-    /// <summary>Alias for <see cref="CreateDbContext"/>, for tests that read more naturally as "give me a context".</summary>
-    public ApplicationDbContext CreateContext() => CreateDbContext();
 
     /// <summary>
     ///     Starts the PostgreSQL container with retry logic.
@@ -175,7 +155,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         try
         {
             // The schema Daedalus.Migrations builds in production: the Daedalus migration source, then the workflow
-            // engine's, not a schema derived from the EF model.
+            // engine's.
             await DatabaseSchema.ApplyAsync(ConnectionString, CancellationToken.None);
             System.Console.WriteLine("✓ Database schema created successfully");
         }

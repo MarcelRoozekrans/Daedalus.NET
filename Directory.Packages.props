@@ -214,24 +214,20 @@
     <PackageVersion Include="ZeroAlloc.Mediator.Generator" Version="6.6.3" />
     <!-- 1.2.2 → 1.3.0: floor set by ZeroAlloc.Mediator 6.1.0. 1.3.0 → 1.4.0: floor set by ZeroAlloc.Validation 2.1.0. -->
     <PackageVersion Include="ZeroAlloc.Pipeline" Version="1.4.0" />
-    <!-- 2.7.1 → 3.0.1 (#310), all three together: 3.0 replaces FetchPendingAsync with a lease-based claim,
-         row-locked on Postgres, so several hosts can poll one outbox table without dispatching a message twice.
-         3.0.1, not 3.0.0: it fixes an EF Core 10 crash in ZeroAlloc.Outbox.EfCore. The EF table's lease columns
-         come from the AddOutboxLease migration; the ORM table's from OutboxOrmMigrations migration 2, applied by
-         Daedalus.Migrations.
-         3.0.1 → 4.0.1, all three together: floor set by Thalos.NET.Workflow.Orm 0.11.1. 4.0 drops the default
+    <!-- 2.7.1 → 3.0.1 (#310), with the EF Core and ORM stores: 3.0 replaces FetchPendingAsync with a lease-based
+         claim, row-locked on Postgres, so several hosts can poll one outbox table without dispatching a message twice.
+         3.0.1, not 3.0.0: it fixed an EF Core 10 crash in the EF Core store, removed since.
+         3.0.1 → 4.0.1, with the stores: floor set by Thalos.NET.Workflow.Orm 0.11.1. 4.0 drops the default
          serializer, so AddChannelOutbox calls WithSystemTextJsonSerializer, which writes the same bytes 3.x did;
          and it rejects a second, different store, which Daedalus never registers. No schema change.
-         4.0.1 → 4.2.0, ZeroAlloc.Outbox alone: floor set by Thalos.NET.Workflow.Orm 0.13.0. EfCore and Orm stay 4.0.1.
+         4.0.1 → 4.2.0, ZeroAlloc.Outbox alone: floor set by Thalos.NET.Workflow.Orm 0.13.0.
          4.2.0 → 4.4.0: floor set by Thalos.NET.Workflow.Orm 0.15.0.
          4.4.0 → 4.4.3: floor set by Thalos.NET.Workflow.Orm 0.16.0.
          4.4.3 → 4.4.5: floor set by Thalos.NET.Workflow.Orm 0.18.0.
          4.4.5 → 4.4.6: floor set by Thalos.NET.Workflow.Orm 0.19.0.
-         4.4.6 → 4.5.0: floor set by ZeroAlloc.Outbox.Orm 4.5.0, below. ZeroAlloc.Outbox.EfCore stays 4.0.1: no
-         pipeline uses its store any more; the EF mapping of the channel table, which ScheduleDiagnostics and
-         the EF-era tests still read, keeps it referenced until EF Core leaves. -->
+         4.4.6 → 4.5.0: floor set by ZeroAlloc.Outbox.Orm 4.5.0, below.
+         ZeroAlloc.Outbox.EfCore 4.0.1 removed with EF Core in phase 3.5: both pipelines run on ZeroAlloc.Outbox.Orm. -->
     <PackageVersion Include="ZeroAlloc.Outbox" Version="4.5.0" />
-    <PackageVersion Include="ZeroAlloc.Outbox.EfCore" Version="4.0.1" />
     <!-- 4.0.1 → 4.2.0: floor set by Thalos.NET.Workflow.Orm 0.14.0. 4.2.0 → 4.4.0: floor set by
          Thalos.NET.Workflow.Orm 0.15.0. 4.4.0 → 4.4.3: floor set by Thalos.NET.Workflow.Orm 0.16.0.
          4.4.3 → 4.4.5: floor set by Thalos.NET.Workflow.Orm 0.18.0.
@@ -266,17 +262,10 @@
     <PackageVersion Include="Radzen.Blazor" Version="8.7.5" />
     <PackageVersion Include="Scalar.AspNetCore" Version="2.12.50" />
 
-    <!-- EF Core / data. 10.0.2 → 10.0.12 across the family: floor set by ZeroAlloc.Outbox.EfCore 3.0.1, which
-         declares Microsoft.EntityFrameworkCore and .Relational >= 10.0.12. Design and InMemory move with them so
-         the family stays on one version. -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.12" />
-    <!-- transitive pin: aligns Relational (10.0.0 via Npgsql.EFCore) with EFCore.Design (MSB3277) -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
+    <!-- Data. Microsoft.EntityFrameworkCore, .Design, .InMemory, .Relational and Npgsql.EntityFrameworkCore.PostgreSQL
+         removed with EF Core in phase 3.5: the data layer runs on ZeroAlloc.ORM over Npgsql. -->
     <!-- 10.0.1 → 10.0.3: floor set by Rag.NET.VectorStores.PgVector 0.1.0 (via Thalos.NET.Memory.RagNet) -->
     <PackageVersion Include="Npgsql" Version="10.0.3" />
-    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
 
     <!-- Microsoft.Extensions.* (10.0.12: transitive-pinning floor set by Thalos.NET.Abstractions 0.5.0 / Microsoft.Extensions.AI 10.10 / ModelContextProtocol 2.2 / Aspire 13.4.6) -->
     <!-- 10.0.12 → 10.0.13: floor set by Microsoft.AspNetCore.Components.WebAssembly and SignalR.Client 10.0.13.

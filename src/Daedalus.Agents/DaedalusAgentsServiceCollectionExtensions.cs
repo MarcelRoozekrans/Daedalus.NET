@@ -2,7 +2,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using AI.Sentinel;
-using AI.Sentinel.Detection;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Charters;
 using Daedalus.Agents.Decisions;
@@ -145,9 +144,8 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
     ///     without one the index is unavailable — remember stores <c>index_pending</c>, recall adds nothing.
     /// </param>
     /// <remarks>
-    ///     Requires <c>IDbContextFactory&lt;ApplicationDbContext&gt;</c> and <c>DaedalusDb</c> (see
-    ///     <c>AddApplicationDatabase</c>) and the Infrastructure services behind the knowledge tools
-    ///     (<c>IFailurePatternDatabase</c>) to be registered by the host.
+    ///     Requires <c>DaedalusDb</c> (see <c>AddApplicationDatabase</c>) and the Infrastructure services behind the
+    ///     knowledge tools (<c>IFailurePatternDatabase</c>) to be registered by the host.
     ///     Nothing here needs <c>ANTHROPIC_API_KEY</c> at registration time; the provider reads it lazily on first use.
     /// </remarks>
     /// <exception cref="InvalidOperationException">
@@ -390,8 +388,8 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
                 // (process_definition.content_hash, NOT NULL, no default) is not backward compatible with
                 // pre-1004 code, so applying it ahead of a rolling deploy would break process syncing with
                 // 23502 on every instance not yet replaced. Daedalus.Migrations applies WorkflowOrmMigrations
-                // explicitly, as the same pre-boot deploy step it already runs ApplicationDbContext's EF Core
-                // migrations as — see that project's Program.cs.
+                // explicitly, as the same pre-boot deploy step it runs Daedalus' own migrations as — see
+                // that project's Program.cs.
                 thalos.AddWorkflowOrm(o =>
                 {
                     o.ConnectionString = connectionString;

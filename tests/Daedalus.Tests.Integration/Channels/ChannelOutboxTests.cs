@@ -1,12 +1,9 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using Daedalus.Agents.Channels;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Channels;
@@ -51,7 +48,7 @@ public sealed class ChannelOutboxTests(PostgresFixture fixture) : IAsyncLifetime
             // MarkSucceededAsync), so waiting on the row's terminal state can never race ahead of the
             // dispatcher's own side effect the way waiting on "was DispatchAsync called at all" can. By
             // the time this returns, the recording queue is guaranteed to already hold the message.
-            await WaitUntilAsync(async () => (await ReadRowAsync()).Status == OutboxMessageStatus.Succeeded);
+            await WaitUntilAsync(async () => (await ReadRowAsync()).Status == ChannelOutboxStatus.Succeeded);
         }
         finally
         {
@@ -61,7 +58,7 @@ public sealed class ChannelOutboxTests(PostgresFixture fixture) : IAsyncLifetime
         recording.Messages.Should().ContainSingle().Which.Should().Be(message);
 
         var row = await ReadRowAsync();
-        row.Status.Should().Be(OutboxMessageStatus.Succeeded, "a delivered message must leave the pending state");
+        row.Status.Should().Be(ChannelOutboxStatus.Succeeded, "a delivered message must leave the pending state");
         row.ProcessedAt.Should().NotBeNull();
         row.DeadLetterError.Should().BeNull();
     }
@@ -85,10 +82,10 @@ public sealed class ChannelOutboxTests(PostgresFixture fixture) : IAsyncLifetime
             await WaitUntilAsync(async () =>
             {
                 var row = await ReadRowAsync();
-                return row.Status == OutboxMessageStatus.Pending && row.RetryCount >= 1;
+                return row.Status == ChannelOutboxStatus.Pending && row.RetryCount >= 1;
             });
 
-            await WaitUntilAsync(async () => (await ReadRowAsync()).Status == OutboxMessageStatus.DeadLetter);
+            await WaitUntilAsync(async () => (await ReadRowAsync()).Status == ChannelOutboxStatus.DeadLetter);
         }
         finally
         {
@@ -96,7 +93,7 @@ public sealed class ChannelOutboxTests(PostgresFixture fixture) : IAsyncLifetime
         }
 
         var final = await ReadRowAsync();
-        final.Status.Should().Be(OutboxMessageStatus.DeadLetter, "exhausting every attempt must dead-letter, not silently drop, the message");
+        final.Status.Should().Be(ChannelOutboxStatus.DeadLetter, "exhausting every attempt must dead-letter, not silently drop, the message");
         // MarkFailedAsync bumps RetryCount on every failed-but-retried attempt; DeadLetterAsync itself does not
         // touch RetryCount, so the final value is one less than MaxAttempts (the attempt that exhausted the
         // budget dead-letters instead of incrementing it).
@@ -107,17 +104,13 @@ public sealed class ChannelOutboxTests(PostgresFixture fixture) : IAsyncLifetime
         failing.AttemptCount.Should().Be(_maxAttempts, "every attempt up to and including the exhausting one must have actually been dispatched");
     }
 
-    private async Task<OutboxMessageEntity> ReadRowAsync()
-    {
-        await using var db = fixture.CreateDbContext();
-        return await db.OutboxMessages.AsNoTracking().SingleAsync();
-    }
+    private async Task<ChannelOutboxRow> ReadRowAsync() =>
+        (await ChannelOutboxRows.ListAsync(fixture, typeName: null)).Single();
 
     private ServiceProvider BuildProvider(IOutboxDispatcher<ChannelMessageQueued> dispatcher)
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         services.AddChannelOutboxOver(fixture, o =>
             {
                 o.PollingInterval = _pollingInterval;

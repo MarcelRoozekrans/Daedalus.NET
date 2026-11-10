@@ -3,16 +3,13 @@ using System.Data.Common;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Orm.ScheduledRunExecutions;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Scheduling;
@@ -441,16 +438,11 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
     }
 
     /// <summary>
-    ///     Rows in the shared <c>OutboxMessages</c> table (see <see cref="ApplicationDbContext.OutboxMessages"/>)
+    ///     Rows in the channel outbox table <c>"OutboxMessages"</c>
     ///     whose type-name column matches <typeparamref name="T"/>'s full name — the same key ZeroAlloc.Outbox's
     ///     generated writer stamps every row with.
     /// </summary>
-    private async Task<List<OutboxMessageEntity>> OutboxRowsAsync<T>()
-    {
-        var typeName = typeof(T).FullName;
-        await using var db = fixture.CreateDbContext();
-        return await db.OutboxMessages.AsNoTracking().Where(m => m.TypeName == typeName).ToListAsync();
-    }
+    private Task<List<ChannelOutboxRow>> OutboxRowsAsync<T>() => ChannelOutboxRows.ListAsync<T>(fixture);
 
     /// <summary>
     ///     Deserializes every <typeparamref name="T"/> row's payload with the same <see cref="IOutboxSerializer"/>

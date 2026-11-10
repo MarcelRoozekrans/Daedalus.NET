@@ -1,10 +1,8 @@
 using Daedalus.Agents;
 using Daedalus.Agents.Channels;
-using Daedalus.Application.Abstractions;
 using Daedalus.Cli;
 using Daedalus.Infrastructure.Configuration;
 using Daedalus.Infrastructure.Extensions;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.ServiceDefaults;
 using Thalos.Ollama;
 
@@ -76,7 +74,7 @@ namespace Daedalus.Cli
                 ollama = services.UseOllamaEmbeddings(OllamaConnectionString.ParseEndpoint(ollamaConnectionString), "nomic-embed-text");
             }
 
-            // Thalos-based agents: same composition root as the API host (Task 7), needs the DbContext factory
+            // Thalos-based agents: same composition root as the API host (Task 7), needs DaedalusDb
             // (AddApplicationDatabase above) and IFailurePatternDatabase (AddExternalServices above).
             services.AddDaedalusAgents(configuration, environment, ollama);
 

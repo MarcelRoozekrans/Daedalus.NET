@@ -1,16 +1,13 @@
 using Daedalus.Agents.Workflow;
 using Daedalus.Api.Endpoints;
 using Daedalus.Application.DTOs.WorkflowRuns;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Thalos;
 using Thalos.Workflow;
 using Thalos.Workspaces;
-using ZeroAlloc.Results;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Workflow;

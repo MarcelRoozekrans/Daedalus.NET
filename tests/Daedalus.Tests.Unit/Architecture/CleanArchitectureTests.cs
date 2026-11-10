@@ -5,7 +5,7 @@ using Daedalus.Agents;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Agents.Workflow;
 using Daedalus.Application.Abstractions;
-using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Orm;
 using Rag.NET.Abstractions;
 using Rag.NET.PgVector;
 using Thalos;
@@ -52,8 +52,8 @@ public sealed class CleanArchitectureTests
     /// </summary>
     private const string ChannelsNamespacePattern = "^Thalos\\.Channels(\\.|$)";
 
-    /// <summary>Anchored on EF Core's own namespace, so the fact fails if the assembly is not loaded.</summary>
-    private const string EfCoreNamespacePattern = "^Microsoft\\.EntityFrameworkCore(\\.|$)";
+    /// <summary>Anchored on ZeroAlloc.ORM's own namespace, so the fact fails if the assembly is not loaded.</summary>
+    private const string ZeroAllocOrmNamespacePattern = "^ZeroAlloc\\.ORM(\\.|$)";
 
     /// <summary>
     ///     Anchored on ZeroAlloc.Outbox's own namespace, so the fact fails if the assembly is not loaded. Unlike
@@ -74,7 +74,7 @@ public sealed class CleanArchitectureTests
 
     private static readonly SysAssembly DomainAssembly = typeof(Task).Assembly;
     private static readonly SysAssembly ApplicationAssembly = typeof(ITaskRepository).Assembly;
-    private static readonly SysAssembly InfrastructureAssembly = typeof(ApplicationDbContext).Assembly;
+    private static readonly SysAssembly InfrastructureAssembly = typeof(DaedalusDb).Assembly;
     private static readonly SysAssembly ApiAssembly = typeof(Api.Program).Assembly;
     private static readonly SysAssembly AgentsAssembly = typeof(DaedalusAgentsServiceCollectionExtensions).Assembly;
     private static readonly SysAssembly WebAssembly = typeof(Daedalus.Web.App).Assembly;
@@ -91,8 +91,8 @@ public sealed class CleanArchitectureTests
 
     private static readonly SysAssembly MemoryRagNetAssembly = typeof(RagNetMemoryOptions).Assembly; // Thalos.NET.Memory.RagNet
 
-    /// <summary>Microsoft.EntityFrameworkCore itself, loaded so <see cref="DomainLayer_ShouldNotDependOn_EfCore"/> is non-vacuous.</summary>
-    private static readonly SysAssembly EfCoreAssembly = typeof(Microsoft.EntityFrameworkCore.DbContext).Assembly; // Microsoft.EntityFrameworkCore
+    /// <summary>ZeroAlloc.ORM itself, loaded so <see cref="DomainLayer_ShouldNotDependOn_ZeroAllocOrm"/> is non-vacuous.</summary>
+    private static readonly SysAssembly ZeroAllocOrmAssembly = typeof(ZeroAlloc.ORM.ZeroAllocOrmConcurrencyException).Assembly; // ZeroAlloc.ORM
 
     /// <summary>ZeroAlloc.Outbox itself, loaded so <see cref="DomainLayer_ShouldNotDependOn_ZeroAllocOutbox"/> is non-vacuous.</summary>
     private static readonly SysAssembly ZeroAllocOutboxAssembly = typeof(IOutboxWriter<>).Assembly; // ZeroAlloc.Outbox
@@ -130,7 +130,7 @@ public sealed class CleanArchitectureTests
         .LoadAssemblies(CliAssembly)
         .LoadAssemblies(ThalosAssemblies)
         .LoadAssemblies(RagNetAssemblies)
-        .LoadAssemblies(EfCoreAssembly)
+        .LoadAssemblies(ZeroAllocOrmAssembly)
         .LoadAssemblies(ZeroAllocOutboxAssembly, CronosAssembly)
         .Build();
 
@@ -175,8 +175,8 @@ public sealed class CleanArchitectureTests
     ///     restricts to <see cref="SubagentRunExecutor"/> alone. If Thalos ever renames or moves this type, this
     ///     matcher silently resolves to nothing and the rule above would pass without checking anything —
     ///     <see cref="SubagentRunnerType_IsLoaded_SoTheSingleSeamRuleCoversIt"/> guards exactly that, the same way
-    ///     <see cref="EfCoreAssembly_IsLoaded_SoTheDomainRuleCoversIt"/> guards
-    ///     <see cref="DomainLayer_ShouldNotDependOn_EfCore"/>.
+    ///     <see cref="ZeroAllocOrmAssembly_IsLoaded_SoTheDomainRuleCoversIt"/> guards
+    ///     <see cref="DomainLayer_ShouldNotDependOn_ZeroAllocOrm"/>.
     /// </summary>
     private static readonly IObjectProvider<IType> SubagentRunnerType =
         Types().That().HaveFullName("Thalos.ISubagentRunner")
@@ -273,13 +273,15 @@ public sealed class CleanArchitectureTests
     }
 
     [Fact]
-    public void DomainLayer_ShouldNotDependOn_EfCore()
+    public void DomainLayer_ShouldNotDependOn_ZeroAllocOrm()
     {
         // ChannelConversation (like every other Domain entity) must stay framework-free: the table mapping for it
-        // is ChannelConversationMap, which lives in Daedalus.Infrastructure, never in Domain itself.
+        // is ChannelConversationMap, which lives in Daedalus.Infrastructure, never in Domain itself. Entities are
+        // rebuilt through their own Rehydrate factories, so Domain needs no map attribute either. Before phase 3.5
+        // this rule held Domain off EF Core; NoEntityFrameworkTests now keeps EF Core out of every project.
         var rule = Types().That().Are(DomainTypes)
-            .Should().NotDependOnAnyTypesThat().ResideInNamespaceMatching(EfCoreNamespacePattern)
-            .Because("Domain entities must stay persistence-ignorant; EF Core configuration lives in Infrastructure");
+            .Should().NotDependOnAnyTypesThat().ResideInNamespaceMatching(ZeroAllocOrmNamespacePattern)
+            .Because("Domain entities must stay persistence-ignorant; ZeroAlloc.ORM maps live in Infrastructure");
 
         rule.Check(Architecture);
     }
@@ -631,16 +633,16 @@ public sealed class CleanArchitectureTests
         rule.Check(Architecture);
     }
 
-    /// <summary>Known positive: proves Microsoft.EntityFrameworkCore is loaded so <see cref="DomainLayer_ShouldNotDependOn_EfCore"/> is non-vacuous.</summary>
+    /// <summary>Known positive: proves ZeroAlloc.ORM is loaded so <see cref="DomainLayer_ShouldNotDependOn_ZeroAllocOrm"/> is non-vacuous.</summary>
     [Fact]
-    public void EfCoreAssembly_IsLoaded_SoTheDomainRuleCoversIt()
+    public void ZeroAllocOrmAssembly_IsLoaded_SoTheDomainRuleCoversIt()
     {
-        // Same trap as above: without Microsoft.EntityFrameworkCore explicitly loaded, DomainLayer_ShouldNotDependOn_EfCore
-        // would pass regardless of whether Domain actually referenced EF Core, because ArchUnitNET does not synthesise
+        // Same trap as above: without ZeroAlloc.ORM explicitly loaded, DomainLayer_ShouldNotDependOn_ZeroAllocOrm
+        // would pass regardless of whether Domain actually referenced the ORM, because ArchUnitNET does not synthesise
         // types for assemblies it has not loaded.
-        var rule = Types().That().ResideInNamespaceMatching(EfCoreNamespacePattern)
+        var rule = Types().That().ResideInNamespaceMatching(ZeroAllocOrmNamespacePattern)
             .Should().Exist()
-            .Because("Microsoft.EntityFrameworkCore must be loaded into the architecture or the Domain-EF-Core rule never sees an EF Core type");
+            .Because("ZeroAlloc.ORM must be loaded into the architecture or the Domain-ORM rule never sees an ORM type");
 
         rule.Check(Architecture);
     }
@@ -672,7 +674,7 @@ public sealed class CleanArchitectureTests
     // ArchUnitNET only synthesises types for assemblies it is explicitly told to load (see the "known positive"
     // facts above). A namespace rule against a package nobody references would never see a single type belonging
     // to it, so the rule would report success without ever having checked anything -- the exact trap
-    // DomainLayer_ShouldNotDependOn_EfCore's own non-vacuity fact documents. ZeroAlloc.Saga and ZeroAlloc.Scheduling
+    // DomainLayer_ShouldNotDependOn_ZeroAllocOrm's own non-vacuity fact documents. ZeroAlloc.Saga and ZeroAlloc.Scheduling
     // are both in that position: the whole point of dropping them is that no project references them, so an
     // ArchUnitNET rule here would be vacuously true by construction. Asserting directly on .csproj text is the only
     // way to make "must not be referenced at all" an assertion that can actually fail.
@@ -688,7 +690,7 @@ public sealed class CleanArchitectureTests
             "BackgroundService that ScheduleSweeperService already is. Re-adding it means taking on a second " +
             "persistence surface for no behaviour gain. Note the ORIGINAL bootstrap objection no longer holds: as " +
             "of 1.2.56 the package ships ZeroAlloc.Scheduling.InMemory with a zero-setup WithInMemoryStore, and " +
-            "SchedulingDbContext is public so dotnet ef migrations add --context SchedulingDbContext works. Verified " +
+            "its EF Core context type is public, so dotnet ef migrations add can target it. Verified " +
             "2026-09-21. If durable job state is ever genuinely wanted, delete this fact rather than working around it.");
     }
 

@@ -1,7 +1,5 @@
 using Daedalus.Agents;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Orm;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -109,7 +107,6 @@ public sealed class CharteredRoleCompositionTests
 
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         services.TryAddSingleton<DaedalusDb>();
 
         return (services, options, configuration, environment);

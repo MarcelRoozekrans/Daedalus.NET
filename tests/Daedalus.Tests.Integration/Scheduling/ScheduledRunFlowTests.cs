@@ -1,9 +1,7 @@
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -410,12 +408,7 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
     }
 
     /// <summary>Counts outbox rows of type <typeparamref name="T"/>, by the same type-name column ZeroAlloc.Outbox's generated writer stamps.</summary>
-    private async Task<int> OutboxCountAsync<T>()
-    {
-        var typeName = typeof(T).FullName;
-        await using var db = fixture.CreateDbContext();
-        return await db.OutboxMessages.CountAsync(m => m.TypeName == typeName);
-    }
+    private Task<int> OutboxCountAsync<T>() => ChannelOutboxRows.CountAsync<T>(fixture);
 
     /// <summary>
     ///     Reads the single <see cref="ChannelMessageQueued"/> outbox row written so far, deserializes it with the
@@ -427,10 +420,7 @@ public sealed class ScheduledRunFlowTests(PostgresFixture fixture) : IAsyncLifet
     {
         var serializer = _serializer
             ?? throw new InvalidOperationException($"{nameof(BuildStore)}() must be called before draining the channel outbox.");
-        var typeName = typeof(ChannelMessageQueued).FullName;
-
-        await using var db = fixture.CreateDbContext();
-        var row = await db.OutboxMessages.AsNoTracking().SingleAsync(m => m.TypeName == typeName);
+        var row = await ChannelOutboxRows.SingleAsync<ChannelMessageQueued>(fixture);
         var message = serializer.Deserialize<ChannelMessageQueued>(row.Payload);
 
         var dispatcher = new ChannelMessageQueuedDispatcher([adapter], NullLogger<ChannelMessageQueuedDispatcher>.Instance);

@@ -126,8 +126,8 @@ public class E2EServerFixture
                     // Workflow.Enabled synchronously while Program.cs registers services (same "too late" timing
                     // ApiWebApplicationFactory's ConnectionStrings:daedalus comment describes), so a
                     // ConfigureAppConfiguration value here would not exist yet when the gate is evaluated.
-                    // The workflow engine stays off for this suite, as it was when the schema was built from the EF model
-                    // alone: this suite tests the Api's endpoints, not the engine. processes/manufacture.yaml (Task 11)
+                    // The workflow engine stays off for this suite, as it was before the fixture database held the engine's
+                    // tables: this suite tests the Api's endpoints, not the engine. processes/manufacture.yaml (Task 11)
                     // is a real file on Thalos:Workflow's ProcessesRoot and flows into this host's output the same way
                     // skills/*.SKILL.md does, so left enabled, ProcessDefinitionSyncHostedService.StartAsync would sync
                     // it and the engine's pollers would start against the Api suite's stubbed runtime. The tables exist
@@ -141,31 +141,6 @@ public class E2EServerFixture
 
                     builder.ConfigureServices(services =>
                     {
-                        // Remove ALL existing DbContext registrations to avoid conflicts
-                        RemoveService<ApplicationDbContext>(services);
-                        RemoveService<DbContextOptions<ApplicationDbContext>>(services);
-                        RemoveService<IDbContextFactory<ApplicationDbContext>>(services);
-
-                        // Remove all pooling-related services by partial type name match
-                        RemoveServicesByType(services, "DbContextPool");
-                        RemoveServicesByType(services, "IDbContextPool");
-                        RemoveServicesByType(services, "IScopedDbContextLease");
-                        RemoveServicesByType(services, "PooledDbContextFactory");
-
-                        // Singleton consumers need IDbContextFactory<T>; register it first so DbContextOptions<T> is
-                        // the singleton both share.
-                        services.AddPooledDbContextFactory<ApplicationDbContext>(options =>
-                        {
-                            options.UseNpgsql(ConnectionString);
-                        });
-
-                        // Add DbContext with test container connection string (non-pooled for testing). Options must be
-                        // singleton too, otherwise the singleton factory above sees a scoped IDbContextOptionsConfiguration.
-                        services.AddDbContext<ApplicationDbContext>(options =>
-                        {
-                            options.UseNpgsql(ConnectionString);
-                        }, contextLifetime: ServiceLifetime.Scoped, optionsLifetime: ServiceLifetime.Singleton);
-
                         // Register repositories that are missing from the API project
                         services.AddScoped<ITaskRepository, TaskRepository>();
 

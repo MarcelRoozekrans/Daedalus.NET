@@ -113,9 +113,6 @@ jobs:
       - name: Check formatting
         run: dotnet format Daedalus.sln --verify-no-changes --no-restore
 
-      # Both test steps leave EF Core's generated migrations and model snapshots in src/Daedalus.Infrastructure/
-      # Migrations out of coverage: no test runs them since phase 3.5 moved schemas to the Daedalus migrations, and
-      # Task 22 deletes the folder. The hand-written Persistence/Migrations stay measured (ruling R63).
       - name: Run Unit Tests
         run: |
           dotnet test Daedalus.sln \
@@ -125,8 +122,7 @@ jobs:
             --collect:"XPlat Code Coverage" \
             --results-directory ./TestResults/Unit \
             --logger "trx;LogFileName=unit-tests.trx" \
-            -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura \
-               DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.ExcludeByFile="**/src/Daedalus.Infrastructure/Migrations/*.cs"
+            -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
 
       # Category=AuthenticationFlow tests drive a *running* API at localhost:8080 through a Keycloak
       # container — an end-to-end check for a developer machine with the stack up, not something a
@@ -145,8 +141,7 @@ jobs:
             --blame-hang-dump-type none \
             --logger "console;verbosity=normal" \
             --logger "trx;LogFileName=integration-tests.trx" \
-            -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura \
-               DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.ExcludeByFile="**/src/Daedalus.Infrastructure/Migrations/*.cs"
+            -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
 
       # ci-baseline's coverage gate: merges the Cobertura files of both test steps and fails below the floor, or when
       # codecov.yml would let a drop in coverage pass quietly.

@@ -13,9 +13,8 @@ namespace Daedalus.Agents.Scheduling;
 ///     <b>A plain timer, not <c>ZeroAlloc.Scheduling</c>.</b> The package was evaluated for this trigger and
 ///     dropped: its EF Core store needs its own <c>SchedulingDbContext</c>, which ships no migrations, and
 ///     <c>Database.EnsureCreated()</c> is not a substitute for one — it no-ops once the <c>daedalus</c> database
-///     already exists (created by <see cref="Daedalus.Infrastructure.Persistence.ApplicationDbContext"/>'s
-///     migrations), silently leaving the package's job table missing. None of what the package sells — durable
-///     jobs, retries, dead-lettering, a dashboard — is needed here either:
+///     already exists (created by Daedalus' own migrations), silently leaving the package's job table missing. None
+///     of what the package sells — durable jobs, retries, dead-lettering, a dashboard — is needed here either:
 ///     <see cref="ScheduledRunStore.ClaimAndEnqueueDueAsync"/> is idempotent and <c>ScheduledRuns.NextRunAt</c> is
 ///     the sweep's only source of truth, so a missed tick is simply picked up by the next one. There is no
 ///     "run the sweeper" row that would ever need to survive a crash. This is reversible — the package slots back

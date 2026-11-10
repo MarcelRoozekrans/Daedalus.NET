@@ -2,14 +2,10 @@ using Daedalus.Agents.Channels;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Application.Abstractions;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Time.Testing;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Scheduling;
@@ -57,7 +53,7 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
         result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : null);
 
         var row = await SingleRowForAsync(execution.Id);
-        row.Status.Should().Be(OutboxMessageStatus.Pending,
+        row.Status.Should().Be(ChannelOutboxStatus.Pending,
             "a successful requeue puts the message back in the ordinary poller's path, not merely reports success");
     }
 
@@ -132,8 +128,8 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
 
         result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error : null);
 
-        (await SingleRowForAsync(targetedExecution.Id)).Status.Should().Be(OutboxMessageStatus.Pending);
-        (await SingleRowForAsync(otherExecution.Id)).Status.Should().Be(OutboxMessageStatus.DeadLetter,
+        (await SingleRowForAsync(targetedExecution.Id)).Status.Should().Be(ChannelOutboxStatus.Pending);
+        (await SingleRowForAsync(otherExecution.Id)).Status.Should().Be(ChannelOutboxStatus.DeadLetter,
             "the other schedule's dead letter shares the type name and must be left alone");
     }
 
@@ -190,7 +186,7 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
     private async Task DeadLetterAsync(ServiceProvider provider, Guid executionId, string error, int retryCount, DateTimeOffset? createdAt = null) =>
         await MutateRowAsync(provider, executionId, row =>
         {
-            row.Status = OutboxMessageStatus.DeadLetter;
+            row.Status = ChannelOutboxStatus.DeadLetter;
             row.DeadLetterError = error;
             row.RetryCount = retryCount;
             row.CreatedAt = createdAt ?? new DateTimeOffset(_now.AddMinutes(-5));
@@ -201,27 +197,23 @@ public sealed class ScheduleDeliveryActionsTests(PostgresFixture fixture) : IAsy
     ///     deserializing the payload with the same <see cref="IOutboxSerializer"/> the host registers, since
     ///     <c>OutboxMessages</c> has no correlation column — and applies <paramref name="mutate"/> to it.
     /// </summary>
-    private async Task MutateRowAsync(ServiceProvider provider, Guid executionId, Action<OutboxMessageEntity> mutate)
+    private async Task MutateRowAsync(ServiceProvider provider, Guid executionId, Action<ChannelOutboxRow> mutate)
     {
         await using var scope = provider.CreateAsyncScope();
         var serializer = scope.ServiceProvider.GetRequiredService<IOutboxSerializer>();
-        var typeName = typeof(ChannelMessageQueued).FullName;
 
-        await using var db = fixture.CreateDbContext();
-        var rows = await db.OutboxMessages.Where(m => m.TypeName == typeName).ToListAsync();
+        var rows = await ChannelOutboxRows.ListAsync<ChannelMessageQueued>(fixture);
         var row = rows.Single(r => serializer.Deserialize<ChannelMessageQueued>(r.Payload).ExecutionId == executionId);
         mutate(row);
-        await db.SaveChangesAsync();
+        await ChannelOutboxRows.UpdateAsync(fixture, row);
     }
 
-    private async Task<OutboxMessageEntity> SingleRowForAsync(Guid executionId)
+    private async Task<ChannelOutboxRow> SingleRowForAsync(Guid executionId)
     {
         await using var scope = BuildProvider().CreateAsyncScope();
         var serializer = scope.ServiceProvider.GetRequiredService<IOutboxSerializer>();
-        var typeName = typeof(ChannelMessageQueued).FullName;
 
-        await using var db = fixture.CreateDbContext();
-        var rows = await db.OutboxMessages.Where(m => m.TypeName == typeName).ToListAsync();
+        var rows = await ChannelOutboxRows.ListAsync<ChannelMessageQueued>(fixture);
         return rows.Single(r => serializer.Deserialize<ChannelMessageQueued>(r.Payload).ExecutionId == executionId);
     }
 }

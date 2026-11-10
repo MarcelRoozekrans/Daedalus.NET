@@ -169,16 +169,7 @@ public class E2EServerFixture
             // so _framework, index.html, CSS, and Radzen assets are served
             builder.WebHost.UseStaticWebAssets();
 
-            // Database. Singleton consumers need IDbContextFactory<T>; register it first so DbContextOptions<T> is the
-            // singleton both share, and keep the scoped DbContext's options singleton too (otherwise the factory sees a
-            // scoped IDbContextOptionsConfiguration).
-            builder.Services.AddPooledDbContextFactory<ApplicationDbContext>(options =>
-                options.UseNpgsql(ConnectionString));
-            builder.Services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseNpgsql(ConnectionString),
-                contextLifetime: ServiceLifetime.Scoped, optionsLifetime: ServiceLifetime.Singleton);
-
-            // The ZeroAlloc.ORM stores (sessions, memory, skills, charters, tasks) and AgentSessionCrashRecovery open
+            // Database. The ZeroAlloc.ORM stores (sessions, memory, skills, charters, tasks) and AgentSessionCrashRecovery open
             // their connections from one data source, as AddApplicationDatabase registers it in a real host.
             builder.Services.TryAddSingleton(_ => Npgsql.NpgsqlDataSource.Create(ConnectionString));
             builder.Services.TryAddSingleton<DaedalusDb>();

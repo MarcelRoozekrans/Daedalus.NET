@@ -9,9 +9,7 @@ using Daedalus.Agents.Workflow;
 using Daedalus.Application.Abstractions;
 using Daedalus.Application.Services;
 using Daedalus.Application.Services.CodeAnalysis;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Orm;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,7 +23,6 @@ using Thalos.Memory;
 using Thalos.Memory.RagNet;
 using Thalos.Sentinel;
 using Thalos.Skills;
-using Thalos.Tools;
 using Thalos.Workflow;
 using ZeroAlloc.Authorization;
 
@@ -81,7 +78,6 @@ public sealed class DaedalusAgentsRegistrationTests
         var environment = Environment();
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         // A real host gets the pull request factory from Daedalus.Infrastructure, not from AddDaedalusAgents, and
         // the pull request publisher needs one to resolve.
         services.AddSingleton(Substitute.For<IPullRequestFactory>());
@@ -113,7 +109,6 @@ public sealed class DaedalusAgentsRegistrationTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         services.AddSingleton(Substitute.For<IPullRequestFactory>());
         services.AddDaedalusAgents(Config(), Environment());
 
@@ -148,7 +143,6 @@ public sealed class DaedalusAgentsRegistrationTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         services.AddSingleton(Substitute.For<IPullRequestFactory>());
         services.AddDaedalusAgents(Config(), Environment());
 
@@ -633,7 +627,6 @@ public sealed class DaedalusAgentsRegistrationTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
         services.AddSingleton(Substitute.For<IPullRequestFactory>());
         services.AddDaedalusAgents(Config(), Environment());
         var substitute = Substitute.For<IPullRequestPublisher>();
@@ -1014,7 +1007,6 @@ public sealed class DaedalusAgentsRegistrationTests
 
             var services = new ServiceCollection();
             services.AddLogging();
-            services.AddSingleton(Substitute.For<IDbContextFactory<ApplicationDbContext>>());
             services.AddDaedalusAgents(Config(("Thalos:Skills:Roots:0", "skills")), env);
             using var sp = services.BuildServiceProvider();
 

@@ -2,13 +2,10 @@ using System.Data.Common;
 using System.Diagnostics;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Scheduling;
@@ -122,7 +119,6 @@ public sealed class ScheduleSweeperServiceTests(PostgresFixture fixture) : IAsyn
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(TimeProvider.System);
-        services.AddDbContextPool<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         services.AddChannelOutboxOver(fixture);
         services.AddScoped<ScheduledRunStore>();
 
@@ -154,12 +150,7 @@ public sealed class ScheduleSweeperServiceTests(PostgresFixture fixture) : IAsyn
         return await ScheduleTables.RunAsync(fixture, name);
     }
 
-    private async Task<List<OutboxMessageEntity>> OutboxRowsAsync()
-    {
-        var typeName = typeof(ScheduledRunDue).FullName;
-        await using var db = fixture.CreateDbContext();
-        return await db.OutboxMessages.AsNoTracking().Where(m => m.TypeName == typeName).ToListAsync();
-    }
+    private Task<List<ChannelOutboxRow>> OutboxRowsAsync() => ChannelOutboxRows.ListAsync<ScheduledRunDue>(fixture);
 
     private static async Task WaitUntilAsync(Func<Task<bool>> condition)
     {

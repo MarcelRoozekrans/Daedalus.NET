@@ -1,9 +1,7 @@
 using Daedalus.Agents;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Integration.Fixtures;
 using Daedalus.Tests.Shared;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -65,7 +63,6 @@ public sealed class ProcessDefinitionSyncEndToEndTests(PostgresFixture fixture)
                 ["Thalos:Workflow:Sandbox:Docker:Network"] = sandboxNetwork,
             });
 
-            builder.Services.AddPooledDbContextFactory<ApplicationDbContext>(o => o.UseNpgsql(connectionString));
             builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment);
             // A real host gets DaedalusDb from AddApplicationDatabase; the charter store needs it to resolve.
             builder.Services.TryAddSingleton<DaedalusDb>();

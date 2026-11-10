@@ -1,9 +1,7 @@
 using Daedalus.Agents;
-using Daedalus.Infrastructure.Persistence;
 using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Infrastructure.Persistence.Orm.Skills;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -106,7 +104,6 @@ public sealed class SkillsStartupTests(PostgresFixture fixture) : IAsyncLifetime
             ["Thalos:Workflow:Enabled"] = "false",
         });
 
-        builder.Services.AddPooledDbContextFactory<ApplicationDbContext>(o => o.UseNpgsql(fixture.ConnectionString));
         builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment);
         // A real host gets the data source and DaedalusDb from AddApplicationDatabase; with the workflow engine off
         // AddDaedalusAgents registers no data source, and the charter store needs both to resolve.

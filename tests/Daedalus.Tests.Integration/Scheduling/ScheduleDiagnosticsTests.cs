@@ -7,13 +7,11 @@ using Daedalus.Application.DTOs.Scheduling;
 using Daedalus.Domain.Entities;
 using Daedalus.Infrastructure.Persistence.Orm;
 using Daedalus.Tests.Integration.Fixtures;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using ZeroAlloc.Outbox;
-using ZeroAlloc.Outbox.EfCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Integration.Scheduling;
@@ -259,7 +257,7 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
 
         // The row is right there, in a non-dead-letter status. Absence of a DEAD LETTER is what means delivered.
         await QueueMessageAsync(provider, execution.Id);
-        await SetStatusAsync(provider, execution.Id, OutboxMessageStatus.Succeeded);
+        await SetStatusAsync(provider, execution.Id, ChannelOutboxStatus.Succeeded);
 
         var overview = await OverviewAsync(provider);
 
@@ -830,13 +828,13 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
     private async Task DeadLetterAsync(ServiceProvider provider, Guid executionId, string error, int retryCount, DateTime? createdAtUtc = null) =>
         await MutateRowAsync(provider, executionId, row =>
         {
-            row.Status = OutboxMessageStatus.DeadLetter;
+            row.Status = ChannelOutboxStatus.DeadLetter;
             row.DeadLetterError = error;
             row.RetryCount = retryCount;
             row.CreatedAt = new DateTimeOffset(createdAtUtc ?? _now.AddMinutes(-5));
         });
 
-    private async Task SetStatusAsync(ServiceProvider provider, Guid executionId, OutboxMessageStatus status) =>
+    private async Task SetStatusAsync(ServiceProvider provider, Guid executionId, ChannelOutboxStatus status) =>
         await MutateRowAsync(provider, executionId, row =>
         {
             row.Status = status;
@@ -848,40 +846,32 @@ public sealed class ScheduleDiagnosticsTests(PostgresFixture fixture) : IAsyncLi
     ///     deserializing the payload with the same <see cref="IOutboxSerializer"/> the host registers, since
     ///     <c>OutboxMessages</c> has no correlation column — and applies <paramref name="mutate"/> to it.
     /// </summary>
-    private async Task MutateRowAsync(ServiceProvider provider, Guid executionId, Action<OutboxMessageEntity> mutate)
+    private async Task MutateRowAsync(ServiceProvider provider, Guid executionId, Action<ChannelOutboxRow> mutate)
     {
         await using var scope = provider.CreateAsyncScope();
         var serializer = scope.ServiceProvider.GetRequiredService<IOutboxSerializer>();
-        var typeName = typeof(ChannelMessageQueued).FullName;
 
-        await using var db = fixture.CreateDbContext();
-        var rows = await db.OutboxMessages.Where(m => m.TypeName == typeName).ToListAsync();
+        var rows = await ChannelOutboxRows.ListAsync<ChannelMessageQueued>(fixture);
         var row = rows.Single(r => serializer.Deserialize<ChannelMessageQueued>(r.Payload).ExecutionId == executionId);
         mutate(row);
-        await db.SaveChangesAsync();
+        await ChannelOutboxRows.UpdateAsync(fixture, row);
     }
 
     /// <summary>A dead-lettered row of the right type whose payload is not JSON at all.</summary>
     private async Task InsertUnreadableDeadLetterAsync(DateTime createdAtUtc)
     {
-        await using var db = fixture.CreateDbContext();
-        db.OutboxMessages.Add(new OutboxMessageEntity
+        await ChannelOutboxRows.InsertAsync(fixture, new ChannelOutboxRow
         {
             TypeName = typeof(ChannelMessageQueued).FullName!,
             Payload = "this was never JSON"u8.ToArray(),
-            Status = OutboxMessageStatus.DeadLetter,
+            Status = ChannelOutboxStatus.DeadLetter,
             DeadLetterError = "Telegram returned 500 after 8 attempts",
             RetryCount = 7,
             CreatedAt = new DateTimeOffset(createdAtUtc),
         });
-        await db.SaveChangesAsync();
     }
 
-    private async Task<int> OutboxRowCountAsync()
-    {
-        await using var db = fixture.CreateDbContext();
-        return await db.OutboxMessages.CountAsync();
-    }
+    private Task<int> OutboxRowCountAsync() => ChannelOutboxRows.CountAsync(fixture);
 
     /// <summary>Captures what the service logs, so "saturation must not be invisible" is an assertion rather than a hope.</summary>
     private sealed class CapturingLoggerProvider : ILoggerProvider

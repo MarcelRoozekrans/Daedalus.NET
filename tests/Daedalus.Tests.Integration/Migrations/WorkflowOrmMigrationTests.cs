@@ -43,17 +43,17 @@ public sealed class WorkflowOrmMigrationTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task The_EF_and_ORM_outbox_tables_coexist_as_distinct_tables()
+    public async Task The_channel_and_workflow_outbox_tables_coexist_as_distinct_tables()
     {
         await RunAsync(async (connection, _) =>
         {
-            // EF Core's migrations create "OutboxMessages" (quoted identifier, mixed case) via
-            // OutboxDbContextExtensions.AddOutboxMessages/OutboxMessageEntity. ZeroAlloc.Outbox.Orm's own
-            // migration creates OutboxMessages unquoted, which PostgreSQL folds to lower case: outboxmessages.
-            // Same schema, same database, same process (Daedalus.Migrations runs both; the Api host writes to
-            // and polls both) — they differ only in identifier case and never collide, verified here rather
-            // than only reasoned about in a comment.
-            (await TableExistsAsync(connection, "OutboxMessages")).Should().BeTrue("EF Core's quoted outbox table must exist");
+            // Daedalus' baseline migration creates the channel table "OutboxMessages" (quoted identifier, mixed
+            // case), as EF Core's migrations did before phase 3.5. ZeroAlloc.Outbox.Orm's own migration creates
+            // OutboxMessages unquoted, which PostgreSQL folds to lower case: outboxmessages. Same schema, same
+            // database, same process (Daedalus.Migrations runs both; the Api host writes to and polls both) —
+            // they differ only in identifier case and never collide, verified here rather than only reasoned
+            // about in a comment.
+            (await TableExistsAsync(connection, "OutboxMessages")).Should().BeTrue("the channel's quoted outbox table must exist");
             (await TableExistsAsync(connection, "outboxmessages")).Should().BeTrue("ZeroAlloc.Outbox.Orm's unquoted outbox table must exist");
         });
     }
