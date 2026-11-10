@@ -22,7 +22,7 @@ namespace Daedalus.Infrastructure.Agents;
 ///     (e.g., <c>ChatClientAgent</c> constructor, <c>ChatOptions.Tools</c>).
 ///     <para>
 ///         Local (in-process) tools create a fresh DI scope on each invocation, preventing stale
-///         <c>DbContext</c> references that would otherwise accumulate in a singleton's lifetime.
+///         repositories and scoped stores that would otherwise accumulate in a singleton's lifetime.
 ///     </para>
 /// </remarks>
 [SuppressMessage("Design", "CA1031:Do not catch general exception types",
@@ -85,7 +85,7 @@ public sealed partial class McpToolBuilder(
 
             // Handle local (in-process) tool type — resolve tools from DI.
             // Local tools are NOT cached because they need fresh DI scopes per invocation
-            // (DbContext, repositories, etc. are scoped services that would go stale in a singleton cache).
+            // (repositories and scoped stores are scoped services that would go stale in a singleton cache).
             if (serverConfig.Type.Equals("local", StringComparison.OrdinalIgnoreCase))
             {
                 var localTools = BuildLocalTools(serverName);
@@ -190,7 +190,7 @@ public sealed partial class McpToolBuilder(
     /// <summary>
     ///     Builds the in-process tools from <see cref="LocalTools" />. A class whose dependencies cannot be resolved is
     ///     logged and left out, as before. Each tool invocation creates a fresh DI scope so that scoped services
-    ///     (DbContext, repositories) are never stale.
+    ///     (repositories and scoped stores) are never stale.
     /// </summary>
     private List<AITool> BuildLocalTools(string serverName)
     {

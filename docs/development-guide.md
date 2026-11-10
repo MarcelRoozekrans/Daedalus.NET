@@ -1386,8 +1386,11 @@ in order, each in its own transaction.
   adoption). A database whose EF history ends anywhere else is refused with
   `ZeroAllocOrmMigrationConflictException` before anything runs; `Daedalus.Migrations` exits 1.
   `__EFMigrationsHistory` stays and is never written again.
-- `0002_drop_dead_rowversions.sql` drops the six dead `bytea` `"RowVersion"` columns (#290).
-- `Daedalus.Migrations` opens one connection, runs `DaedalusMigrations`, then the workflow engine's own sources
+- `0002_drop_dead_rowversions.sql` drops the six dead `bytea` `"RowVersion"` columns (#290). An EF Core build still
+  selects them, so stop every EF-build host before running `Daedalus.Migrations`; a rolling deploy that keeps one
+  running fails its queries.
+- `Daedalus.Migrations` opens one connection, attributes a history table from before ZeroAlloc.ORM 2.2.0 scoped
+  versions by source (`PreScopingMigrationHistory`), runs `DaedalusMigrations`, then the workflow engine's own sources
   (`WorkflowEngineMigrator`). Aspire runs it before the hosts. Every Postgres test fixture builds its schema with
   `DatabaseSchema.ApplyAsync`, in the same order.
 

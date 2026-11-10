@@ -433,7 +433,8 @@ numbered file, update the table's `[TableMap]`, row record and insert, and exten
 Migration 1 is the schema EF Core's chain left at `20261014090300_AddNodeSelectionUniqueIndex`. A new database runs
 it; a database EF Core built at exactly that head records it as applied without running it; a database at any other
 EF state is refused and the tool exits 1. Rolling back to an EF Core build means restoring a backup taken before the
-upgrade.
+upgrade. Migration 2 drops columns an EF Core build still selects, so stop every EF-build host before running
+`Daedalus.Migrations`.
 
 ---
 
