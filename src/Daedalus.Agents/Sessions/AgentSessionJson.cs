@@ -25,6 +25,6 @@ internal static class AgentSessionJson
     {
         var options = new JsonSerializerOptions(AIJsonUtilities.DefaultOptions) { AllowOutOfOrderMetadataProperties = true };
         options.MakeReadOnly();
-        return (JsonTypeInfo<ChatMessage>)options.GetTypeInfo(typeof(ChatMessage));
+        return (JsonTypeInfo<ChatMessage>)options.TypeInfoResolver!.GetTypeInfo(typeof(ChatMessage), options)!;
     }
 }

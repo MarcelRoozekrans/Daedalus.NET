@@ -185,7 +185,7 @@ public sealed class BrainstormEffectsTests : IDisposable
         outcome.Should().Be(BrainstormOutcome.Done);
         var request = _handler.Requests.Single();
         request.Method.Should().Be(HttpMethod.Post);
-        JsonDocument.Parse(request.Body!).RootElement.GetProperty("content").GetString().Should().Be(Message);
+        JsonElement.Parse(request.Body!).GetProperty("content").GetString().Should().Be(Message);
     }
 
     /// <summary>

@@ -55,6 +55,6 @@ public sealed class ApiJsonResult<T> : IResult, IStatusCodeHttpResult, IValueHtt
         var options = httpContext.RequestServices.GetRequiredService<IOptions<HttpJsonOptions>>().Value.SerializerOptions;
         httpContext.Response.StatusCode = StatusCode;
         return httpContext.Response.WriteAsJsonAsync(
-            Value, options.GetTypeInfo(typeof(T)), ContentType, httpContext.RequestAborted);
+            Value, options.GetTypeInfo<T>(), ContentType, httpContext.RequestAborted);
     }
 }

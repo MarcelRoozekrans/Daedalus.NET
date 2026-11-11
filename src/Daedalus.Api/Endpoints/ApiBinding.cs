@@ -107,7 +107,7 @@ public sealed class ApiBody<T> : IApiBinding, IBindableFromHttpContext<ApiBody<T
         }
 
         var options = context.RequestServices.GetRequiredService<IOptions<HttpJsonOptions>>().Value.SerializerOptions;
-        var typeInfo = (JsonTypeInfo<T>)options.GetTypeInfo(typeof(T));
+        var typeInfo = options.GetTypeInfo<T>();
         T? value;
         try
         {
@@ -479,7 +479,7 @@ internal static class QueryValue
 
     private static string? HexDigitsAfterPrefix(string text)
     {
-        if (text.StartsWith('#'))
+        if (text.StartsWith('#', StringComparison.Ordinal))
         {
             return text[1..];
         }

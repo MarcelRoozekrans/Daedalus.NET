@@ -221,7 +221,7 @@ public sealed class KeycloakFixture : IAsyncLifetime
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
 
-        // Walk up from bin/Debug/net10.0 to find the repo root
+        // Walk up from bin/Debug/<tfm> to find the repo root
         while (directory != null)
         {
             var realmFile = Path.Combine(directory.FullName, "keycloak-realm.json");

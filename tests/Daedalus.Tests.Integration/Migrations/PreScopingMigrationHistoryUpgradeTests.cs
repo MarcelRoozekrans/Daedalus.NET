@@ -262,7 +262,11 @@ public sealed class PreScopingMigrationHistoryUpgradeTests(PostgresFixture fixtu
             await ExecuteWithLockKeyAsync(holder, "SELECT pg_advisory_lock(@key)");
 
             var upgrade = PreScopingMigrationHistory.UpgradeAsync(connection, WorkflowEngineMigrator.Sources);
-            await Task.WhenAny(upgrade, Task.Delay(TimeSpan.FromSeconds(3)));
+            using (var delay = new CancellationTokenSource())
+            {
+                await Task.WhenAny(upgrade, Task.Delay(TimeSpan.FromSeconds(3), delay.Token));
+                await delay.CancelAsync();
+            }
 
             // Red: remove the pg_advisory_xact_lock command from UpgradeAsync.
             upgrade.IsCompleted.Should().BeFalse("the upgrade must not run while a runner holds its advisory lock");

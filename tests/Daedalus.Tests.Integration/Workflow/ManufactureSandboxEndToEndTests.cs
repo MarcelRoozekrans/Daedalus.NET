@@ -864,7 +864,9 @@ public sealed class ManufactureSandboxEndToEndTests(SandboxImageFixture docker)
                 break;
             }
 
-            await Task.WhenAny(held.Entered.Task, Task.Delay(TimeSpan.FromMilliseconds(500)));
+            using var delay = new CancellationTokenSource();
+            await Task.WhenAny(held.Entered.Task, Task.Delay(TimeSpan.FromMilliseconds(500), delay.Token));
+            await delay.CancelAsync();
         }
 
         held.Entered.Task.IsCompleted.Should().BeTrue(

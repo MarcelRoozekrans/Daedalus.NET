@@ -36,7 +36,7 @@ internal sealed class ServerQueryRedactionProcessor : BaseProcessor<Activity>
     internal static string? Redact(string query)
     {
         ArgumentNullException.ThrowIfNull(query);
-        var prefix = query.StartsWith('?') ? "?" : string.Empty;
+        var prefix = query.AsSpan().StartsWith('?') ? "?" : string.Empty;
         var pairs = query[prefix.Length..].Split('&');
         var changed = false;
         for (var i = 0; i < pairs.Length; i++)

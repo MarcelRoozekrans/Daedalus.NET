@@ -95,7 +95,7 @@ public sealed class PrdEffectsTests : IDisposable
 
         _store.Value.Step.Should().Be(PrdStep.PrdReview);
         _store.Value.Prd!.ProductOverview.Should().Be(Prd.ProductOverview);
-        var posted = JsonDocument.Parse(_handler.Requests.Single().Body!).RootElement;
+        var posted = JsonElement.Parse(_handler.Requests.Single().Body!);
         posted.GetProperty("projectId").GetGuid().Should().Be(ProjectId);
         posted.GetProperty("userRequirements").GetString().Should().Be(Requirements);
         posted.GetProperty("context").GetString().Should().Be(Context);
@@ -217,7 +217,7 @@ public sealed class PrdEffectsTests : IDisposable
 
         _store.Value.Step.Should().Be(PrdStep.TasksCreated);
         _store.Value.CreatedTasks.Should().ContainSingle().Which.Id.Should().Be(Task.Id);
-        var posted = JsonDocument.Parse(_handler.Requests[^1].Body!).RootElement;
+        var posted = JsonElement.Parse(_handler.Requests[^1].Body!);
         posted.GetProperty("projectId").GetGuid().Should().Be(ProjectId);
         posted.GetProperty("prdItems").EnumerateArray().Select(i => i.GetProperty("title").GetString()).Should().Equal("Cart");
         _logger.Entries.Should().ContainSingle().Which.Level.Should().Be(LogLevel.Information);

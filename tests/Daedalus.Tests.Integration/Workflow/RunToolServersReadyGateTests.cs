@@ -104,8 +104,13 @@ public sealed class RunToolServersReadyGateTests(PostgresFixture fixture)
     }
 
     /// <summary>Whether <paramref name="signal"/> completes within <see cref="WaitTimeout"/>, as a value to assert on.</summary>
-    private static async Task<bool> Completes(TaskCompletionSource signal) =>
-        await Task.WhenAny(signal.Task, Task.Delay(WaitTimeout)) == signal.Task;
+    private static async Task<bool> Completes(TaskCompletionSource signal)
+    {
+        using var delay = new CancellationTokenSource();
+        var completed = await Task.WhenAny(signal.Task, Task.Delay(WaitTimeout, delay.Token)) == signal.Task;
+        await delay.CancelAsync();
+        return completed;
+    }
 
     private async Task<GateHost> HostWith(IRunToolServerReadiness? readiness, TimeSpan timeout, IWorkflowDispatchGate? first = null)
     {

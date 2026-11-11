@@ -1,3 +1,4 @@
+using System.Globalization;
 using Daedalus.Application.Configuration;
 using Daedalus.Application.DTOs;
 using Daedalus.Infrastructure.Configuration;
@@ -129,10 +130,10 @@ public sealed class CostAnalyticsCachePricingTests(PostgresFixture fixture) : IA
     ///     Red: let a configured read price also replace the derived write price; the second row is wrong.
     /// </summary>
     [Theory]
-    [InlineData(1.0, 3.0, 1.45)]
-    [InlineData(1.0, null, 1.375)]
-    [InlineData(null, 3.0, 0.81)]
-    public async Task Explicit_cache_prices_override_the_derived_ones(double? read, double? write, double expected)
+    [InlineData(1.0, 3.0, "1.45")]
+    [InlineData(1.0, null, "1.375")]
+    [InlineData(null, 3.0, "0.81")]
+    public async Task Explicit_cache_prices_override_the_derived_ones(double? read, double? write, string expected)
     {
         await Manufacture(Cached());
         var pricing = new ModelPricing
@@ -146,7 +147,7 @@ public sealed class CostAnalyticsCachePricingTests(PostgresFixture fixture) : IA
 
         var summary = await Service(pricing).GetSummaryAsync();
 
-        summary.TotalCost.Should().Be((decimal)expected);
+        summary.TotalCost.Should().Be(decimal.Parse(expected, CultureInfo.InvariantCulture));
     }
 
     /// <summary>

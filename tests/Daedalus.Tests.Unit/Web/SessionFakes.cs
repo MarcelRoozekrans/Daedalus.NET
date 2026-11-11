@@ -31,8 +31,11 @@ internal sealed class RecordingJsRuntime : IJSRuntime
 {
     public List<string> Calls { get; } = [];
 
-    public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
-        InvokeAsync<TValue>(identifier, CancellationToken.None, args);
+    public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args)
+    {
+        Calls.Add(args is [string first, ..] ? $"{identifier} {first}" : identifier);
+        return ValueTask.FromResult(typeof(TValue) == typeof(IJSObjectReference) ? (TValue)(object)new Module(this) : default!);
+    }
 
     public ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args)
     {
@@ -42,8 +45,11 @@ internal sealed class RecordingJsRuntime : IJSRuntime
 
     private sealed class Module(RecordingJsRuntime runtime) : IJSObjectReference
     {
-        public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) =>
-            InvokeAsync<TValue>(identifier, CancellationToken.None, args);
+        public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args)
+        {
+            runtime.Calls.Add($"module.{identifier}");
+            return ValueTask.FromResult(default(TValue)!);
+        }
 
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args)
         {

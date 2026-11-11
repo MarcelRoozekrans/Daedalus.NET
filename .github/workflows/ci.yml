@@ -49,6 +49,7 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+          dotnet-version: 10.0.x
 
       - name: Derive the version
         id: derive
@@ -89,6 +90,7 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+          dotnet-version: 10.0.x
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -121,7 +123,7 @@ jobs:
             --filter "FullyQualifiedName!~Playwright&FullyQualifiedName!~Integration" \
             --collect:"XPlat Code Coverage" \
             --results-directory ./TestResults/Unit \
-            --logger "trx;LogFileName=unit-tests.trx" \
+            --logger "trx;LogFilePrefix=unit-tests" \
             -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
 
       # Category=AuthenticationFlow tests drive a *running* API at localhost:8080 through a Keycloak
@@ -140,7 +142,7 @@ jobs:
             --blame-hang-timeout 15m \
             --blame-hang-dump-type none \
             --logger "console;verbosity=normal" \
-            --logger "trx;LogFileName=integration-tests.trx" \
+            --logger "trx;LogFilePrefix=integration-tests" \
             -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
 
       # ci-baseline's coverage gate: merges the Cobertura files of both test steps and fails below the floor, or when
@@ -253,6 +255,7 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+          dotnet-version: 10.0.x
 
       - name: Install the wasm-tools workload
         if: matrix.target == 'Web'
@@ -467,6 +470,7 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+          dotnet-version: 10.0.x
 
       - name: Attach the SBOM to the GitHub release
         if: matrix.image == 'daedalus-api'

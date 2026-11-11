@@ -837,7 +837,7 @@ graph TB
     end
 
     subgraph Runtime["Language & Runtime"]
-        DotNET["🟦 .NET 10"]
+        DotNET["🟦 .NET 11"]
         ZLINQ["ZLinq 1.5.4<br/>Zero-alloc LINQ"]
     end
 
