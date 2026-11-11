@@ -20,20 +20,21 @@ COPY ["Directory.Packages.props", "Directory.Packages.props"]
 COPY ["nuget.config", "nuget.config"]
 
 # Restore dependencies
-RUN dotnet restore "src/Daedalus.Api/Daedalus.Api.csproj"
+RUN dotnet restore "src/Daedalus.Api/Daedalus.Api.csproj" -p:PublishAot=false
 
 # Copy remaining source
 COPY . .
 
 # Build the project
 WORKDIR "/src/src/Daedalus.Api"
-RUN dotnet build "Daedalus.Api.csproj" -c Release --no-restore -o /app/build -p:Version=$APP_VERSION
+RUN dotnet build "Daedalus.Api.csproj" -c Release --no-restore -o /app/build -p:Version=$APP_VERSION -p:PublishAot=false
 
-# Stage 2: Publish — framework-dependent, onto the official ASP.NET runtime image below. (Native AOT
-# and a self-contained glibc linux-x64 publish onto Alpine/musl were the previous shape; neither ever
-# built or ran — see the note in Daedalus.Api.csproj.)
+# Stage 2: Publish — framework-dependent, onto the official ASP.NET runtime image below. Daedalus.Api.csproj
+# sets PublishAot=true so the native publish can be proven in CI, which would turn this plain publish native
+# and drop Daedalus.Api.dll that the ENTRYPOINT runs. PublishAot=false, given to restore, build and publish
+# alike, keeps the image framework-dependent until the native Api image ships (phase 3.6 plan, Task 7a).
 FROM build AS publish
-RUN dotnet publish "Daedalus.Api.csproj"     -c Release     --no-restore     -p:Version=$APP_VERSION     -o /app/publish
+RUN dotnet publish "Daedalus.Api.csproj"     -c Release     --no-restore     -p:Version=$APP_VERSION     -p:PublishAot=false     -o /app/publish
 
 # Stage 3: Final image - ASP.NET Core runtime on Alpine, minimal footprint for Kubernetes
 FROM mcr.microsoft.com/dotnet/aspnet:11.0-alpine AS final
