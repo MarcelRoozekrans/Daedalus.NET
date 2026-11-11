@@ -1,0 +1,335 @@
+using System.IO.Compression;
+using System.Threading.RateLimiting;
+using Daedalus.Agents;
+using Daedalus.Agents.Channels;
+using Daedalus.Agents.Security;
+using Daedalus.Api.Endpoints;
+using Daedalus.Api.Hubs;
+using Daedalus.Api.Middleware;
+using Daedalus.Application.Abstractions;
+using Daedalus.Application.DTOs.WorkflowRuns;
+using Daedalus.Application.Extensions;
+using Daedalus.Application.Services.Brainstorm;
+using Daedalus.Infrastructure.Configuration;
+using Daedalus.Infrastructure.Extensions;
+using Daedalus.Infrastructure.Persistence;
+using Daedalus.Infrastructure.Persistence.Repositories;
+using Daedalus.Infrastructure.Services;
+using Daedalus.ServiceDefaults;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.Extensions.Options;
+using Scalar.AspNetCore;
+using Thalos.Ollama;
+using Thalos.Workflow;
+
+namespace Daedalus.Api;
+
+/// <summary>
+///     The Api's composition: every service it registers and the request pipeline it runs. <c>Program.cs</c> calls
+///     both around <c>builder.Build()</c>, and so does a test host that must run the same Api with its own
+///     overrides applied in between, such as <c>Daedalus.Tests.NativeApiHost</c>, which publishes natively and
+///     therefore cannot use <c>WebApplicationFactory</c>.
+/// </summary>
+public sealed class ApiApplication
+{
+    private readonly bool _workflowEngineEnabled;
+
+    private ApiApplication(bool workflowEngineEnabled) => _workflowEngineEnabled = workflowEngineEnabled;
+
+    /// <summary>Registers the Api's services on <paramref name="builder"/>, exactly as the production host does.</summary>
+    /// <param name="builder">The builder of the host that serves the Api.</param>
+    /// <returns>The composition, whose <see cref="UsePipeline"/> configures the host once it is built.</returns>
+    public static ApiApplication AddServices(WebApplicationBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        // Add service defaults (OpenTelemetry, logging)
+        builder.Services.AddServiceDefaults(builder.Configuration);
+
+        // Add core infrastructure services (system clock, etc.)
+        builder.Services.AddCoreInfrastructureServices();
+
+        // Add database context
+        builder.Services.AddApplicationDatabase(builder.Configuration, "daedalus");
+
+        // Register model pricing configuration
+        builder.Services.AddModelPricing(builder.Configuration);
+
+        // Add application layer services (command/query handlers, prompt builders)
+        builder.Services.AddApplicationServices(builder.Configuration);
+
+        // Add external service integrations (MCP agents, workspace context)
+        builder.Services.AddExternalServices(builder.Configuration);
+
+        // Add Agent Framework services (Claude via IAgentFactory, MCP tools)
+        builder.Services.AddAgentFrameworkServices(builder.Configuration);
+
+        // The model those services call must be priced, or its spend is left out of every cost total (#385).
+        builder.Services.AddSingleton<IValidateOptions<ClaudeConfiguration>, ClaudeModelPricedValidator>();
+
+        // Register Ollama embedding generator (optional). The Aspire AppHost provides ConnectionStrings:ollama as
+        // `Endpoint=<url>` of the ollama container.
+        // The DI singleton feeds the Thalos memory index (Rag.NET on the app database; without it memories stay index_pending); the same
+        // instance is passed to AI.Sentinel's semantic detectors below (Sentinel's configure delegate runs at registration time, so it
+        // cannot be resolved from DI).
+        var ollamaConnectionString = builder.Configuration.GetConnectionString("ollama");
+        Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>? ollama = null;
+        if (!string.IsNullOrEmpty(ollamaConnectionString))
+        {
+            ollama = builder.Services.UseOllamaEmbeddings(OllamaConnectionString.ParseEndpoint(ollamaConnectionString), "nomic-embed-text");
+        }
+
+        // Thalos-based agents: chat sessions, memory, the manufacture workflow and scheduled runs. Needs DaedalusDb (AddApplicationDatabase),
+        // the Ollama embedding generator (memory index + Sentinel) and the knowledge-tool services registered by AddAgentFrameworkServices above.
+        builder.Services.AddDaedalusAgents(builder.Configuration, builder.Environment, ollama);
+
+        // Thalos channels (Telegram, for now): this host owns the runtime, the database and Sentinel, so the Telegram
+        // long-poller runs here rather than in a separate process. Must run after AddDaedalusAgents above, which wires the
+        // outbox durability layer (AddChannelOutbox) that AddDaedalusChannels deliberately does NOT wire itself — calling
+        // AddChannelOutbox a second time would register a second OutboxWorkerService racing the same table. See the XML
+        // doc on AddDaedalusChannels for the full reasoning, and DaedalusChannelsRegistrationTests /
+        // ApiHostChannelWiringTests for what pins it. includeConsoleChannel stays false (its default): the API host has
+        // no TTY, so a console channel here would leave a hosted service blocked reading a stream nobody writes to.
+        builder.Services.AddDaedalusChannels(builder.Configuration);
+
+        // Scheduled-run execution (the sweeper, the two run stores, the subagent seam, and the four step dispatchers).
+        // Must run after AddDaedalusAgents above, which wires the outbox durability layer this method's dispatcher
+        // Replace calls depend on, and which already registers ScheduleReconcilerHostedService — see the XML doc on
+        // AddDaedalusScheduling for both hazards.
+        builder.Services.AddDaedalusScheduling(builder.Configuration);
+
+        // Add code analysis services (CodeAnalysis, Git operations)
+        builder.Services.AddCodeAnalysisServices(builder.Configuration);
+
+        // Add repositories
+        builder.Services.AddScoped<ITaskRepository, TaskRepository>();
+        builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
+        builder.Services.AddScoped<IRepositoryConfigurationRepository, RepositoryConfigurationRepository>();
+
+        // Add API services
+        builder.Services.AddScoped<ITaskQueryService, TaskQueryService>();
+        builder.Services.AddScoped<TaskManufactureService>();
+        builder.Services.AddScoped<ITaskExecutionQueryService, TaskExecutionQueryService>();
+        builder.Services.AddScoped<IProjectQueryService, ProjectQueryService>();
+        builder.Services.AddScoped<ICostAnalyticsService, CostAnalyticsService>();
+
+        // Add brainstorm services
+        builder.Services.AddScoped<IBrainstormService, BrainstormService>();
+
+        // Add global exception handler (converts unhandled exceptions to RFC 7807 ProblemDetails)
+        builder.Services.AddExceptionHandler<Daedalus.Api.Middleware.GlobalExceptionHandler>();
+        builder.Services.AddProblemDetails();
+
+        // Add OpenAPI document generation for Scalar API reference
+        builder.Services.AddOpenApi();
+
+        // Register one non-generic adapter per validated DTO — ZeroAllocValidationEndpointFilter iterates
+        // untyped endpoint arguments and cannot call ValidatorFor<T>.Validate directly (ValidatorFor<T>
+        // exposes no non-generic base), so each adapter closes over its DTO type explicitly here.
+        builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<CreateTaskDto>>();
+        builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<UpdateTaskDto>>();
+        builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<CreateProjectDto>>();
+        builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<UpdateProjectDto>>();
+        builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<CreateRepositoryConfigurationDto>>();
+        builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<UpdateRepositoryConfigurationDto>>();
+        builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<SendBrainstormMessageDto>>();
+        builder.Services.AddSingleton<IValidationAdapter, ValidationAdapter<SubmitAnalysisRequest>>();
+
+        // The minimal API endpoints: their JSON goes through ApiJsonSerializerContext alone.
+        builder.Services.AddDaedalusEndpoints();
+
+        // The console's live channel. The run hub's messages serialize through their source-generated context, first in the
+        // chain, so the payload is the four properties of WorkflowRunChanged and nothing a reflection fallback would add.
+        builder.Services.AddSignalR().AddJsonProtocol(options =>
+            options.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, WorkflowRunsJsonContext.Default));
+
+        // Read exactly as AddDaedalusAgents reads it, so the hub and the engine are on or off together: a disabled host maps
+        // no hub and registers no broadcaster, and the console's connection fails and shows Offline, which is true.
+        var agentsOptions = DaedalusAgentsOptions.Read(builder.Configuration);
+        var workflowEngineEnabled = agentsOptions.Workflow.Enabled;
+        if (workflowEngineEnabled)
+        {
+            // One instance: the store's observer queues, and the same instance's background loop sends.
+            builder.Services.AddSingleton<WorkflowRunChangeBroadcaster>();
+            builder.Services.AddSingleton<IWorkflowRunObserver>(sp => sp.GetRequiredService<WorkflowRunChangeBroadcaster>());
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<WorkflowRunChangeBroadcaster>());
+        }
+
+        // Add response compression (reduces JSON payloads by ~80%)
+        builder.Services.AddResponseCompression(options =>
+        {
+            options.EnableForHttps = true;
+            options.Providers.Add<GzipCompressionProvider>();
+#pragma warning disable CA1861 // Avoid constant arrays as arguments
+            options.MimeTypes = ResponseCompressionDefaults.MimeTypes
+                .Concat(new[] { "application/json" });
+#pragma warning restore CA1861
+        });
+        builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+        {
+            options.Level = CompressionLevel.Fastest;
+        });
+
+        // Add CORS with restricted origins per environment
+        builder.Services.AddCors(options =>
+        {
+            var allowedOrigins = ApiHostConfiguration.ReadCorsOrigins(builder.Configuration);
+
+            options.AddPolicy("RestrictedCors", policy =>
+            {
+                if (allowedOrigins.Length > 0)
+                {
+                    policy.WithOrigins(allowedOrigins)
+                        .AllowAnyMethod()
+                        .AllowAnyHeader()
+                        .AllowCredentials();
+                }
+                else if (builder.Environment.IsDevelopment())
+                {
+                    // Development: allow localhost on common ports
+                    policy.AllowAnyOrigin()
+                        .AllowAnyMethod()
+                        .AllowAnyHeader();
+                }
+                else
+                {
+                    // Production: no CORS by default
+                    policy.WithOrigins();
+                }
+            });
+        });
+
+        // Add health checks for Aspire orchestration
+        builder.Services.AddHealthChecks()
+            .AddNpgSql(builder.Configuration.GetConnectionString("daedalus") ??
+                       throw new InvalidOperationException("Database connection string not found"));
+
+        // Add JWT Bearer authentication — validates tokens issued by the OIDC provider
+        var authSection = builder.Configuration.GetSection("Authentication");
+        builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options =>
+            {
+                options.Authority = authSection["Authority"];
+                options.Audience = authSection["Audience"];
+                options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+                options.TokenValidationParameters.ValidateIssuer = true;
+                options.TokenValidationParameters.ValidateAudience = true;
+
+                // A browser WebSocket cannot send an Authorization header, so the hub reads access_token from the query, on
+                // /hubs only. ServerQueryRedactionProcessor and the hosting diagnostics filter keep it out of telemetry and logs.
+                options.Events = new JwtBearerEvents { OnMessageReceived = HubAccessToken.ReadFromQueryAsync };
+            });
+        // Add RBAC authorization policies
+        builder.Services.AddAuthorization(options =>
+        {
+            options.AddPolicy("TaskRead", policy => policy.RequireAuthenticatedUser());
+            options.AddPolicy("TaskManagement", policy => policy.RequireRole("task-manager", "admin"));
+            options.AddPolicy("ProjectRead", policy => policy.RequireAuthenticatedUser());
+            options.AddPolicy("ProjectManagement", policy => policy.RequireRole("project-manager", "admin"));
+            options.AddPolicy("CodeAnalysis", policy => policy.RequireRole("analyst", "admin"));
+            options.AddPolicy("CodeAnalysisRead", policy => policy.RequireAuthenticatedUser());
+            options.AddPolicy("Admin", policy => policy.RequireRole("admin"));
+            options.AddPolicy("AgentUse", policy => policy.RequireAuthenticatedUser()); // Thalos agents: any signed-in user; tool policies gate the rest
+
+            // WorkflowRunsEndpoints' resume/cancel endpoints. Same criterion Thalos:ToolPolicies binds git__* and
+            // repoaction__* to (see DeveloperPolicy), reused here by name so the two role literals cannot drift apart -
+            // enforced by ASP.NET Core's own role check, not DefaultToolAuthorizer, because these are REST endpoints,
+            // never Thalos tool calls. This policy's job is narrower than it sounds: it keeps a human, or a scheduled
+            // run's HTTP caller, without the developer or admin role from resuming or cancelling a run - it says
+            // nothing about an agent. WorkflowCaller is a Thalos ISecurityContext, never a ClaimsPrincipal, so this
+            // policy is never evaluated against one and could not deny it. What actually stops an agent from resuming
+            // its own gate is the structural absence of a resume tool (see WorkflowRunsEndpoints' own remarks) - a
+            // gap this policy does not, and is not needed to, cover.
+            options.AddPolicy("WorkflowResume",
+                policy => policy.RequireRole(DeveloperPolicy.DeveloperRole, DeveloperPolicy.AdminRole));
+        });
+
+        // Add rate limiting — protects write and LLM endpoints from abuse
+        builder.Services.AddRateLimiter(options =>
+        {
+            // Global: 100 requests per minute per signed-in subject, or per address for a request with none
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: RateLimitPartitionKey.For(context),
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 100,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = 0
+                    }));
+
+            // LLM operations: 10 requests per minute (expensive AI calls)
+            options.AddFixedWindowLimiter("llm-operations", limiterOptions =>
+            {
+                limiterOptions.PermitLimit = 10;
+                limiterOptions.Window = TimeSpan.FromMinutes(1);
+                limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+                limiterOptions.QueueLimit = 0;
+            });
+
+            // Write operations: 30 requests per minute
+            options.AddFixedWindowLimiter("write-operations", limiterOptions =>
+            {
+                limiterOptions.PermitLimit = 30;
+                limiterOptions.Window = TimeSpan.FromMinutes(1);
+                limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+                limiterOptions.QueueLimit = 0;
+            });
+
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.OnRejected = async (context, cancellationToken) =>
+            {
+                context.HttpContext.Response.ContentType = "application/problem+json";
+                await context.HttpContext.Response.WriteAsync(
+                    """{"type":"https://tools.ietf.org/html/rfc6585#section-4","title":"Too Many Requests","status":429,"detail":"Rate limit exceeded. Please retry after a short delay."}""",
+                    cancellationToken);
+            };
+        });
+
+        return new ApiApplication(workflowEngineEnabled);
+    }
+
+    /// <summary>Configures the request pipeline and maps the Api's endpoints on the built <paramref name="app"/>.</summary>
+    /// <param name="app">The host built from a builder that <see cref="AddServices"/> configured.</param>
+    public void UsePipeline(WebApplication app)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+
+        // Configure middleware
+        if (app.Environment.IsDevelopment())
+        {
+            app.UseDeveloperExceptionPage();
+
+            // Expose OpenAPI spec and Scalar interactive API reference at /scalar
+            app.MapOpenApi();
+            app.MapScalarApiReference(options =>
+            {
+                options.WithTitle("Daedalus API")
+                       .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
+            });
+        }
+
+        app.UseExceptionHandler(); // Global exception handler for non-development environments
+
+        app.UseResponseCompression(); // Enable Gzip compression for responses
+        app.UseCors("RestrictedCors");
+        // The limiter partitions by the signed-in user, so it runs after authentication has set one; before
+        // authorization, so a refused request still counts against its caller's budget; after CORS, so a 429 carries
+        // the CORS headers a browser needs to read it.
+        app.UseAuthentication();
+        app.UseRateLimiter();
+        app.UseAuthorization();
+        app.MapDaedalusEndpoints();
+        if (_workflowEngineEnabled)
+        {
+            // A connection would otherwise outlive the token it opened with; closing it when that token expires stops run
+            // changes reaching a lapsed sign-in, and any new connection has to authenticate again.
+            app.MapHub<WorkflowRunsHub>(WorkflowRunsHub.Path, options => options.CloseOnAuthenticationExpiration = true);
+        }
+
+        app.MapHealthChecks(AspireExtensions.HealthPath); // Required for Aspire AppHost health checks
+    }
+}
