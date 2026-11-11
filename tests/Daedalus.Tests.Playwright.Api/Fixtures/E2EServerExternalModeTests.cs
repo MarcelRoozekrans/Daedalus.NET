@@ -49,4 +49,50 @@ public sealed class E2EServerExternalModeTests
         var health = await client.GetStringAsync(new Uri("/health", UriKind.Relative)).ConfigureAwait(false);
         health.Should().Be(FakeHealthBody, "the client must reach the external host, not an in-memory one");
     }
+
+    /// <summary>
+    ///     Red: drop the check for <c>E2E_CONNECTION_STRING</c> without <c>E2E_BASE_URL</c> from
+    ///     <c>E2EServer.StartAsync</c>; the server ignores the database it was given and starts its own host.
+    /// </summary>
+    [Test]
+    public async Task Fixture_with_a_connection_string_but_no_base_url_refuses_to_start()
+    {
+        var variables = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [E2EServer.ConnectionStringVariable] = E2EServerFixture.ConnectionString,
+        };
+
+        await using var server = new E2EServer(name => variables.GetValueOrDefault(name));
+        var start = server.StartAsync;
+
+        (await start.Should().ThrowAsync<InvalidOperationException>().ConfigureAwait(false))
+            .WithMessage($"*{E2EServer.BaseUrlVariable}*");
+        server.HostsInProcess.Should().BeFalse();
+        server.OwnsDatabaseContainer.Should().BeFalse();
+    }
+
+    /// <summary>
+    ///     Red: let external mode swallow a failed seed, as in-process mode does; setup then succeeds over a database
+    ///     the suite's seed never reached.
+    /// </summary>
+    [Test]
+    public async Task Fixture_in_external_mode_fails_when_the_seed_fails()
+    {
+        // A database that does not exist on the suite's server: the connection, and so the seed, fails.
+        var missingDatabase = new Npgsql.NpgsqlConnectionStringBuilder(E2EServerFixture.ConnectionString)
+        {
+            Database = "no_such_database_for_the_seed",
+        }.ConnectionString;
+        var variables = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [E2EServer.BaseUrlVariable] = "http://127.0.0.1:9/",
+            [E2EServer.ConnectionStringVariable] = missingDatabase,
+        };
+
+        await using var server = new E2EServer(name => variables.GetValueOrDefault(name));
+        var start = server.StartAsync;
+
+        await start.Should().ThrowAsync<System.Data.Common.DbException>().ConfigureAwait(false);
+        server.IsReady.Should().BeFalse();
+    }
 }

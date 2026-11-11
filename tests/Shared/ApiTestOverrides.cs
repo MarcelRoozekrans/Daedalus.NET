@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
@@ -20,8 +21,8 @@ namespace Daedalus.Tests.Shared;
 ///     <c>Daedalus.Tests.NativeApiHost</c> project that publishes natively, so the two serve the same Api.
 /// </summary>
 /// <remarks>
-///     Kept free of reflection-driven activation, expression trees and dynamic code, because the native host compiles
-///     it with Native AOT and full trimming.
+///     Kept free of reflection-driven activation, expression trees, dynamic code and type-name matching, because the
+///     native host compiles it with Native AOT and full trimming.
 /// </remarks>
 internal static class ApiTestOverrides
 {
@@ -112,8 +113,11 @@ internal static class ApiTestOverrides
             options.Configuration = new OpenIdConnectConfiguration();
         });
 
-        // Remove and replace health checks to avoid database dependencies
-        RemoveServicesByType(services, "HealthCheck");
+        // Remove and replace health checks to avoid database dependencies: the service that runs them and every
+        // configuration of its options, which is where the Api's AddNpgSql registration lives. Matched by type, not by
+        // type name, so the native host removes exactly what the in-memory one does.
+        RemoveService<HealthCheckService>(services);
+        RemoveConfigureOptions<HealthCheckServiceOptions>(services);
         services.AddHealthChecks();
 
         // Production registers a global 100 req/min limiter (partitioned per user) and a
@@ -148,31 +152,18 @@ internal static class ApiTestOverrides
         }
     }
 
-    private static void RemoveServicesByType(IServiceCollection services, string typeNamePart)
-    {
-        var toRemove = services
-            .Where(d => d.ServiceType.Name.Contains(typeNamePart, StringComparison.Ordinal))
-            .ToList();
-        foreach (var descriptor in toRemove)
-        {
-            services.Remove(descriptor);
-        }
-    }
-
     /// <summary>
     ///     Removes IConfigureOptions/IPostConfigureOptions registrations for <typeparamref name="TOptions" />.
-    ///     Needed because the Api's AddRateLimiter(...) already ran by the time this runs, and RateLimiterOptions'
-    ///     AddPolicy throws if a policy name is registered twice on the same options instance -- so the
-    ///     production limiter configuration must be removed outright before re-adding permissive policies.
+    ///     Needed for the rate limiter because the Api's AddRateLimiter call already ran by the time this runs, and
+    ///     RateLimiterOptions' AddPolicy throws if a policy name is registered twice on the same options instance --
+    ///     so the production limiter configuration must be removed outright before re-adding permissive policies.
     /// </summary>
     private static void RemoveConfigureOptions<TOptions>(IServiceCollection services)
+        where TOptions : class
     {
         var toRemove = services
-            .Where(d => d.ServiceType.IsGenericType
-                        && d.ServiceType.GenericTypeArguments.Length == 1
-                        && d.ServiceType.GenericTypeArguments[0] == typeof(TOptions)
-                        && (d.ServiceType.GetGenericTypeDefinition() == typeof(IConfigureOptions<>)
-                            || d.ServiceType.GetGenericTypeDefinition() == typeof(IPostConfigureOptions<>)))
+            .Where(d => d.ServiceType == typeof(IConfigureOptions<TOptions>)
+                        || d.ServiceType == typeof(IPostConfigureOptions<TOptions>))
             .ToList();
         foreach (var descriptor in toRemove)
         {

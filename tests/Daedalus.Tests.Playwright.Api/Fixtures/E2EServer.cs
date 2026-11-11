@@ -24,7 +24,9 @@ namespace Daedalus.Tests.Playwright.Api;
 ///             External, when <see cref="BaseUrlVariable"/> is set: a host already running at that URL, such as the
 ///             natively published <c>Daedalus.Tests.NativeApiHost</c>, over the database
 ///             <see cref="ConnectionStringVariable"/> names. Neither a container nor a host starts here. That database
-///             must be migrated before the host starts, since the host's hosted services read it on start; this only seeds it.
+///             must be migrated before the host starts, since the host's hosted services read it on start; this only seeds
+///             it, and a failed seed fails setup. <see cref="ConnectionStringVariable"/> without <see cref="BaseUrlVariable"/>
+///             is refused rather than ignored.
 ///         </item>
 ///     </list>
 /// </summary>
@@ -82,6 +84,13 @@ internal sealed class E2EServer(Func<string, string?> environment) : IAsyncDispo
     public async Task StartAsync()
     {
         var externalUrl = environment(BaseUrlVariable);
+        if (string.IsNullOrEmpty(externalUrl) && !string.IsNullOrEmpty(environment(ConnectionStringVariable)))
+        {
+            throw new InvalidOperationException(
+                $"{ConnectionStringVariable} is set but {BaseUrlVariable} is not: name the host that uses that database, "
+                + $"or unset {ConnectionStringVariable} to run the suite in memory.");
+        }
+
         if (string.IsNullOrEmpty(externalUrl))
         {
             await StartInProcessAsync().ConfigureAwait(false);
@@ -111,8 +120,9 @@ internal sealed class E2EServer(Func<string, string?> environment) : IAsyncDispo
         Port = ServerUrl.Port;
         ConnectionString = connectionString;
 
-        // The host is already running, so its database is already migrated; the suite's seed data is all that may be missing.
-        await SeedTestDataAsync(ConnectionString).ConfigureAwait(false);
+        // The host is already running, so its database is already migrated; the suite's seed data is all that may be
+        // missing. A failed seed fails setup here: the suite would otherwise run against a database it cannot vouch for.
+        await SeedTestDataAsync(ConnectionString, swallowFailure: false).ConfigureAwait(false);
     }
 
     private async Task StartInProcessAsync()
@@ -147,7 +157,7 @@ internal sealed class E2EServer(Func<string, string?> environment) : IAsyncDispo
         // factory exists at all, guarantees the schema is in place first.
         // The real migrations, the schema Daedalus.Migrations builds in production, workflow tables included.
         await DatabaseSchema.ApplyAsync(ConnectionString, CancellationToken.None).ConfigureAwait(false);
-        await SeedTestDataAsync(ConnectionString).ConfigureAwait(false);
+        await SeedTestDataAsync(ConnectionString, swallowFailure: true).ConfigureAwait(false);
 
         // Create and configure the WebApplicationFactory (uses in-memory TestServer)
         _factory = new WebApplicationFactory<ApiProgram>()
@@ -159,7 +169,7 @@ internal sealed class E2EServer(Func<string, string?> environment) : IAsyncDispo
             });
     }
 
-    private static async Task SeedTestDataAsync(string connectionString)
+    private static async Task SeedTestDataAsync(string connectionString, bool swallowFailure)
     {
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         try
@@ -220,7 +230,7 @@ internal sealed class E2EServer(Func<string, string?> environment) : IAsyncDispo
 
             await StoreSeed.AddProjectAsync(new DaedalusDb(dataSource), project).ConfigureAwait(false);
         }
-        catch (DbException)
+        catch (DbException) when (swallowFailure)
         {
             // Seeding failed, tests may fail due to missing data
         }
