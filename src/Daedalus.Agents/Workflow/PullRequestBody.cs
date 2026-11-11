@@ -281,7 +281,8 @@ internal static class PullRequestBody
     private static string CodeSpan(string text)
     {
         var fence = new string('`', LongestBacktickRun(text) + 1);
-        var pad = text.Length > 0 && (text[0] == '`' || text[^1] == '`' || (text[0] == ' ' && text[^1] == ' ')) ? " " : "";
+        var edge = text.AsSpan();
+        var pad = edge.StartsWith('`') || edge.EndsWith('`') || (edge.StartsWith(' ') && edge.EndsWith(' ')) ? " " : "";
         return fence + pad + text + pad + fence;
     }
 
