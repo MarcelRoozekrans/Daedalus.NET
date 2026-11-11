@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace Daedalus.Tests.Playwright.Api.Fixtures;
+namespace Daedalus.Tests.Shared;
 
 /// <summary>
 ///     A test authentication handler that automatically authenticates all requests.
