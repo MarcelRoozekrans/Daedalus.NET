@@ -273,7 +273,7 @@ benchmarks/
 
 | Requirement     | Version  | Purpose                                             |
 |-----------------|----------|-----------------------------------------------------|
-| .NET SDK        | **10.0** | Build and run all projects                          |
+| .NET SDK        | **11.0** | Build and run all projects (`global.json` pins 11.0.100) |
 | Docker Desktop  | Latest   | PostgreSQL container, Aspire DCP, integration tests |
 | PowerShell      | **7+**   | Aspire CLI install scripts, Playwright setup        |
 | WSL 2 (Windows) | Enabled  | Required by Docker Desktop on Windows               |

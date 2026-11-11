@@ -20,6 +20,9 @@ RUN dotnet publish src/Daedalus.Sandbox/Daedalus.Sandbox.csproj -c Release -r li
 # Runtime: the SDK, because a run builds, restores and tests inside it; the native host itself needs no .NET runtime.
 # Nothing here is a secret.
 FROM mcr.microsoft.com/dotnet/sdk:11.0.100
+# The pinned RoslynCodeLens server is a net10.0 tool and a run's net10.0 tests need the same runtime; the SDK 11 image
+# carries only the 11 frameworks, so the 10 shared frameworks come over from the SDK 10 image.
+COPY --from=mcr.microsoft.com/dotnet/sdk:10.0.403 /usr/share/dotnet/shared/ /usr/share/dotnet/shared/
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git \
  && rm -rf /var/lib/apt/lists/*

@@ -289,9 +289,10 @@ Phase 2.6. A manufacture run edits, builds and tests code the model wrote, so th
 each run gets its own Docker container, and the host only applies the run's exported patch. The diagram is section 22
 of `docs/architecture-diagrams.md`.
 
-`global.json` pins SDK 10.0.402 with `rollForward: disable`. The sandbox, API and Web build stages, and the sandbox
-runtime stage, use the exact tag `mcr.microsoft.com/dotnet/sdk:10.0.402` or `10.0.402-alpine3.24`, and each build stage
-copies `global.json`, so an image that drifts from the pin refuses to build.
+`global.json` pins SDK 11.0.100 with `rollForward: disable`. The sandbox, API and Web build stages, and the sandbox
+runtime stage, use the exact tag `mcr.microsoft.com/dotnet/sdk:11.0.100` or `11.0.100-alpine3.24`, and each build stage
+copies `global.json`, so an image that drifts from the pin refuses to build. The libraries and their unit tests also
+target net10.0, so running those tests needs the .NET 10 runtime next to SDK 11; CI installs it with `dotnet-version`.
 
 ### The two modes
 
@@ -471,8 +472,8 @@ count, with our own source-generated clients, `ZeroAlloc.Rest.Anthropic` and `Ze
 - **clang and the zlib headers** link the native binaries: `sudo apt-get install -y clang zlib1g-dev` on Debian or
   Ubuntu. The agent VM has had clang 19.1.7, zlib1g-dev and the `wasm-tools` workload since 2026-10-17.
 - **The `wasm-tools` workload** compiles the Web app with WebAssembly AOT: `dotnet workload install wasm-tools`.
-- **The SDK** is pinned exactly: `global.json` says 10.0.402 with `rollForward: disable`, CI installs it with
-  `global-json-file`, and the Dockerfiles use the `sdk:10.0.402` tags. A servicing release can move a warning count,
+- **The SDK** is pinned exactly: `global.json` says 11.0.100 with `rollForward: disable`, CI installs it with
+  `global-json-file`, and the Dockerfiles use the `sdk:11.0.100` tags. A servicing release can move a warning count,
   and the two-way ratchet would then turn `aot-analysis` red with no code change, so a bump is deliberate. Renovate
   sends it as one PR that moves `global.json` and the Docker tags together; that PR re-runs
   `eng/aot/count-warnings.sh --all --write` and commits any baseline change with its cause in the message.
@@ -683,7 +684,8 @@ complete and equal to the reflective output it replaced.
 
 `Daedalus.Sandbox` publishes with `PublishAot=true` and `TrimMode=full`. Its Dockerfile's build stage installs clang
 and zlib1g-dev, restores and publishes for `linux-x64`, and drops the `.dbg` symbols; the runtime stage stays
-`sdk:10.0.402`, because runs build and test inside it, with the native `/app/Daedalus.Sandbox` as its entrypoint. CI's
+`sdk:11.0.100` with the .NET 10 shared frameworks copied in, because runs build and test inside it and the pinned
+RoslynCodeLens server is a net10.0 tool, with the native `/app/Daedalus.Sandbox` as its entrypoint. CI's
 `docker` job builds the image on every PR and never pushes it. The integration suite's sandbox tests run against the
 native image, including a build and a Roslyn call through it.
 
