@@ -1,8 +1,51 @@
 # Session State
 
-**Last session:** 2026-11-10
+**Last session:** 2026-11-11
 
-## Current Position - phase 3.5 merged (2026-11-10), next: phase 3.6
+## Current Position - phase 3.6 executing (2026-11-11), Tasks 1-6 and 7a done, next: Tasks 7, 8, 9
+
+**Milestone 3, phase 3.6, native API, CLI and Migrations.** Branch `phase/3.6-native-publish`, draft PR #448 with the
+`native-publish` label. Phase 3.5 is merged, ignore the old line about a `chore/complete-phase-3.5` PR.
+
+- **Plan:** `docs/superpowers/plans/2026-11-11-phase-3.6-native-publish-plan.md` (Task 7a added). Design:
+  `docs/superpowers/specs/2026-11-11-phase-3.6-native-publish-design.md`. Rulings: `docs/plans/2026-11-11-phase-3.6-rulings.md`.
+  The git-ignored SDD ledger is `.superpowers/sdd/2026-11-11-phase-3.6-native-publish-plan/progress.md`; read it first.
+- **Done and reviewed:** T1 YAML root traced (no caller; `TrimMode partial` rooted all of YamlDotNet; fix is `TrimMode full`);
+  T2 outbox through a source-generated context; T3 and T4 `TrimMode full` and `PublishAot` on Api, Cli, Migrations,
+  Agents analyzer on, baselines Api 0, Cli 0, Migrations 0, Sandbox 0 (CI run 43021208981, Web 196 is 3.7); T5
+  `ApiApplication`, `tests/Shared/ApiTestOverrides.cs`, `tests/Daedalus.Tests.NativeApiHost`, external mode in
+  `E2EServerFixture`; T6 `native-suites` job: Playwright.Api 119 of 119 on the natively published host and the native
+  production Api answered `/health` 200 (run 43029879961); T7a the Api Dockerfile builds native on alpine3.24 and
+  `runtime-deps`, commit f6ca39e3.
+- **Not verified yet:** the T7a image. The `Docker` jobs run only after Build & Test, which has been red since 2026-11-10
+  on NU1903 (Aspire advisory GHSA-f7vh-h5g3-7jrh, issue #447). The fix is the separate PR #450 (Aspire 13.6.5), opened,
+  not merged; its CI was red only from an Ubuntu mirror outage on the runners. **The owner merges #450** (ruleset needs
+  1 approval; no admin merge unless told). Then rebase `phase/3.6-native-publish` onto main, push with the refspec,
+  and read the `Docker (daedalus-api)` job. If the native image build fails (musl link may need `zlib-static`), fix the Dockerfile.
+- **Remaining:** T7 measurements (native-publish workflow `measure` step, `eng/measure` scripts unchanged, a measurements
+  doc with the 3.1 JIT figures beside the native ones for Api, Cli, sandbox host); T8 owner step: runbook, then the
+  owner runs one native CLI turn and one live manufacture run with a key (task-8 in the plan); T9 docs (README, development
+  guide), carried issues #444 #445 #438 (fix if this phase's code touches them), ROADMAP and MILESTONE complete, close-out.
+- **Owner-facing:** `codecov/project` stays red until main carries a report without the old EF migrations. Do not admin-merge.
+- **Rules:** never work on or push to main; push `phase/3.6-native-publish:phase/3.6-native-publish`; no Co-Authored-By or
+  Claude signature; commit body lines at most 100, no nested parentheses; no local Native AOT publish (CI only); `dotnet`
+  one at a time with `DOTNET_USE_POLLING_FILE_WATCHER=1` and `-p:NuGetAudit=false` while #447 stands; do not reinstall
+  Playwright browsers; the 3 `RunScopedRoslynRoutingTests` fail only on the agents VM.
+
+## Open Decisions
+
+None.
+
+## Blockers
+
+PR #450 (Aspire) unmerged blocks Build & Test and so the Docker jobs on #448. Task 8 needs the owner's API key.
+
+## Recommended Next Step
+
+Check `gh pr view 450`. If merged, rebase and push, read the Docker jobs, then run Task 7 with `superpowers:subagent-driven-development`
+resuming from the ledger. If not merged, start Task 7's workflow edits and Task 9's docs meanwhile.
+
+## Earlier Position - phase 3.5 merged (2026-11-10), next: phase 3.6
 
 **Milestone 3, phase 3.5, EF Core to ZeroAlloc.ORM, is complete.** Merged as #443 (squash `9725fb55`, admin merge: the
 required `codecov/project` check compared with main's 88.89%, which counted about 27,600 lines of EF-generated
