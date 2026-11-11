@@ -86,6 +86,6 @@ public static class TaskStatusLabels
     public static string PullRequestLabel(Uri url)
     {
         var text = PullRequestText(url);
-        return text.StartsWith('#') ? $"Pull request {text}" : text;
+        return text.StartsWith('#', StringComparison.Ordinal) ? $"Pull request {text}" : text;
     }
 }

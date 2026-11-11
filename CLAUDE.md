@@ -1,6 +1,6 @@
 # Daedalus
 
-.NET 10 / C# 13. One presentation layer, `Daedalus.Api` with `Daedalus.Web`,
+.NET 11 / C# 13. One presentation layer, `Daedalus.Api` with `Daedalus.Web`,
 plus the `Daedalus.Cli` host, share `Daedalus.Application` and
 `Daedalus.Infrastructure` over PostgreSQL and ZeroAlloc.ORM (it replaced EF Core in phase 3.5).
 Work starts when a person presses Manufacture on a board task; the Ralph loop and `Daedalus.Console`

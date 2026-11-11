@@ -168,7 +168,7 @@ public sealed class ApiJsonSerializerContextTests
         var options = EndpointOptions(out var provider);
         using var _ = provider;
 
-        var json = JsonSerializer.Serialize(TaskWithNulls(), options.GetTypeInfo(typeof(TaskDto)));
+        var json = JsonSerializer.Serialize(TaskWithNulls(), options.GetTypeInfo<TaskDto>());
 
         // Red: DefaultIgnoreCondition = WhenWritingNull on options.SerializerOptions inside AddDaedalusEndpoints
         // drops "result". The context's own attribute does not matter here: the chain takes the Http options.
@@ -181,7 +181,7 @@ public sealed class ApiJsonSerializerContextTests
         var options = EndpointOptions(out var provider);
         using var _ = provider;
 
-        var json = JsonSerializer.Serialize(TaskWithNulls(), options.GetTypeInfo(typeof(TaskDto)));
+        var json = JsonSerializer.Serialize(TaskWithNulls(), options.GetTypeInfo<TaskDto>());
 
         // Red: PropertyNamingPolicy = null on options.SerializerOptions inside AddDaedalusEndpoints writes "TaskId".
         json.Should().Contain("\"taskId\":\"T-1\"").And.NotContain("\"TaskId\"");
@@ -193,7 +193,7 @@ public sealed class ApiJsonSerializerContextTests
         var options = EndpointOptions(out var provider);
         using var _ = provider;
 
-        var parsed = JsonSerializer.Deserialize("{\"TITLE\":\"upper\"}", (JsonTypeInfo<TaskDto>)options.GetTypeInfo(typeof(TaskDto)));
+        var parsed = JsonSerializer.Deserialize("{\"TITLE\":\"upper\"}", options.GetTypeInfo<TaskDto>());
 
         // Red: PropertyNameCaseInsensitive = false on options.SerializerOptions inside AddDaedalusEndpoints leaves
         // Title null.

@@ -54,7 +54,7 @@ public static class SseReader
             {
                 field = line[..colon];
                 value = line[(colon + 1)..];
-                if (value.StartsWith(' '))
+                if (value.StartsWith(' ', StringComparison.Ordinal))
                 {
                     value = value[1..]; // the spec strips exactly one leading space
                 }

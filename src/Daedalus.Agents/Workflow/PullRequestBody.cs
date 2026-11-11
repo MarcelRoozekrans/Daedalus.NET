@@ -220,7 +220,7 @@ internal static class PullRequestBody
             return line;
 
         var cut = CutAt(line, MaxTitleLineLength - Ellipsis.Length);
-        var space = line[cut.Length] == ' ' ? cut.Length : cut.LastIndexOf(' ');
+        var space = line[cut.Length] == ' ' ? cut.Length : cut.AsSpan().LastIndexOf(' ');
         return (space > 0 ? cut[..space] : cut).TrimEnd() + Ellipsis;
     }
 
@@ -281,7 +281,8 @@ internal static class PullRequestBody
     private static string CodeSpan(string text)
     {
         var fence = new string('`', LongestBacktickRun(text) + 1);
-        var pad = text.StartsWith('`') || text.EndsWith('`') || (text.StartsWith(' ') && text.EndsWith(' ')) ? " " : "";
+        var edge = text.AsSpan();
+        var pad = edge.StartsWith('`') || edge.EndsWith('`') || (edge.StartsWith(' ') && edge.EndsWith(' ')) ? " " : "";
         return fence + pad + text + pad + fence;
     }
 

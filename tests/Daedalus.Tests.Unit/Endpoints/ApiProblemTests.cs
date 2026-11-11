@@ -269,7 +269,7 @@ public sealed class ApiProblemTests
         using var services = Services();
         var options = services.GetRequiredService<IOptions<HttpJsonOptions>>().Value.SerializerOptions;
 
-        var json = JsonSerializer.Serialize(new ErrorBody("Project with ID x isn't there"), options.GetTypeInfo(typeof(ErrorBody)));
+        var json = JsonSerializer.Serialize(new ErrorBody("Project with ID x isn't there"), options.GetTypeInfo<ErrorBody>());
 
         // Red: ErrorBody missing from ApiJsonSerializerContext throws NotSupportedException here; setting the
         //      default JavaScriptEncoder in AddDaedalusEndpoints writes the apostrophe escaped.

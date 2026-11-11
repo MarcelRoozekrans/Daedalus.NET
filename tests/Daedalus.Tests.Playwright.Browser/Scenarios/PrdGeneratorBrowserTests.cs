@@ -183,7 +183,7 @@ public class PrdGeneratorBrowserTests : BrowserTestBase
         await Page.RouteAsync("**/api/prd/generate", async route =>
         {
             generate.Add(route.Request.PostData ?? string.Empty);
-            var projectId = JsonDocument.Parse(route.Request.PostData!).RootElement.GetProperty("projectId").GetGuid();
+            var projectId = JsonElement.Parse(route.Request.PostData!).GetProperty("projectId").GetGuid();
             await route.FulfillAsync(new RouteFulfillOptions
             {
                 Status = 200,
@@ -194,7 +194,7 @@ public class PrdGeneratorBrowserTests : BrowserTestBase
         await Page.RouteAsync("**/api/prd/convert-to-tasks", async route =>
         {
             convert.Add(route.Request.PostData ?? string.Empty);
-            var projectId = JsonDocument.Parse(route.Request.PostData!).RootElement.GetProperty("projectId").GetGuid();
+            var projectId = JsonElement.Parse(route.Request.PostData!).GetProperty("projectId").GetGuid();
             await route.FulfillAsync(new RouteFulfillOptions
             {
                 Status = 200,
@@ -234,7 +234,7 @@ public class PrdGeneratorBrowserTests : BrowserTestBase
         await GenerateForTestProjectAsync().ConfigureAwait(false);
 
         await Expect(Page.GetByText("Review Generated PRD")).ToBeVisibleAsync().ConfigureAwait(false);
-        var posted = JsonDocument.Parse(generate.Single()).RootElement;
+        var posted = JsonElement.Parse(generate.Single());
         posted.GetProperty("projectId").GetGuid().Should().NotBe(Guid.Empty);
         posted.GetProperty("userRequirements").GetString().Should().Be(Requirements);
         await Expect(Page.GetByText(Overview)).ToBeVisibleAsync().ConfigureAwait(false);
@@ -261,7 +261,7 @@ public class PrdGeneratorBrowserTests : BrowserTestBase
             .ConfigureAwait(false);
 
         await Expect(Page.GetByText("Tasks Created Successfully!")).ToBeVisibleAsync().ConfigureAwait(false);
-        var items = JsonDocument.Parse(convert.Single()).RootElement.GetProperty("prdItems").EnumerateArray()
+        var items = JsonElement.Parse(convert.Single()).GetProperty("prdItems").EnumerateArray()
             .Select(i => i.GetProperty("title").GetString()).ToList();
         items.Should().Equal(FeatureTitle);
         await Expect(Page.GetByText("1 tasks have been created and are ready to execute.")).ToBeVisibleAsync().ConfigureAwait(false);

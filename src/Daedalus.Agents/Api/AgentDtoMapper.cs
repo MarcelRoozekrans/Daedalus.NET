@@ -18,7 +18,7 @@ public static class AgentDtoMapper
     private static readonly JsonSerializerOptions CompactJson = new(AIJsonUtilities.DefaultOptions) { WriteIndented = false };
 
     private static readonly JsonTypeInfo<IDictionary<string, object?>> Arguments =
-        (JsonTypeInfo<IDictionary<string, object?>>)CompactJson.GetTypeInfo(typeof(IDictionary<string, object?>));
+        (JsonTypeInfo<IDictionary<string, object?>>)CompactJson.TypeInfoResolver!.GetTypeInfo(typeof(IDictionary<string, object?>), CompactJson)!;
 
     /// <summary>Maps an agent definition to its list DTO.</summary>
     public static AgentSummaryDto ToDto(AgentDefinition definition)

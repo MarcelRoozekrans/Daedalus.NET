@@ -6,7 +6,7 @@
 [![C#](https://img.shields.io/badge/C%23-13.0-239120?logo=csharp)](https://learn.microsoft.com/dotnet/csharp/)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?logo=docker)](https://github.com/MarcelRoozekrans/Daedalus.NET/pkgs/container/)
 
-High-performance .NET 10 application using Railway-Oriented Programming for AI-driven task execution. A person plans work
+High-performance .NET 11 application using Railway-Oriented Programming for AI-driven task execution. A person plans work
 on a task board and starts a manufacture run for a task; the task's status follows that run. One presentation layer
 (Blazor Web + REST API), plus a CLI host, share one Application + Infrastructure stack, orchestrated via .NET Aspire.
 
@@ -210,7 +210,7 @@ The old technique is described in [Ralph Wiggum Technique](docs/ralph-wiggum-tec
 | Category             | Technology                                                                          |
 |----------------------|-------------------------------------------------------------------------------------|
 | Language             | C# 13.0                                                                             |
-| Framework            | .NET 10                                                                             |
+| Framework            | .NET 11                                                                             |
 | Orchestration        | .NET Aspire 13.1.0                                                                  |
 | Database             | PostgreSQL 16 with pgvector (`pgvector/pgvector:pg16`)                              |
 | ORM                  | ZeroAlloc.ORM 2.14.0 (Npgsql 10.0.3)                                                |
@@ -273,7 +273,7 @@ benchmarks/
 
 | Requirement     | Version  | Purpose                                             |
 |-----------------|----------|-----------------------------------------------------|
-| .NET SDK        | **10.0** | Build and run all projects                          |
+| .NET SDK        | **11.0** | Build and run all projects (`global.json` pins 11.0.100) |
 | Docker Desktop  | Latest   | PostgreSQL container, Aspire DCP, integration tests |
 | PowerShell      | **7+**   | Aspire CLI install scripts, Playwright setup        |
 | WSL 2 (Windows) | Enabled  | Required by Docker Desktop on Windows               |
@@ -1324,7 +1324,7 @@ Playwright tests require browser binaries. Install them once:
 dotnet build tests/Daedalus.Tests.Playwright.Browser
 
 # Install Playwright browsers (Chromium, Firefox, WebKit)
-pwsh tests/Daedalus.Tests.Playwright.Browser/bin/Debug/net10.0/playwright.ps1 install
+pwsh tests/Daedalus.Tests.Playwright.Browser/bin/Debug/net11.0/playwright.ps1 install
 ```
 
 Then run:
@@ -1499,7 +1499,7 @@ Same setup as [Rag.NET](https://github.com/MarcelRoozekrans/Rag.NET) and
 | Problem                         | Solution                                                                                                |
 |---------------------------------|---------------------------------------------------------------------------------------------------------|
 | Integration tests fail (Docker) | Ensure Docker is running — Testcontainers provisions PostgreSQL at runtime                              |
-| Playwright: missing browsers    | Run `pwsh tests/Daedalus.Tests.Playwright.Browser/bin/Debug/net10.0/playwright.ps1 install`             |
+| Playwright: missing browsers    | Run `pwsh tests/Daedalus.Tests.Playwright.Browser/bin/Debug/net11.0/playwright.ps1 install`             |
 | Testhost process hangs          | Kill stale processes: `Get-Process -Name testhost -ErrorAction SilentlyContinue \| Stop-Process -Force` |
 
 ---

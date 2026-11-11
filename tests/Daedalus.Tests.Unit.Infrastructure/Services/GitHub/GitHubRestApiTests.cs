@@ -113,7 +113,8 @@ public sealed class GitHubRestApiTests
         await Client(handler).CreatePullRequestAsync(
             "o", "r", new GitHubCreatePullRequestBody("a title", "a description", "feature", "main", Draft: false), "Bearer t", "Daedalus", CancellationToken.None);
 
-        JsonDocument.Parse(handler.Sent[0].Body!).RootElement.GetProperty("base").GetString().Should().Be("main");
+        using var sent = JsonDocument.Parse(handler.Sent[0].Body!);
+        sent.RootElement.GetProperty("base").GetString().Should().Be("main");
     }
 
     /// <summary>

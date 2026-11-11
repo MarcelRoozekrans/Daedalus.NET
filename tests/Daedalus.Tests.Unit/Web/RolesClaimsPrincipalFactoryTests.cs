@@ -21,8 +21,8 @@ public sealed class RolesClaimsPrincipalFactoryTests
         {
             AdditionalProperties = new Dictionary<string, object>(StringComparer.Ordinal)
             {
-                ["roles"] = JsonDocument.Parse("""["developer","admin"]""").RootElement,
-                ["name"] = JsonDocument.Parse("\"dev\"").RootElement,
+                ["roles"] = JsonElement.Parse("""["developer","admin"]"""),
+                ["name"] = JsonElement.Parse("\"dev\""),
             },
         };
         var factory = new RolesClaimsPrincipalFactory(Substitute.For<IAccessTokenProviderAccessor>());

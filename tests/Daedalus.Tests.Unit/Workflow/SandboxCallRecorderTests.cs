@@ -73,7 +73,7 @@ public sealed class SandboxCallRecorderTests
 
     private Task Record(RunToolCall call, CancellationToken ct = default) => Recorder().OnCompletedAsync(call, ct).AsTask();
 
-    private static JsonElement Payload(WorkflowRunRecord record) => JsonDocument.Parse(record.PayloadJson).RootElement.Clone();
+    private static JsonElement Payload(WorkflowRunRecord record) => JsonElement.Parse(record.PayloadJson);
 
     /// <summary>
     ///     A test call is recorded at the run's current node and sequence, as the caller, with the exit and the summary
