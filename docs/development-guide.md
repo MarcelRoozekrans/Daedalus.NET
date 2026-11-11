@@ -684,8 +684,8 @@ complete and equal to the reflective output it replaced.
 
 `Daedalus.Sandbox` publishes with `PublishAot=true` and `TrimMode=full`. Its Dockerfile's build stage installs clang
 and zlib1g-dev, restores and publishes for `linux-x64`, and drops the `.dbg` symbols; the runtime stage stays
-`sdk:11.0.100` with the .NET 10 shared frameworks copied in, because runs build and test inside it and the pinned
-RoslynCodeLens server is a net10.0 tool, with the native `/app/Daedalus.Sandbox` as its entrypoint. CI's
+`sdk:11.0.100` with the SDK 10 files copied in next to it, because runs build and test inside it and the pinned
+RoslynCodeLens server is a net10.0 tool whose MSBuildLocator cannot load SDK 11, with the native `/app/Daedalus.Sandbox` as its entrypoint. CI's
 `docker` job builds the image on every PR and never pushes it. The integration suite's sandbox tests run against the
 native image, including a build and a Roslyn call through it.
 

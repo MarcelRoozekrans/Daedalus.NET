@@ -20,9 +20,15 @@ RUN dotnet publish src/Daedalus.Sandbox/Daedalus.Sandbox.csproj -c Release -r li
 # Runtime: the SDK, because a run builds, restores and tests inside it; the native host itself needs no .NET runtime.
 # Nothing here is a secret.
 FROM mcr.microsoft.com/dotnet/sdk:11.0.100
-# The pinned RoslynCodeLens server is a net10.0 tool and a run's net10.0 tests need the same runtime; the SDK 11 image
-# carries only the 11 frameworks, so the 10 shared frameworks come over from the SDK 10 image.
+# The pinned RoslynCodeLens server is a net10.0 tool. Its MSBuildLocator only registers an SDK that its own runtime can
+# load, so with SDK 11 alone it finds no MSBuild and every run fails with "failed to start Roslyn". The SDK 10 image's
+# sdk, shared frameworks, packs, manifests and templates therefore come over next to SDK 11; their folders are versioned,
+# so nothing is overwritten and `dotnet` still resolves to SDK 11 for the run's own builds.
+COPY --from=mcr.microsoft.com/dotnet/sdk:10.0.403 /usr/share/dotnet/sdk/ /usr/share/dotnet/sdk/
 COPY --from=mcr.microsoft.com/dotnet/sdk:10.0.403 /usr/share/dotnet/shared/ /usr/share/dotnet/shared/
+COPY --from=mcr.microsoft.com/dotnet/sdk:10.0.403 /usr/share/dotnet/packs/ /usr/share/dotnet/packs/
+COPY --from=mcr.microsoft.com/dotnet/sdk:10.0.403 /usr/share/dotnet/sdk-manifests/ /usr/share/dotnet/sdk-manifests/
+COPY --from=mcr.microsoft.com/dotnet/sdk:10.0.403 /usr/share/dotnet/templates/ /usr/share/dotnet/templates/
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git \
  && rm -rf /var/lib/apt/lists/*
