@@ -29,7 +29,9 @@ public sealed class OutboxJsonContextTests
         new DeliverDigest(Id),
     ];
 
-    private static IReadOnlyList<Type> RegisteredPayloadTypes() =>
+    private static readonly JsonSerializerOptions LegacyReflectionOptions = new();
+
+    private static List<Type> RegisteredPayloadTypes() =>
         typeof(OutboxJsonContext).Assembly.GetTypes()
             .Where(t => Attribute.IsDefined(t, typeof(OutboxMessageAttribute)))
             .ToList();
@@ -51,7 +53,7 @@ public sealed class OutboxJsonContextTests
     public void Legacy_reflection_bytes_deserialize_through_the_context(object payload)
     {
         var type = payload.GetType();
-        var legacyBytes = JsonSerializer.SerializeToUtf8Bytes(payload, type, new JsonSerializerOptions());
+        var legacyBytes = JsonSerializer.SerializeToUtf8Bytes(payload, type, LegacyReflectionOptions);
 
         var back = JsonSerializer.Deserialize(legacyBytes, type, OutboxJsonContext.Default);
 
@@ -63,7 +65,7 @@ public sealed class OutboxJsonContextTests
     public void The_context_writes_the_same_bytes_as_the_reflection_serializer(object payload)
     {
         var type = payload.GetType();
-        var legacyBytes = JsonSerializer.SerializeToUtf8Bytes(payload, type, new JsonSerializerOptions());
+        var legacyBytes = JsonSerializer.SerializeToUtf8Bytes(payload, type, LegacyReflectionOptions);
 
         var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, type, OutboxJsonContext.Default);
 
@@ -99,7 +101,7 @@ public sealed class OutboxJsonContextTests
         var type = payload.GetType();
         using var provider = new ServiceCollection().AddSerializerDispatcher().BuildServiceProvider();
         var dispatcher = provider.GetRequiredService<ISerializerDispatcher>();
-        var legacyBytes = JsonSerializer.SerializeToUtf8Bytes(payload, type, new JsonSerializerOptions());
+        var legacyBytes = JsonSerializer.SerializeToUtf8Bytes(payload, type, LegacyReflectionOptions);
 
         dispatcher.Serialize(payload, type).ToArray().Should().Equal(legacyBytes);
         dispatcher.Deserialize(legacyBytes, type).Should().Be(payload);
