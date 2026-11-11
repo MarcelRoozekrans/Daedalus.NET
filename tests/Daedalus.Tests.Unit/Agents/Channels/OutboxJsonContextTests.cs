@@ -77,7 +77,19 @@ public sealed class OutboxJsonContextTests
 
         types.Should().HaveCount(5, "the five outbox registrations each have one payload type");
         foreach (var type in types)
+        {
             OutboxJsonContext.Default.GetTypeInfo(type).Should().NotBeNull($"{type.Name} needs a [JsonSerializable] line");
+            Attribute.IsDefined(type, typeof(ZeroAllocSerializableAttribute))
+                .Should().BeTrue($"{type.Name} needs [ZeroAllocSerializable] to reach the generated dispatcher");
+        }
+    }
+
+    [Fact]
+    public void Every_registered_outbox_payload_type_has_a_sample()
+    {
+        var sampled = Enumerable.Select<object[], Type>(Payloads(), row => row[0].GetType()).ToHashSet();
+
+        RegisteredPayloadTypes().Should().BeSubsetOf(sampled, "a new payload type needs a sample in Payloads");
     }
 
     [Theory]
