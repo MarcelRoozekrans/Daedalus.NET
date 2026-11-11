@@ -240,7 +240,7 @@ public sealed partial class TaskManufactureService(
 
     private static string NormalizeRemote(string remote)
     {
-        var trimmed = remote.EndsWith('/') ? remote[..^1] : remote;
+        var trimmed = remote.EndsWith('/', StringComparison.Ordinal) ? remote[..^1] : remote;
         return trimmed.EndsWith(".git", StringComparison.Ordinal) ? trimmed[..^4] : trimmed;
     }
 

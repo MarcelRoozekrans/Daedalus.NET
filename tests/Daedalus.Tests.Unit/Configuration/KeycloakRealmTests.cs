@@ -35,9 +35,9 @@ public sealed class KeycloakRealmTests
         actual.Should().Be(id);
     }
 
-    private static JsonElement Realm() => JsonDocument.Parse(
+    private static JsonElement Realm() => JsonElement.Parse(
         File.ReadAllText(Path.Combine(FindRepositoryRoot(), "keycloak-realm.json")),
-        new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }).RootElement;
+        new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
 
     private static JsonElement User(JsonElement realm, string username) =>
         realm.GetProperty("users").EnumerateArray().Single(u => string.Equals(u.GetProperty("username").GetString(), username, StringComparison.Ordinal));

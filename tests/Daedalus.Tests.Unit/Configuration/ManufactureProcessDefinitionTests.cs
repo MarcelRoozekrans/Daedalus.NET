@@ -62,7 +62,7 @@ public sealed class ManufactureProcessDefinitionTests
     {
         var path = Path.Combine(AppContext.BaseDirectory, "processes", "manufacture.yaml");
         var comment = string.Join(' ', File.ReadAllLines(path)
-            .Where(l => l.TrimStart().StartsWith('#'))
+            .Where(l => l.TrimStart().StartsWith('#', StringComparison.Ordinal))
             .Select(l => l.TrimStart().TrimStart('#').Trim()));
         comment = string.Join(' ', comment.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 

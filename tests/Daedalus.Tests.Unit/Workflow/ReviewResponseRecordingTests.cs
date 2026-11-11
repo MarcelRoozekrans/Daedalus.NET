@@ -30,7 +30,7 @@ public sealed class ReviewResponseRecordingTests
     };
 
     /// <summary>The value as the engine hands it over: a JSON element parsed out of the outcome tool's arguments.</summary>
-    private static JsonElement ReportedResponse() => JsonDocument.Parse(Response).RootElement.Clone();
+    private static JsonElement ReportedResponse() => JsonElement.Parse(Response);
 
     private static (RecordingWorkflowStore Inner, ReviewHandoffWorkflowStore Store, List<WorkflowRunRecord> Appended) Build(
         WorkflowRun run, Exception? appendFails = null)
@@ -115,13 +115,13 @@ public sealed class ReviewResponseRecordingTests
                 report[ReviewHandoff.ReviewResponseKey] = null;
                 break;
             case "json-null":
-                report[ReviewHandoff.ReviewResponseKey] = JsonDocument.Parse("null").RootElement.Clone();
+                report[ReviewHandoff.ReviewResponseKey] = JsonElement.Parse("null");
                 break;
             case "empty-string":
-                report[ReviewHandoff.ReviewResponseKey] = JsonDocument.Parse("\"\"").RootElement.Clone();
+                report[ReviewHandoff.ReviewResponseKey] = JsonElement.Parse("\"\"");
                 break;
             case "empty-array":
-                report[ReviewHandoff.ReviewResponseKey] = JsonDocument.Parse("[]").RootElement.Clone();
+                report[ReviewHandoff.ReviewResponseKey] = JsonElement.Parse("[]");
                 break;
             case "response":
                 report[ReviewHandoff.ReviewResponseKey] = ReportedResponse();

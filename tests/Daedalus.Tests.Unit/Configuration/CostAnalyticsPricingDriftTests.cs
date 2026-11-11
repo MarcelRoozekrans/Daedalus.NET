@@ -1,3 +1,4 @@
+using System.Globalization;
 using Daedalus.Application.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -108,15 +109,15 @@ public sealed class CostAnalyticsPricingDriftTests
     ///     The three 5.5 prices exactly. Red: change any of the six numbers in appsettings.json, for example Opus input 4.00 to 5.00.
     /// </summary>
     [Theory]
-    [InlineData("claude-haiku-5-5", 0.10, 0.50)]
-    [InlineData("claude-sonnet-5-5", 2.00, 10.00)]
-    [InlineData("claude-opus-5-5", 4.00, 20.00)]
-    public void The_5_5_models_carry_their_published_prices(string model, double input, double output)
+    [InlineData("claude-haiku-5-5", "0.10", "0.50")]
+    [InlineData("claude-sonnet-5-5", "2.00", "10.00")]
+    [InlineData("claude-opus-5-5", "4.00", "20.00")]
+    public void The_5_5_models_carry_their_published_prices(string model, string input, string output)
     {
         var price = RealPricing().Models[model];
 
-        price.InputTokenPricePerMillion.Should().Be((decimal)input);
-        price.OutputTokenPricePerMillion.Should().Be((decimal)output);
+        price.InputTokenPricePerMillion.Should().Be(decimal.Parse(input, CultureInfo.InvariantCulture));
+        price.OutputTokenPricePerMillion.Should().Be(decimal.Parse(output, CultureInfo.InvariantCulture));
     }
 
     /// <summary>

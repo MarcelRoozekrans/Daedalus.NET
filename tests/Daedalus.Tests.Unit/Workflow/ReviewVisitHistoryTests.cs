@@ -35,7 +35,7 @@ public sealed class ReviewVisitHistoryTests
 
     private static WorkflowRunRecord Response(long seq, string json) =>
         Record(seq, "implement", WorkflowRunRecord.ReviewResponseKind,
-            ReviewResponseRecord.ToPayloadJson(JsonDocument.Parse(json).RootElement.Clone()));
+            ReviewResponseRecord.ToPayloadJson(JsonElement.Parse(json)));
 
     private static WorkflowRunRecord Record(long seq, string node, string kind, string payload) =>
         WorkflowRunRecord.Create(RunId, seq, node, kind, "host", "starter", payload, DateTime.UtcNow).Value;

@@ -46,7 +46,9 @@ public sealed class ServiceDefaultsTelemetryTests
             [AspireExtensions.OtlpEndpointKey] = $"http://127.0.0.1:{port}",
         });
 
-        var accepted = await Task.WhenAny(connected, Task.Delay(TimeSpan.FromSeconds(10)));
+        using var delay = new CancellationTokenSource();
+        var accepted = await Task.WhenAny(connected, Task.Delay(TimeSpan.FromSeconds(10), delay.Token));
+        await delay.CancelAsync();
         accepted.Should().BeSameAs(connected, "the OTLP exporter must connect to the configured collector");
         (await connected).Dispose();
     }

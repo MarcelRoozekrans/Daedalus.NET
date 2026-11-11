@@ -295,7 +295,9 @@ public sealed class AgentEffectsTests : IDisposable
         await UntilAsync(s => s.Streaming);
 
         var again = _effects.SendAsync(A, "again", CancellationToken.None);
-        await Task.WhenAny(again, Task.Delay(TimeSpan.FromMilliseconds(200)));
+        using var delay = new CancellationTokenSource();
+        await Task.WhenAny(again, Task.Delay(TimeSpan.FromMilliseconds(200), delay.Token));
+        await delay.CancelAsync();
         _feed.End();
         await sending.WaitAsync(TimeSpan.FromSeconds(5));
         var second = await again.WaitAsync(TimeSpan.FromSeconds(5));

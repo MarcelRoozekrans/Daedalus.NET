@@ -310,7 +310,7 @@ public sealed class WorkflowRunGatewayTests
     }
 
     private static string AttemptOf(WorkflowRunRecord record) =>
-        JsonDocument.Parse(record.PayloadJson).RootElement.GetProperty("attempt").GetString()!;
+        JsonElement.Parse(record.PayloadJson).GetProperty("attempt").GetString()!;
 
     /// <summary>
     ///     A resume that loses the engine race must void the drop it recorded, or its list stays latest over the winner's.

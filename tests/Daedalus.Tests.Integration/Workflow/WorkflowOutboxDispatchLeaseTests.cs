@@ -88,7 +88,9 @@ public sealed class WorkflowOutboxDispatchLeaseTests(PostgresFixture fixture)
             }));
 
             var batch = service.ProcessBatchAsync(CancellationToken.None);
-            var finished = await Task.WhenAny(batch, Task.Delay(TimeSpan.FromSeconds(10))) == batch;
+            using var delay = new CancellationTokenSource();
+            var finished = await Task.WhenAny(batch, Task.Delay(TimeSpan.FromSeconds(10), delay.Token)) == batch;
+            await delay.CancelAsync();
 
             // Unblock a claim that queued on the lock, so a failing run still ends cleanly.
             await transaction.RollbackAsync();

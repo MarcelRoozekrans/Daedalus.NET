@@ -47,9 +47,9 @@ public sealed class WebOidcSettingsTests
             .Should().Contain("http://localhost:*");
     }
 
-    private static JsonElement Settings(string relativePath) => JsonDocument.Parse(
+    private static JsonElement Settings(string relativePath) => JsonElement.Parse(
         File.ReadAllText(Path.Combine(FindRepositoryRoot(), relativePath)),
-        new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }).RootElement;
+        new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
 
     /// <summary>Walks up from <see cref="AppContext.BaseDirectory"/> to the folder holding <c>Daedalus.sln</c>.</summary>
     private static string FindRepositoryRoot()

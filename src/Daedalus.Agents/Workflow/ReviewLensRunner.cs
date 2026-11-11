@@ -412,7 +412,8 @@ internal sealed partial class ReviewLensRunner(
         JsonElement root;
         try
         {
-            root = JsonDocument.Parse(argumentsJson).RootElement;
+            using var document = JsonDocument.Parse(argumentsJson);
+            root = document.RootElement.Clone();
         }
         catch (JsonException ex)
         {
@@ -459,7 +460,8 @@ internal sealed partial class ReviewLensRunner(
 
             try
             {
-                var root = JsonDocument.Parse(call.ArgumentsJson).RootElement;
+                using var document = JsonDocument.Parse(call.ArgumentsJson);
+                var root = document.RootElement;
                 if (root.ValueKind == JsonValueKind.Object)
                 {
                     var value = ReadArgument(root, OutcomeToolSchema.ArgumentName);

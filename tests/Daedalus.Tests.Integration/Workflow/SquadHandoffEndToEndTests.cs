@@ -508,7 +508,7 @@ public sealed class SquadHandoffEndToEndTests(PostgresFixture fixture)
         result.NodeSelections.Select(r => r.Seq).Should().BeInAscendingOrder().And.OnlyHaveUniqueItems();
         result.NodeSelections.Where(r => string.Equals(r.Node, "review", StringComparison.Ordinal)).Select(r => r.Seq)
             .Should().Equal(result.ReviewPassSeqs.Distinct(), "a review's decision is recorded at the seq its lens passes ran at");
-        result.NodeSelections.Select(r => JsonDocument.Parse(r.PayloadJson).RootElement.GetProperty("fallback").GetString())
+        result.NodeSelections.Select(r => JsonElement.Parse(r.PayloadJson).GetProperty("fallback").GetString())
             .Should().AllBe(NodeSelectionDecider.Off);
     }
 

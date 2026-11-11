@@ -278,7 +278,7 @@ public sealed record ReviewEvidence(
     /// </summary>
     private static bool IsRepositoryRelative(string file)
     {
-        if (file.StartsWith('/') || file.StartsWith('\\') || (file.Length >= 2 && file[1] == ':' && char.IsAsciiLetter(file[0])))
+        if ((file.Length > 0 && (file[0] == '/' || file[0] == '\\')) || (file.Length >= 2 && file[1] == ':' && char.IsAsciiLetter(file[0])))
             return false;
 
         return !file.Split(['/', '\\']).Any(segment => string.Equals(segment.Trim(), "..", StringComparison.Ordinal));

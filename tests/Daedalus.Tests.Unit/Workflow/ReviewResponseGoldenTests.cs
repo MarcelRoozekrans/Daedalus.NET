@@ -35,7 +35,7 @@ public sealed class ReviewResponseGoldenTests
                 ["items"] = new List<object?> { "x", 2L, new Dictionary<string, object?>(StringComparer.Ordinal) { ["deep"] = true } },
             }
         },
-        { "json element", JsonDocument.Parse("""{"b":[1,2.5,"<"],"a":null}""").RootElement.Clone() },
+        { "json element", JsonElement.Parse("""{"b":[1,2.5,"<"],"a":null}""") },
     };
 
     /// <summary>

@@ -661,7 +661,7 @@ public static class WorkflowRunsEndpoints
 
         private static (string Lens, int Number) Split(string id)
         {
-            var dash = id.LastIndexOf('-');
+            var dash = id.LastIndexOf('-', StringComparison.Ordinal);
             return dash > 0 && int.TryParse(id[(dash + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out var n)
                 ? (id[..dash], n)
                 : (id, 0);

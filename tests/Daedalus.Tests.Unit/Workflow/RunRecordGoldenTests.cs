@@ -140,7 +140,7 @@ public sealed class RunRecordGoldenTests
         var result = ReviewEvidence.Validate("correctness", "rejected", """[{"file":"src/A.cs","line":true,"scenario":"x"}]""", null);
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Be("""'findings' must be a JSON array of objects with 'file', 'line' and 'scenario': The JSON value could not be converted to Daedalus.Agents.Workflow.ReviewFinding. Path: $[0].line | LineNumber: 0 | BytePositionInLine: 31.""");
+        result.Error.Should().Be("""'findings' must be a JSON array of objects with 'file', 'line' and 'scenario': The JSON value could not be converted to System.Int32. Path: $[0].line | LineNumber: 0 | BytePositionInLine: 31.""");
     }
 
     /// <summary>
