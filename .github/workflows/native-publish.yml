@@ -260,3 +260,74 @@ jobs:
             ${{ runner.temp }}/test-results/*.trx
           retention-days: 7
           if-no-files-found: warn
+
+  # Phase 3.6 measurements: the eng/measure scripts, unchanged, against the native Api and sandbox images
+  # and the native CLI binary. The numbers go into docs/plans/2026-11-11-phase-3.6-measurements.md beside the
+  # phase 3.1 JIT baseline. The images are built here, on the Dockerfiles that ship, so the digest is the one measured.
+  measure:
+    name: Measure
+    needs: native-publish
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'native-publish')
+      && (github.event.action != 'labeled' || github.event.label.name == 'native-publish')
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-aot-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-aot-${{ runner.os }}-
+
+      - name: Download the native CLI binary
+        uses: actions/download-artifact@v8
+        with:
+          name: native-Cli
+          path: ${{ runner.temp }}/native/Cli
+
+      - name: Build the Api image
+        run: docker build -f src/Daedalus.Api/Dockerfile -t daedalus-measure/api:native .
+
+      - name: Build the sandbox image
+        run: docker build -f src/Daedalus.Sandbox/Dockerfile -t daedalus-measure/sandbox:native .
+
+      # One stack for the three scripts: MEASURE_KEEP_STACK leaves it running between them.
+      - name: Measure the Api image
+        run: eng/measure/measure-api.sh daedalus-measure/api:native > "${{ runner.temp }}/measure-api.json"
+        env:
+          MEASURE_KEEP_STACK: 1
+
+      - name: Measure the sandbox image
+        run: eng/measure/measure-sandbox.sh daedalus-measure/sandbox:native > "${{ runner.temp }}/measure-sandbox.json"
+
+      - name: Measure the CLI
+        run: |
+          chmod +x "${{ runner.temp }}/native/Cli/Daedalus.Cli"
+          eng/measure/measure-cli.sh "${{ runner.temp }}/native/Cli/Daedalus.Cli" > "${{ runner.temp }}/measure-cli.json"
+
+      - name: Show the results
+        if: always()
+        run: |
+          for f in api sandbox cli; do
+            [ -f "${{ runner.temp }}/measure-$f.json" ] && cat "${{ runner.temp }}/measure-$f.json" || true
+          done
+
+      - name: Upload the measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-measurements
+          path: ${{ runner.temp }}/measure-*.json
+          retention-days: 30
+          if-no-files-found: warn
