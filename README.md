@@ -357,7 +357,8 @@ All projects enforce `TreatWarningsAsErrors=true` with three code analyzers (Son
 `eng/aot/baseline.json`. To reproduce a CI count locally, install clang, the zlib headers and the `wasm-tools`
 workload, then run `eng/aot/count-warnings.sh --target <Name> --check`. The toolchain, the ratchet, how to lower a
 baseline, the no-suppression rule and the start-up measurement harness are in `docs/development-guide.md`,
-"Native AOT".
+"Native AOT". Api, Cli and Migrations ship native since phase 3.6. Do not publish them natively on the shared agents
+VM (ILC needs 10 to 16 GB): label a pull request `native-publish` and download the `native-*` artifacts instead.
 
 ---
 
