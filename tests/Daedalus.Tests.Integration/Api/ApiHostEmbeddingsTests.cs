@@ -10,7 +10,7 @@ namespace Daedalus.Tests.Integration.Api;
 [Collection(DatabaseCollection.Name)]
 public sealed class ApiHostEmbeddingsTests(PostgresFixture fixture)
 {
-    /// <summary>Red: register nothing in Program.cs, or pass another model or URI to UseOllamaEmbeddings; the metadata differs.</summary>
+    /// <summary>Red: register nothing in ApiApplication.cs, or pass another model or URI to UseOllamaEmbeddings; the metadata differs.</summary>
     [Fact]
     public async Task The_api_host_registers_the_ollama_generator_from_the_apphost_shape()
     {
@@ -29,7 +29,7 @@ public sealed class ApiHostEmbeddingsTests(PostgresFixture fixture)
         metadata.DefaultModelId.Should().Be("nomic-embed-text");
     }
 
-    /// <summary>Red: register the generator unconditionally in Program.cs; the host then resolves one.</summary>
+    /// <summary>Red: register the generator unconditionally in ApiApplication.cs; the host then resolves one.</summary>
     [Fact]
     public async Task Without_a_connection_string_no_generator_is_registered()
     {

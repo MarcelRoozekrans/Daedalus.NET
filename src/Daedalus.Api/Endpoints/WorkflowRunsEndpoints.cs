@@ -15,7 +15,7 @@ namespace Daedalus.Api.Endpoints;
 
 /// <summary>
 ///     Starts, lists, resumes, cancels, retries and reads back manufacture runs. Every route requires the
-///     <c>WorkflowResume</c> authorization policy (<c>Program.cs</c>: <c>developer</c> or <c>admin</c> role), the same
+///     <c>WorkflowResume</c> authorization policy (<c>ApiApplication.cs</c>: <c>developer</c> or <c>admin</c> role), the same
 ///     criterion <c>Thalos:ToolPolicies</c> binds <c>git__*</c>, <c>repoaction__*</c> and <c>manufacture__*</c> to. It is
 ///     enforced here by ASP.NET Core's own role-based authorization rather than <c>DefaultToolAuthorizer</c>, because
 ///     these are REST endpoints, not Thalos tool calls, and <c>DefaultToolAuthorizer</c> never sees a request that never

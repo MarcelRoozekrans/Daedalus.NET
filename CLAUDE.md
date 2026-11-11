@@ -97,13 +97,13 @@ public async Task<Result<Customer>> GetCustomerAsync(Guid id, CancellationToken 
   `IRequest<T>` — a reference-type `record` fails the build with `ZAM003`.
 - The generated `IMediator` and `AddMediator()` are `internal` to
   `Daedalus.Application`. Never put `IMediator` in a public signature or
-  reference it from `Program.cs`. API endpoints depend on the public facade
+  reference it from `Program.cs` or `ApiApplication.cs`. API endpoints depend on the public facade
   `IApplicationCommands` instead (`Application/Abstractions/IApplicationCommands.cs`).
 
 ## Validation
 
 Validators are registered explicitly in two places (`ApplicationServiceExtensions`
-for `ValidatorFor<T>`, `Daedalus.Api/Program.cs` for `IValidationAdapter`) —
+for `ValidatorFor<T>`, `Daedalus.Api/ApiApplication.cs` for `IValidationAdapter`) —
 `ZeroAlloc.Validation.Inject`'s auto-discovery does not see `record`-based
 `[Validate]` DTOs. A `[Validate]` DTO with no matching `IValidationAdapter`
 registration is **silently never validated**. If you add one, add the other

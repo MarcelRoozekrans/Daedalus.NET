@@ -29,7 +29,7 @@ namespace Daedalus.Tests.Integration.Channels;
 ///     not of either method in isolation — <c>DaedalusChannelsRegistrationTests</c> already covers
 ///     <see cref="DaedalusChannelsServiceCollectionExtensions.AddDaedalusChannels"/> alone, order-independently,
 ///     against a hand-built collection. Only a real composed host proves the two are wired on top of each other
-///     the way <c>Program.cs</c> actually does it.
+///     the way <c>ApiApplication.cs</c> actually does it.
 /// </remarks>
 [Collection(DatabaseCollection.Name)]
 public sealed class ApiHostChannelWiringTests(PostgresFixture fixture) : IAsyncLifetime

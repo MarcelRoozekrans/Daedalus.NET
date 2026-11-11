@@ -194,7 +194,7 @@ public class E2EServerFixture
             builder.Services.AddScoped<ITaskExecutionQueryService, TaskExecutionQueryService>();
             builder.Services.AddScoped<IProjectQueryService, ProjectQueryService>();
 
-            // Brainstorm, as Program.cs and AddExternalServices register it; the model behind it is the stubbed IAgentFactory.
+            // Brainstorm, as ApiApplication.cs and AddExternalServices register it; the model behind it is the stubbed IAgentFactory.
             builder.Services.AddScoped<IBrainstormRepository, BrainstormRepository>();
             builder.Services.AddScoped<IBrainstormService, BrainstormService>();
 
@@ -248,14 +248,14 @@ public class E2EServerFixture
 
             builder.Services.AddHttpClient();
 
-            // The minimal API endpoints, mapped as Program.cs maps them, but without the IValidationAdapter
-            // registrations: Program.cs adds those as top-level statements, which this fixture cannot call and does
-            // not copy. ZeroAllocValidationEndpointFilter therefore finds no adapter here, so the ZeroAlloc DTO
+            // The minimal API endpoints, mapped as ApiApplication.cs maps them, but without the IValidationAdapter
+            // registrations: ApiApplication.AddServices adds those among all the Api's services, which this fixture
+            // does not call, and it does not copy them. ZeroAllocValidationEndpointFilter therefore finds no adapter here, so the ZeroAlloc DTO
             // validators never run in these tests; binding problems and 415s are still answered. MVC's filter had
             // the same gap.
             builder.Services.AddDaedalusEndpoints();
 
-            // The console's live channel, as Program.cs wires it on a host with the engine on: the run hub's messages
+            // The console's live channel, as ApiApplication.cs wires it on a host with the engine on: the run hub's messages
             // serialize through their source-generated context, and one broadcaster instance is both the store's
             // observer and the hosted loop that sends. Registered after the background work is removed, so it stays.
             builder.Services.AddSignalR().AddJsonProtocol(options =>

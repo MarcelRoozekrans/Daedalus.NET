@@ -962,7 +962,7 @@ a class; expected a struct") — every command/query in
 
 `AddMediator()` and the generated `IMediator` interface are `internal` to
 `Daedalus.Application` (see `ApplicationServiceExtensions.cs`). They cannot
-appear in a public method signature, and `Program.cs` in `Daedalus.Api` never
+appear in a public method signature, and `Daedalus.Api`'s `Program.cs` and `ApiApplication.cs` never
 references `IMediator` directly. Two `internal` classes inside
 `Daedalus.Application` are allowed to depend on it —
 `Services/ApplicationCommands.cs` and `Services/PrdService.cs` — and
@@ -983,12 +983,12 @@ validator registration is explicit and hand-maintained in two places:
    `ValidatorFor<T>` explicitly, e.g.
    `services.AddSingleton<ValidatorFor<CreateTaskDto>, CreateTaskDtoValidator>();`
    (currently ×8).
-2. `Daedalus.Api`'s `Program.cs` registers the matching `IValidationAdapter`
+2. `Daedalus.Api`'s `ApiApplication.cs` registers the matching `IValidationAdapter`
    for each type — this is what `ZeroAllocValidationEndpointFilter` actually consults
    at request time. The filter is added to every endpoint group by
    `MapApiGroup`; it is not an MVC filter any more.
 
-A DTO that gains `[Validate]` but no adapter registration in `Program.cs` is
+A DTO that gains `[Validate]` but no adapter registration in `ApiApplication.cs` is
 **silently never validated** — no exception, no 500. This is guarded by
 `Daedalus.Tests.Integration.Architecture.CleanArchitectureTests`, which
 reflects over `Daedalus.Application` for `[Validate]`-attributed types and
@@ -1475,7 +1475,7 @@ public static async Task<Results<Created<ProjectDto>, ApiJsonResult<ErrorBody>>>
   order 415, then the binding problems, then runs the `IValidationAdapter` registered for each argument's
   type and answers the first failure. The two-place validator rule is unchanged (see "Validation" above):
   a `[Validate]` DTO needs its `ValidatorFor<T>` in `ApplicationServiceExtensions` and its
-  `ValidationAdapter<T>` line in `Daedalus.Api/Program.cs`, or it is silently never validated.
+  `ValidationAdapter<T>` line in `Daedalus.Api/ApiApplication.cs`, or it is silently never validated.
   `CleanArchitectureTests` guards it against the host's own service provider; the Browser E2E fixture
   registers no adapters (issue #436).
 - **Logging.** A handler that logs takes `ILoggerFactory` and a nested `private static partial class Log`
@@ -1484,7 +1484,7 @@ public static async Task<Results<Created<ProjectDto>, ApiJsonResult<ErrorBody>>>
 
 Other API conventions:
 
-- Response compression is enabled once, in `src/Daedalus.Api/Program.cs`
+- Response compression is enabled once, in `src/Daedalus.Api/ApiApplication.cs`
   (`AddResponseCompression`).
 - JSON goes through `System.Text.Json` source generation alone:
   `AddDaedalusEndpoints` points the Http `JsonOptions` at

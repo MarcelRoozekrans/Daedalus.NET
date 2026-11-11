@@ -70,7 +70,7 @@ internal sealed class ApiWebApplicationFactory(
         // assembly directory when the content root has no skills folder, which is the same fallback that lets
         // `dotnet run` work.
 
-        // Host settings are visible to Program.cs while it registers services (ConfigureAppConfiguration callbacks run
+        // Host settings are visible to ApiApplication.AddServices while it registers services (ConfigureAppConfiguration callbacks run
         // too late for builder.Configuration.GetConnectionString(...) in the minimal-hosting entry point).
         builder.UseSetting("ConnectionStrings:daedalus", connectionString);
 
@@ -111,7 +111,7 @@ internal sealed class ApiWebApplicationFactory(
 
         if (keycloak is not null)
         {
-            // Same "too late" reasoning as ConnectionStrings above: Program.cs reads these synchronously while
+            // Same "too late" reasoning as ConnectionStrings above: ApiApplication.AddServices reads these synchronously while
             // registering AddJwtBearer, so they must land before the host builds, not via ConfigureAppConfiguration.
             builder.UseSetting("Authentication:Authority", keycloak.Authority);
             builder.UseSetting("Authentication:Audience", "daedalus-api");

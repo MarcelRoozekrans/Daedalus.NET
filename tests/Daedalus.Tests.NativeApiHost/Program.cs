@@ -1,7 +1,7 @@
 using Daedalus.Api;
 using Daedalus.Tests.Shared;
 
-// The Api as Daedalus.Api's Program.cs composes it, with the Playwright.Api suite's overrides applied in the two places
+// The Api as Daedalus.Api's Program.cs composes it through ApiApplication, with the Playwright.Api suite's overrides applied in the two places
 // E2EServerFixture applies them to its WebApplicationFactory: host settings before the Api registers its services, and
 // the service replacements after. The environment is Development, as in that fixture. The content root is the binary's
 // own directory, where the build copies the Api's appsettings, skills, roles and process definitions.

@@ -23,7 +23,7 @@ namespace Daedalus.Tests.Integration.Scheduling;
 ///     Deliberately boots the real <c>Daedalus.Api</c> <c>Program</c> via <see cref="ApiWebApplicationFactory"/>,
 ///     the same reasoning as <c>ApiHostChannelWiringTests</c>: the coupling under test — that
 ///     <c>AddDaedalusAgents</c>, <c>AddDaedalusChannels</c> and <c>AddDaedalusScheduling</c> compose correctly on
-///     top of each other — is a property of how <c>Program.cs</c> wires them together, not of any one method in
+///     top of each other — is a property of how <c>ApiApplication.cs</c> wires them together, not of any one method in
 ///     isolation.
 /// </remarks>
 [Collection(DatabaseCollection.Name)]

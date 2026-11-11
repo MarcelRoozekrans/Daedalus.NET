@@ -2,8 +2,9 @@
 
     <!-- The Api with the Playwright.Api suite's overrides, as a program of its own. WebApplicationFactory hosts the Api
          in memory and cannot run a Native AOT binary, so CI publishes this project natively and runs Playwright.Api
-         against it over E2E_BASE_URL and E2E_CONNECTION_STRING. It composes the Api through ApiApplication, the same
-         calls Daedalus.Api's Program.cs makes, and applies tests/Shared/ApiTestOverrides.cs in between. -->
+         against it over E2E_BASE_URL and E2E_CONNECTION_STRING. It composes the Api with the two calls Daedalus.Api's
+         Program.cs makes, ApiApplication.AddServices and UsePipeline, and applies tests/Shared/ApiTestOverrides.cs
+         in between. -->
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>

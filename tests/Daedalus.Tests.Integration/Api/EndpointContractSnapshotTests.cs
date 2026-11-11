@@ -31,7 +31,7 @@ namespace Daedalus.Tests.Integration.Api;
 ///     <c>RequireAuthorization</c>, <c>AllowAnonymous</c> and <c>RequireRateLimiting</c> add the same metadata types
 ///     MVC's attributes are. Nothing is read off a controller type, so a controller and the
 ///     endpoint group that replaces it render the same line. <see cref="IApiDescriptionGroupCollectionProvider"/> stays
-///     registered once MVC is gone, because <c>Program.cs</c> calls <c>AddOpenApi()</c>, which adds the endpoint
+///     registered once MVC is gone, because <c>ApiApplication.cs</c> calls <c>AddOpenApi()</c>, which adds the endpoint
 ///     API explorer.
 ///     </para>
 ///     <para>

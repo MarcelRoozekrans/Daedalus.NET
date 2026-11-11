@@ -14,7 +14,7 @@ public sealed class HubAccessTokenWiringTests(PostgresFixture fixture)
 {
     /// <summary>
     ///     The scheme's MessageReceived event takes access_token from a hub request and leaves an API request alone.
-    ///     Red: delete the JwtBearerEvents wiring line in Program.cs: the hub request's token stays null.
+    ///     Red: delete the JwtBearerEvents wiring line in ApiApplication.cs: the hub request's token stays null.
     /// </summary>
     [Theory]
     [InlineData("/hubs/workflow-runs", "x")]

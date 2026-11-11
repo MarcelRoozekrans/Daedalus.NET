@@ -243,7 +243,7 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
     ///     <c>WorkflowEngineEnabledEndpointFilter</c>, an endpoint filter, which ASP.NET Core runs only after
     ///     authorization has passed. A refused caller gets 401 or 403 and never reaches it, and a missing route gets 404, so 503 is
     ///     reachable only once the policy has let the developer through. Red: drop <c>developer</c> from the
-    ///     <c>WorkflowResume</c> policy in <c>Program.cs</c>; the test then gets 403.
+    ///     <c>WorkflowResume</c> policy in <c>ApiApplication.cs</c>; the test then gets 403.
     /// </summary>
     [Fact]
     public async Task A_developer_caller_passes_the_policy()
@@ -300,7 +300,7 @@ public sealed class ResumeAuthorizationBoundaryTests(PostgresFixture fixture) : 
     /// <summary>
     ///     An admin passes retry's Admin policy. As for <see cref="A_developer_caller_passes_the_policy"/>, 503 comes
     ///     from <c>WorkflowEngineEnabledEndpointFilter</c>, which runs only after authorization has passed, so it proves
-    ///     the policy let the admin through. Red: bind the <c>Admin</c> policy in <c>Program.cs</c> to a role admin
+    ///     the policy let the admin through. Red: bind the <c>Admin</c> policy in <c>ApiApplication.cs</c> to a role admin
     ///     lacks; the test then gets 403. A missing route would get 404.
     /// </summary>
     [Fact]
