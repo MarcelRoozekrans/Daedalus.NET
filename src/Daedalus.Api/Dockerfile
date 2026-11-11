@@ -1,6 +1,7 @@
 # Multi-stage build for Daedalus.Api - Optimized for Kubernetes
-# Stage 1: Build with SDK
+# Stage 1: Build with SDK. The native publish links with clang against zlib; the Alpine SDK is musl.
 FROM mcr.microsoft.com/dotnet/sdk:11.0.100-alpine3.24 AS build
+RUN apk add --no-cache clang build-base zlib-dev
 # The version stamped into the assemblies (AssemblyVersion/FileVersion/InformationalVersion), passed
 # by CI from GitVersion. 0.0.0 marks an image built outside CI (docs/release.md).
 ARG APP_VERSION=0.0.0
@@ -19,36 +20,37 @@ COPY ["global.json", "global.json"]
 COPY ["Directory.Packages.props", "Directory.Packages.props"]
 COPY ["nuget.config", "nuget.config"]
 
-# Restore dependencies
-RUN dotnet restore "src/Daedalus.Api/Daedalus.Api.csproj" -p:PublishAot=false
+# Restore dependencies. The runtime identifier is given here too, so the ILCompiler runtime pack for it is in the
+# assets file that the --no-restore publish below reads.
+RUN dotnet restore "src/Daedalus.Api/Daedalus.Api.csproj" -r linux-musl-x64
 
 # Copy remaining source
 COPY . .
 
-# Build the project
-WORKDIR "/src/src/Daedalus.Api"
-RUN dotnet build "Daedalus.Api.csproj" -c Release --no-restore -o /app/build -p:Version=$APP_VERSION -p:PublishAot=false
-
-# Stage 2: Publish — framework-dependent, onto the official ASP.NET runtime image below. Daedalus.Api.csproj
-# sets PublishAot=true so the native publish can be proven in CI, which would turn this plain publish native
-# and drop Daedalus.Api.dll that the ENTRYPOINT runs. PublishAot=false, given to restore, build and publish
-# alike, keeps the image framework-dependent until the native Api image ships (phase 3.6 plan, Task 7a).
+# Stage 2: Publish as a Native AOT binary (Daedalus.Api.csproj sets PublishAot=true). The build stage is musl and
+# so is the runtime stage below, so the executable links against the libc it runs on.
 FROM build AS publish
-RUN dotnet publish "Daedalus.Api.csproj"     -c Release     --no-restore     -p:Version=$APP_VERSION     -p:PublishAot=false     -o /app/publish
+WORKDIR "/src/src/Daedalus.Api"
+# The separate debug symbols, Daedalus.Api.dbg, stay in this stage; the image ships only the binary and the content files.
+RUN dotnet publish "Daedalus.Api.csproj" -c Release -r linux-musl-x64 -p:PublishAot=true --no-restore -p:Version=$APP_VERSION -o /app/publish \
+ && rm -f /app/publish/*.dbg
 
-# Stage 3: Final image - ASP.NET Core runtime on Alpine, minimal footprint for Kubernetes
-FROM mcr.microsoft.com/dotnet/aspnet:11.0-alpine AS final
+# Stage 3: Final image - runtime-deps on Alpine, the native libraries the executable needs and no .NET runtime
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-alpine3.24 AS final
 WORKDIR /app
 
 # Copy published application
 COPY --from=publish /app/publish .
 
 # Health check for Kubernetes
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 # Use non-root user for security
-RUN addgroup -g 1001 -S appuser &&     adduser -S appuser -u 1001 &&     chown -R appuser:appuser /app
+RUN addgroup -g 1001 -S appuser && adduser -S appuser -u 1001 && chown -R appuser:appuser /app
 USER appuser
 
+# The aspnet base image sets this; runtime-deps does not, and Kestrel would fall back to port 5000.
+ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
-ENTRYPOINT ["dotnet", "Daedalus.Api.dll"]
+ENTRYPOINT ["/app/Daedalus.Api"]
