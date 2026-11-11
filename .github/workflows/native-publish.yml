@@ -88,3 +88,175 @@ jobs:
           # .mcp.json is part of the CLI's and the API's publish output, and upload-artifact skips dotfiles
           # by default. Without it a run treats the file as absent and never parses it.
           include-hidden-files: true
+
+  # Runs Playwright.Api against the Api composition published with Native AOT, then checks that the production
+  # Api binary starts. The suite needs no browser: Playwright.Api is plain HTTP, so no Playwright install.
+  native-suites:
+    name: Native suites
+    needs: native-publish
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'native-publish')
+      && (github.event.action != 'labeled' || github.event.label.name == 'native-publish')
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    env:
+      DB_NAME: daedalus_native
+      DB_USER: native_user
+      DB_PASSWORD: native_password
+      HOST_PORT: 5081
+      PROD_PORT: 5082
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: daedalus_native
+          POSTGRES_USER: native_user
+          POSTGRES_PASSWORD: native_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U native_user -d daedalus_native"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install the native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang zlib1g-dev
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-aot-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-aot-${{ runner.os }}-
+
+      - name: Download the native Migrations binary
+        uses: actions/download-artifact@v8
+        with:
+          name: native-Migrations
+          path: ${{ runner.temp }}/native/Migrations
+
+      - name: Download the native Api binary
+        uses: actions/download-artifact@v8
+        with:
+          name: native-Api
+          path: ${{ runner.temp }}/native/Api
+
+      # The host applies no migrations: Playwright.Api in external mode only seeds test data.
+      - name: Migrate the database with the native Migrations binary
+        run: |
+          chmod +x "${{ runner.temp }}/native/Migrations/Daedalus.Migrations"
+          cd "${{ runner.temp }}/native/Migrations"
+          ./Daedalus.Migrations
+        env:
+          ConnectionStrings__daedalus: Host=localhost;Port=5432;Database=${{ env.DB_NAME }};Username=${{ env.DB_USER }};Password=${{ env.DB_PASSWORD }}
+
+      # Same command as the publish job, for the test host. Warnings do not fail it here.
+      - name: Publish the test host with Native AOT
+        run: >
+          dotnet publish tests/Daedalus.Tests.NativeApiHost -c Release -r linux-x64 -p:PublishAot=true
+          -p:TreatWarningsAsErrors=false -p:WarningsAsErrors= -o "${{ runner.temp }}/native/NativeApiHost"
+          -tl:off 2>&1 | tee "${{ runner.temp }}/publish-host.log"
+
+      - name: Start the native test host
+        run: |
+          dir="${{ runner.temp }}/native/NativeApiHost"
+          chmod +x "$dir/Daedalus.Tests.NativeApiHost"
+          cd "$dir"
+          nohup ./Daedalus.Tests.NativeApiHost > "${{ runner.temp }}/host.log" 2>&1 &
+          echo $! > "${{ runner.temp }}/host.pid"
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:$HOST_PORT/health" > /dev/null 2>&1; then
+              echo "Host answered /health after $i attempts"
+              exit 0
+            fi
+            if ! kill -0 "$(cat "${{ runner.temp }}/host.pid")" 2>/dev/null; then
+              echo "::error::The native test host exited before answering /health"
+              tail -n 100 "${{ runner.temp }}/host.log"
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::The native test host did not answer /health within 120 seconds"
+          tail -n 100 "${{ runner.temp }}/host.log"
+          exit 1
+        env:
+          ASPNETCORE_URLS: http://127.0.0.1:5081
+          ASPNETCORE_ENVIRONMENT: Development
+          E2E_CONNECTION_STRING: Host=localhost;Port=5432;Database=${{ env.DB_NAME }};Username=${{ env.DB_USER }};Password=${{ env.DB_PASSWORD }}
+
+      - name: Run Playwright.Api against the native host
+        run: >
+          dotnet test tests/Daedalus.Tests.Playwright.Api -c Release -tl:off
+          --logger "trx;LogFileName=playwright-api-native.trx" --results-directory "${{ runner.temp }}/test-results"
+        env:
+          E2E_BASE_URL: http://127.0.0.1:5081
+          E2E_CONNECTION_STRING: Host=localhost;Port=5432;Database=${{ env.DB_NAME }};Username=${{ env.DB_USER }};Password=${{ env.DB_PASSWORD }}
+
+      - name: Show the end of the host log
+        if: failure()
+        run: tail -n 100 "${{ runner.temp }}/host.log" || true
+
+      - name: Stop the native test host
+        if: always()
+        run: |
+          if [ -f "${{ runner.temp }}/host.pid" ]; then kill "$(cat "${{ runner.temp }}/host.pid")" 2>/dev/null || true; fi
+
+      # The production binary check. It accepts 200 or 503 from /health: this Development composition has no
+      # Keycloak in CI, so a dependency check may report unhealthy. What it proves is that the native binary
+      # starts, binds its port, applies no migration of its own and serves a request after the Migrations run.
+      # It does not run suites against it.
+      - name: Check that the production Api binary starts and serves
+        run: |
+          dir="${{ runner.temp }}/native/Api"
+          chmod +x "$dir/Daedalus.Api"
+          cd "$dir"
+          nohup ./Daedalus.Api > "${{ runner.temp }}/api.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PROD_PORT/health" || true)
+            if [ "$code" = "200" ] || [ "$code" = "503" ]; then
+              echo "Production Api answered /health with $code after $i attempts"
+              exit 0
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "::error::The production Api exited before answering /health"
+              tail -n 100 "${{ runner.temp }}/api.log"
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::The production Api did not answer /health within 120 seconds, last status $code"
+          tail -n 100 "${{ runner.temp }}/api.log"
+          exit 1
+        env:
+          ASPNETCORE_URLS: http://127.0.0.1:5082
+          ASPNETCORE_ENVIRONMENT: Development
+          ConnectionStrings__daedalus: Host=localhost;Port=5432;Database=${{ env.DB_NAME }};Username=${{ env.DB_USER }};Password=${{ env.DB_PASSWORD }}
+
+      - name: Upload the logs and test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-suites-logs
+          path: |
+            ${{ runner.temp }}/host.log
+            ${{ runner.temp }}/api.log
+            ${{ runner.temp }}/publish-host.log
+            ${{ runner.temp }}/test-results/*.trx
+          retention-days: 7
+          if-no-files-found: warn
