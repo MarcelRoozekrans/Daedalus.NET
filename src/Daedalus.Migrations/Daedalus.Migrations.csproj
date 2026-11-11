@@ -11,7 +11,7 @@
         <!-- Not published native or trimmed; eng/aot/count-warnings.sh measures what a native publish would report.
              EF Core's reflection, the reason given before phase 3.5, is gone. -->
         <PublishAot>false</PublishAot>
-        <TrimMode>none</TrimMode>
+        <TrimMode>full</TrimMode>
         <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
         <InvariantGlobalization>false</InvariantGlobalization>
     </PropertyGroup>

@@ -10,7 +10,7 @@
         <AssemblyName>Daedalus.Cli</AssemblyName>
         <!-- AOT disabled, like Daedalus.Api: the Thalos agent stack needs reflection/dynamic code. -->
         <PublishAot>false</PublishAot>
-        <TrimMode>none</TrimMode>
+        <TrimMode>full</TrimMode>
         <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
         <InvariantGlobalization>false</InvariantGlobalization>
         <UserSecretsId>3924b3b3-246a-4073-bba7-9f588e8801d5</UserSecretsId>
