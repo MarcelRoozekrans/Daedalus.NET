@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.4.6">
+<Project Sdk="Aspire.AppHost.Sdk/13.6.5">
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
@@ -8,6 +8,7 @@
         <Nullable>enable</Nullable>
         <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
         <AssemblyVersion>1.0.0.0</AssemblyVersion>
+        <AspireUseCliBundle>true</AspireUseCliBundle>
         <UserSecretsId>daedalus-apphost-secrets</UserSecretsId>
     </PropertyGroup>
 
