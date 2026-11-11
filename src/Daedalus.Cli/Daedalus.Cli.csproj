@@ -8,10 +8,11 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <RootNamespace>Daedalus.Cli</RootNamespace>
         <AssemblyName>Daedalus.Cli</AssemblyName>
-        <!-- AOT disabled, like Daedalus.Api: the Thalos agent stack needs reflection/dynamic code. -->
-        <PublishAot>false</PublishAot>
+        <!-- Published as a Native AOT binary, like Daedalus.Api. Native AOT trims every assembly, so the trim mode
+             is full: the shared partial default would make ILC root each assembly not marked IsTrimmable, such as
+             YamlDotNet, and report warnings on code nothing calls. The trim analyzer stays on from Directory.Build.props. -->
+        <PublishAot>true</PublishAot>
         <TrimMode>full</TrimMode>
-        <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
         <InvariantGlobalization>false</InvariantGlobalization>
         <UserSecretsId>3924b3b3-246a-4073-bba7-9f588e8801d5</UserSecretsId>
     </PropertyGroup>
