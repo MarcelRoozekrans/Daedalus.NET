@@ -12,6 +12,8 @@
         <IsTrimmable>false</IsTrimmable>
         <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
         <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+        <!-- The generated SerializerDispatcher and AddSerializerDispatcher stay internal to this assembly. -->
+        <ZeroAllocGeneratedAccessibility>Internal</ZeroAllocGeneratedAccessibility>
     </PropertyGroup>
 
     <ItemGroup>

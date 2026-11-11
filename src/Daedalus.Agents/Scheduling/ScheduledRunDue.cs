@@ -1,4 +1,5 @@
 using ZeroAlloc.Outbox;
+using ZeroAlloc.Serialisation;
 
 namespace Daedalus.Agents.Scheduling;
 
@@ -19,4 +20,5 @@ namespace Daedalus.Agents.Scheduling;
 ///     logic here.
 /// </remarks>
 [OutboxMessage]
+[ZeroAllocSerializable(SerializationFormat.SystemTextJson)]
 public sealed record ScheduledRunDue(Guid ScheduleId, DateTime OccurrenceAtUtc);

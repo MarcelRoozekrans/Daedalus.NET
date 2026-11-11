@@ -123,9 +123,11 @@ public static class ChannelOutboxServiceCollectionExtensions
             ConnectionKey, static (sp, _) => sp.GetRequiredService<NpgsqlDataSource>().CreateConnection().AsAsync());
 
         // ZeroAlloc.Outbox 4.x has no default serializer, and without one the worker fails the host start. The
-        // reflection-based System.Text.Json serializer is chosen explicitly at the end of this chain; it applies to
-        // every pipeline. No ISerializerDispatcher is registered, and the rows already in the table were written by
-        // the 3.x fallback, which is the same serializer and writes the same bytes, so those rows still deserialize.
+        // generated AddSerializerDispatcher registers an ISerializerDispatcher that the outbox picks up; it routes
+        // each [ZeroAllocSerializable] payload through OutboxJsonContext, so no reflection runs and Native AOT stays
+        // safe. The context uses default options, which are what WithSystemTextJsonSerializer used, so rows already
+        // in the table still deserialize and new rows carry the same bytes. It applies to every pipeline.
+        services.AddSerializerDispatcher();
         services.AddOutbox(PipelineName, o =>
             {
                 o.PollingInterval = TimeSpan.FromSeconds(2);
@@ -147,8 +149,7 @@ public static class ChannelOutboxServiceCollectionExtensions
             .AddScheduledRunDueOutbox()
             .AddRunScoutStepOutbox()
             .AddRunWriterStepOutbox()
-            .AddDeliverDigestOutbox()
-            .WithSystemTextJsonSerializer();
+            .AddDeliverDigestOutbox();
 
         return services;
     }
