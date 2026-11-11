@@ -1,9 +1,18 @@
-using System.Reflection.Metadata.Ecma335;
 // Usage: dotnet run find-reflection-callers.cs -- <publish-dir> <type-substring>
 // Lists every assembly with a TypeRef, MemberRef (incl. via TypeSpec generics) or base type
 // that mentions a type whose full name contains <type-substring>.
+// Heuristic: TypeSpec signatures are not fully parsed. Tokens are decoded by reading any 0x11 or 0x12
+// byte as CLASS or VALUETYPE followed by a compressed integer; only 1-byte and 2-byte forms are handled,
+// so a stray 0x11 or 0x12 can give a false hit and a 4-byte token can be missed.
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+
+if (args.Length < 2)
+{
+    await Console.Error.WriteLineAsync("Usage: find-reflection-callers.sh <publish-dir> <type-substring>");
+    return 2;
+}
 
 var dir = args[0];
 var needle = args[1];
@@ -80,3 +89,5 @@ foreach (var file in Directory.EnumerateFiles(dir, "*.dll").Order(StringComparer
     }
     catch (BadImageFormatException) { await Console.Error.WriteLineAsync($"skip {file}"); }
 }
+
+return 0;
