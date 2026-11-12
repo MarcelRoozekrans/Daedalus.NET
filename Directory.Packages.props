@@ -15,15 +15,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Aspire (13.1.0 → 13.4.6 fixes MessagePack via StreamJsonRpc). Aspire.Hosting.AppHost is implicit via Aspire.AppHost.Sdk (NU1009) -->
-    <PackageVersion Include="Aspire.Hosting" Version="13.4.6" />
-    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
-    <PackageVersion Include="Aspire.Hosting.Keycloak" Version="13.4.6-preview.1.26319.6" />
-    <!-- Aspire.Hosting.Testing 13.4.6 (phase 3.3, Task 20): AppHostOllamaWiringTests builds the AppHost model with
+    <!-- Aspire (13.1.0 → 13.6.5 fixes MessagePack via StreamJsonRpc). Aspire.Hosting.AppHost is implicit via Aspire.AppHost.Sdk (NU1009) -->
+    <PackageVersion Include="Aspire.Hosting" Version="13.6.5" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.6.5" />
+    <PackageVersion Include="Aspire.Hosting.Keycloak" Version="13.6.5-preview.1.26559.7" />
+    <!-- Aspire.Hosting.Testing 13.6.5 (phase 3.3, Task 20): AppHostOllamaWiringTests builds the AppHost model with
          DistributedApplicationTestingBuilder and starts nothing. The CommunityToolkit Ollama hosting package is gone:
          its AddModel wiring named the connection string ollama-nomic-embed-text (#412), so the AppHost runs Ollama as a
          plain container instead. -->
-    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.4.6" />
+    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.6.5" />
     <!-- MessagePack 2.5.302 → 2.5.307 for GHSA-qhrr-8q5h-9q3h (nested arrays can pass buffer length limits; patched in
          2.5.303). It is transitive: Aspire.Hosting → StreamJsonRpc 2.25.29, which still asks for 2.5.302, so the pin
          lifts it under CentralPackageTransitivePinningEnabled. Drop it once StreamJsonRpc depends on a fixed version. -->
@@ -267,7 +267,7 @@
     <!-- 10.0.1 → 10.0.3: floor set by Rag.NET.VectorStores.PgVector 0.1.0 (via Thalos.NET.Memory.RagNet) -->
     <PackageVersion Include="Npgsql" Version="10.0.3" />
 
-    <!-- Microsoft.Extensions.* (10.0.12: transitive-pinning floor set by Thalos.NET.Abstractions 0.5.0 / Microsoft.Extensions.AI 10.10 / ModelContextProtocol 2.2 / Aspire 13.4.6) -->
+    <!-- Microsoft.Extensions.* (10.0.12: transitive-pinning floor set by Thalos.NET.Abstractions 0.5.0 / Microsoft.Extensions.AI 10.10 / ModelContextProtocol 2.2 / Aspire 13.6.5) -->
     <!-- 10.0.12 → 10.0.13: floor set by Microsoft.AspNetCore.Components.WebAssembly and SignalR.Client 10.0.13.
          10.0.13 → 10.0.14 for Configuration.Binder, DependencyInjection, DependencyInjection.Abstractions,
          Hosting.Abstractions, Http, Logging.Abstractions and Options: floors set by Thalos.NET 0.20.0 (DI.Abstractions,
@@ -285,8 +285,8 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.14" />
-    <!-- 10.3.0 → 10.6.0: floor set by Aspire.Hosting.Testing 13.4.6 -->
-    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.6.0" />
+    <!-- 10.3.0 → 10.10.0: floor set by Aspire.Hosting.Testing 13.6.5 -->
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.10.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.14" />
