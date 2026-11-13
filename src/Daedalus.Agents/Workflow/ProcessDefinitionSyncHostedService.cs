@@ -13,7 +13,7 @@ namespace Daedalus.Agents.Workflow;
 /// <remarks>
 ///     <para>
 ///     <b>What the ordering claim rests on.</b> Not "before the host accepts work": <c>GenericWebHostService</c> is
-///     registered by <c>WebApplicationBuilder</c>'s own constructor, long before <c>Program.cs</c> calls
+///     registered by <c>WebApplicationBuilder</c>'s own constructor, long before <c>ApiApplication.AddServices</c> calls
 ///     <c>AddDaedalusAgents</c>, so Kestrel is already listening by the time this runs. What does hold is
 ///     sync-before-dispatch, and the only thing enforcing it is registration order:
 ///     <c>DaedalusAgentsServiceCollectionExtensions.AddDaedalusWorkflow</c> registers this service before

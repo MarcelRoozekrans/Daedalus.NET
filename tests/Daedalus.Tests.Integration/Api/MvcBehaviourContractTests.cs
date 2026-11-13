@@ -855,7 +855,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         for (var i = 0; i < WriteOperationPermits; i++)
         {
             using var spent = await client.PostAsync(new Uri("/api/projects", UriKind.Relative), JsonBody("{}"));
-            // Red: write-operations' PermitLimit lowered to 29 in Program.cs; request 30 is then a 429.
+            // Red: write-operations' PermitLimit lowered to 29 in ApiApplication.cs; request 30 is then a 429.
             spent.StatusCode.Should().Be(HttpStatusCode.BadRequest, "request {0} is within the budget", i + 1);
         }
 
@@ -866,7 +866,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
         refused.StatusCode.Should().Be(HttpStatusCode.TooManyRequests, await refused.Content.ReadAsStringAsync());
         // Red: OnRejected sets "application/problem+json; charset=utf-8".
         refused.Content.Headers.ContentType!.ToString().Should().Be("application/problem+json");
-        // Red: OnRejected's detail text changed in Program.cs.
+        // Red: OnRejected's detail text changed in ApiApplication.cs.
         (await refused.Content.ReadAsStringAsync()).Should().Be(
             """{"type":"https://tools.ietf.org/html/rfc6585#section-4","title":"Too Many Requests","status":429,"detail":"Rate limit exceeded. Please retry after a short delay."}""");
     }
@@ -1012,7 +1012,7 @@ public sealed class MvcBehaviourContractTests(PostgresFixture fixture)
     /// <summary>The agent declared in <c>src/Daedalus.Api/appsettings.json</c>.</summary>
     private const string ArchitectAgentId = "01M05YCM7DPKRG9X04870B2JYH";
 
-    /// <summary><c>write-operations</c>' permits per window, as <c>Program.cs</c> configures it.</summary>
+    /// <summary><c>write-operations</c>' permits per window, as <c>ApiApplication.cs</c> configures it.</summary>
     private const int WriteOperationPermits = 30;
 
     private const string ProjectBody = "{\"projectName\":\"p\",\"description\":\"d\",\"version\":\"1.0\"}";

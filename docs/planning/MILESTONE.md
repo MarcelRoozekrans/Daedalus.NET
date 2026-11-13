@@ -40,8 +40,8 @@ stay exactly as they are.
       app pass without changes to what they assert.
 - [ ] **A live manufacture run succeeds on the native API.** It goes from a board task to a pull request on
       `daedalus-sandbox`, with its spend on `/costs`.
-- [ ] **The gains are measured.** Start-up time, working set and image size are recorded for the API, the CLI and the
-      sandbox host, before (JIT, in 3.1) and after (native, in 3.6).
+- [x] **The gains are measured.** Start-up time, working set and image size are recorded for the API, the CLI and the
+      sandbox host, before (JIT, in 3.1) and after (native, in 3.6): `docs/plans/2026-11-11-phase-3.6-measurements.md`.
 - [ ] **Documentation complete.**
   - Every phase has a design, a plan and a rulings record.
   - The README and the development guide describe the native build, its toolchain and the AOT rules for
@@ -56,7 +56,7 @@ stay exactly as they are.
 | 3.3 | Own Anthropic and Ollama clients, `ZeroAlloc.Rest.Anthropic` and `.Ollama`; Thalos keeps the `IChatClient` adapter; the native CLI passes C3, "Application started" moved on to 3.5 | Backend | complete (2026-10-31), #424 |
 | 3.4 | Controllers to minimal APIs, identical contract; 13 controllers. Plan: `docs/superpowers/plans/2026-10-31-phase-3.4-minimal-apis-plan.md` | Refactor | complete (2026-11-04), #427 |
 | 3.5 | EF Core to ZeroAlloc.ORM with ZeroAlloc.Linq, schema and data kept; about 117 statements over 22 files; the native CLI reaches "Application started", moved from 3.3. Plan: `docs/superpowers/plans/2026-11-05-phase-3.5-zeroalloc-orm-plan.md` | Data | complete (2026-11-10), #443 |
-| 3.6 | Native API, CLI and Migrations; native test runs, live proof, measurements | Infra | pending |
+| 3.6 | Native API, CLI and Migrations; native test runs, live proof, measurements | Infra | active |
 | 3.7 | Blazor WebAssembly AOT | Infra | pending |
 | 3.8 | `ZeroAlloc.Inject` and `ZeroAlloc.Resilience`, out of 3.2 | Refactor | pending |
 

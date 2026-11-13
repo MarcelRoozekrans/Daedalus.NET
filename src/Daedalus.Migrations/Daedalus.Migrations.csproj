@@ -8,11 +8,12 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <RootNamespace>Daedalus.Migrations</RootNamespace>
         <AssemblyName>Daedalus.Migrations</AssemblyName>
-        <!-- Not published native or trimmed; eng/aot/count-warnings.sh measures what a native publish would report.
-             EF Core's reflection, the reason given before phase 3.5, is gone. -->
-        <PublishAot>false</PublishAot>
-        <TrimMode>none</TrimMode>
-        <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+        <!-- Published as a Native AOT binary. Native AOT trims every assembly, so the trim mode is full: the shared
+             partial default would make ILC root each assembly not marked IsTrimmable and report warnings on code
+             nothing calls. EF Core's reflection, the reason it was once excluded, went in phase 3.5. The trim
+             analyzer stays on from Directory.Build.props. -->
+        <PublishAot>true</PublishAot>
+        <TrimMode>full</TrimMode>
         <InvariantGlobalization>false</InvariantGlobalization>
     </PropertyGroup>
 

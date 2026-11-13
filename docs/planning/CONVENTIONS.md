@@ -10,6 +10,8 @@
 **Package manager:** NuGet, central package management enabled — `Directory.Packages.props` sets `ManagePackageVersionsCentrally=true` and no `PackageReference` in `src/` carries a `Version` attribute
 **Framework:** ASP.NET Core, Blazor WASM, .NET Aspire 13.1
 **Datastore:** PostgreSQL 16 + pgvector
+**Build:** `dotnet build`
+**Test:** `dotnet test tests/Daedalus.Tests.Unit`
 
 ## Commits
 

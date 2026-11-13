@@ -161,7 +161,7 @@ public sealed class RunHubTests(PostgresFixture fixture)
     ///     Red: connect the second client as the developer: no hub span has a 401.
     ///     Red: make the copying log exporter record nothing: the exported-record hub path check fails.
     ///     Red: make the capturing provider record nothing: the log line hub path check fails.
-    ///     Red: delete the JwtBearerEvents wiring line in Program.cs: no token-validation failure is logged.
+    ///     Red: delete the JwtBearerEvents wiring line in ApiApplication.cs: no token-validation failure is logged.
     /// </summary>
     [Fact]
     public async Task The_access_token_appears_in_no_span_and_no_log()

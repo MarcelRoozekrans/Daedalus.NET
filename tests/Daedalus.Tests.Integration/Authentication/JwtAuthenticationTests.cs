@@ -20,7 +20,7 @@ public class JwtAuthenticationTests
         // Arrange
         var services = new ServiceCollection();
 
-        // Act - Simulate what Program.cs does
+        // Act - Simulate what ApiApplication.cs does
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
@@ -123,7 +123,7 @@ public class JwtAuthenticationTests
     [Fact]
     public void ApiPipeline_IncludesAuthenticationMiddleware()
     {
-        // Note: This would require inspecting the actual Program.cs middleware pipeline
+        // Note: This would require inspecting the actual ApiApplication.cs middleware pipeline
         // For now, we verify the pattern that should be used:
 
         // Arrange

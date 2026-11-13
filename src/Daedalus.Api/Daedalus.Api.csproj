@@ -6,12 +6,11 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <LangVersion>13</LangVersion>
         <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
-        <!-- Native AOT disabled: Aspire and AI.Sentinel need reflection/dynamic code — a
-             Release publish with PublishAot=true fails on IL2026/IL2104 (this is what kept the API container image
-             from ever building). Reflection-based System.Text.Json stays enabled in every configuration for the
-             same reason: the agent session store serializes without source-generated contexts. -->
-        <PublishAot>false</PublishAot>
-        <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+        <!-- Published as a Native AOT binary. Native AOT trims every assembly, so the trim mode is full: the shared
+             partial default would make ILC root each assembly not marked IsTrimmable, YamlDotNet among them, and
+             report warnings on code nothing calls. The trim analyzer stays on from Directory.Build.props. -->
+        <PublishAot>true</PublishAot>
+        <TrimMode>full</TrimMode>
         <InvariantGlobalization>false</InvariantGlobalization>
         <!-- Lets `dotnet user-secrets set Thalos:Channels:Telegram:BotToken ...` (etc.) reach this host in
              Development, the same mechanism Daedalus.Cli uses for its own secrets. -->

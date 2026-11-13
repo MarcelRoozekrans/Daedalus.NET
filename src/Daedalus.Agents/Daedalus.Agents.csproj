@@ -8,10 +8,9 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <RootNamespace>Daedalus.Agents</RootNamespace>
         <AssemblyName>Daedalus.Agents</AssemblyName>
-        <!-- Thalos/MAF are not trim-safe yet; this project is never AOT-published -->
-        <IsTrimmable>false</IsTrimmable>
-        <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
         <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+        <!-- The generated SerializerDispatcher and AddSerializerDispatcher stay internal to this assembly. -->
+        <ZeroAllocGeneratedAccessibility>Internal</ZeroAllocGeneratedAccessibility>
     </PropertyGroup>
 
     <ItemGroup>
