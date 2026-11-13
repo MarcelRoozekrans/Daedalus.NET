@@ -42,6 +42,7 @@
         <PackageReference Include="Bogus"/>
         <PackageReference Include="Spectre.Console.Testing"/>
         <PackageReference Include="TngTech.ArchUnitNET.xUnit"/>
+        <PackageReference Include="Ariadne.NET.Testing"/>
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>
         <PackageReference Include="ZeroAlloc.TestHelpers"/>
         <!-- The host the sandbox image runs, for SandboxImagePinTests to read the Roslyn server environment it sets. -->
