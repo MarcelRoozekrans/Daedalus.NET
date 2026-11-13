@@ -178,9 +178,10 @@ jobs:
           cd "$dir"
           nohup ./Daedalus.Tests.NativeApiHost > "${{ runner.temp }}/host.log" 2>&1 &
           echo $! > "${{ runner.temp }}/host.pid"
-          for i in $(seq 1 60); do
-            if curl -fsS "http://127.0.0.1:$HOST_PORT/health" > /dev/null 2>&1; then
-              echo "Host answered /health after $i attempts"
+          SECONDS=0
+          while [ "$SECONDS" -lt 120 ]; do
+            if curl -fsS --max-time 5 "http://127.0.0.1:$HOST_PORT/health" > /dev/null 2>&1; then
+              echo "Host answered /health after $SECONDS seconds"
               exit 0
             fi
             if ! kill -0 "$(cat "${{ runner.temp }}/host.pid")" 2>/dev/null; then
@@ -227,10 +228,11 @@ jobs:
           nohup ./Daedalus.Api > "${{ runner.temp }}/api.log" 2>&1 &
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
-          for i in $(seq 1 60); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PROD_PORT/health" || true)
+          SECONDS=0
+          while [ "$SECONDS" -lt 120 ]; do
+            code=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PROD_PORT/health" || true)
             if [ "$code" = "200" ] || [ "$code" = "503" ]; then
-              echo "Production Api answered /health with $code after $i attempts"
+              echo "Production Api answered /health with $code after $SECONDS seconds"
               exit 0
             fi
             if ! kill -0 "$pid" 2>/dev/null; then

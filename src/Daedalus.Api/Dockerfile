@@ -1,6 +1,6 @@
 # Multi-stage build for Daedalus.Api - Optimized for Kubernetes
-# Stage 1: Build with SDK. The native publish links with clang against zlib; the Alpine SDK is musl.
-FROM mcr.microsoft.com/dotnet/sdk:11.0.100-alpine3.24 AS build
+# Stage 1: Build with SDK. Both base stages are pinned to amd64, because the publish below targets linux-musl-x64. The native publish links with clang against zlib; the Alpine SDK is musl.
+FROM --platform=linux/amd64 mcr.microsoft.com/dotnet/sdk:11.0.100-alpine3.24 AS build
 RUN apk add --no-cache clang build-base zlib-dev
 # The version stamped into the assemblies (AssemblyVersion/FileVersion/InformationalVersion), passed
 # by CI from GitVersion. 0.0.0 marks an image built outside CI (docs/release.md).
@@ -36,7 +36,7 @@ RUN dotnet publish "Daedalus.Api.csproj" -c Release -r linux-musl-x64 -p:Publish
  && rm -f /app/publish/*.dbg
 
 # Stage 3: Final image - runtime-deps on Alpine, the native libraries the executable needs and no .NET runtime
-FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-alpine3.24 AS final
+FROM --platform=linux/amd64 mcr.microsoft.com/dotnet/runtime-deps:10.0-alpine3.24 AS final
 # runtime-deps carries no ICU, and the runtime stops at start-up without it or an invariant-globalization switch.
 # icu-libs keeps culture-aware behaviour instead of turning globalization off.
 RUN apk add --no-cache icu-libs
