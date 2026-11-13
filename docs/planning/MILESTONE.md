@@ -40,8 +40,8 @@ stay exactly as they are.
       app pass without changes to what they assert.
 - [ ] **A live manufacture run succeeds on the native API.** It goes from a board task to a pull request on
       `daedalus-sandbox`, with its spend on `/costs`.
-- [ ] **The gains are measured.** Start-up time, working set and image size are recorded for the API, the CLI and the
-      sandbox host, before (JIT, in 3.1) and after (native, in 3.6).
+- [x] **The gains are measured.** Start-up time, working set and image size are recorded for the API, the CLI and the
+      sandbox host, before (JIT, in 3.1) and after (native, in 3.6): `docs/plans/2026-11-11-phase-3.6-measurements.md`.
 - [ ] **Documentation complete.**
   - Every phase has a design, a plan and a rulings record.
   - The README and the development guide describe the native build, its toolchain and the AOT rules for
