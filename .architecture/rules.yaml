@@ -1,0 +1,160 @@
+schema: 2
+name: daedalus
+
+layers:
+  - name: Domain
+    id: DAE-LAYER-DOMAIN
+    because: Domain layer must be independent of the Application, Infrastructure and API layers; Daedalus.Agents is an adapter on top of Domain, never the other way round.
+    assemblies: [Daedalus.Domain]
+    allowedDependencies: []
+  - name: Application
+    id: DAE-LAYER-APPLICATION
+    because: Application layer should only depend on Domain, not on Infrastructure or the API layer; Application defines the DTOs the Agents adapter maps to, not vice versa.
+    assemblies: [Daedalus.Application]
+    allowedDependencies: [Domain]
+  - name: Infrastructure
+    id: DAE-LAYER-INFRASTRUCTURE
+    because: Infrastructure layer should not depend on API layer.
+    assemblies: [Daedalus.Infrastructure]
+    allowedDependencies: [Domain, Application]
+  - name: Agents
+    id: DAE-LAYER-AGENTS
+    because: The API composes Daedalus.Agents; the adapter must not reach back into the API host.
+    assemblies: [Daedalus.Agents]
+    allowedDependencies: [Domain, Application, Infrastructure]
+  - name: Api
+    id: DAE-LAYER-API
+    because: The API host composes every other layer.
+    assemblies: [Daedalus.Api]
+    allowedDependencies: [Domain, Application, Infrastructure, Agents]
+  - name: Web
+    id: DAE-LAYER-WEB
+    because: The WASM client builds on the Application DTOs.
+    assemblies: [Daedalus.Web]
+    allowedDependencies: [Domain, Application]
+
+rules:
+  # Thalos lives only in Daedalus.Agents and the API.
+  - id: DAE-NO-THALOS-IN-DOMAIN
+    because: Domain must not know the agent framework.
+    requireTarget: true
+    forbid:
+      from: { layers: [Domain] }
+      to: { namespaces: ["Thalos.**"] }
+  - id: DAE-NO-THALOS-IN-APPLICATION
+    because: Application DTOs are shared with the WASM client and must stay Thalos-free.
+    requireTarget: true
+    forbid:
+      from: { layers: [Application] }
+      to: { namespaces: ["Thalos.**"] }
+  - id: DAE-NO-THALOS-IN-INFRASTRUCTURE
+    because: Infrastructure stays free of Thalos; Daedalus.Agents is the one project that bridges the two.
+    requireTarget: true
+    forbid:
+      from: { layers: [Infrastructure] }
+      to: { namespaces: ["Thalos.**"] }
+  - id: DAE-NO-THALOS-IN-WEB
+    because: The WASM client talks to the agent API through Application DTOs only.
+    requireTarget: true
+    forbid:
+      from: { layers: [Web] }
+      to: { namespaces: ["Thalos.**"] }
+
+  # Frameworks Domain must not know.
+  - id: DAE-NO-ORM-IN-DOMAIN
+    because: Domain entities must stay persistence-ignorant; ZeroAlloc.ORM maps live in Infrastructure.
+    requireTarget: true
+    forbid:
+      from: { layers: [Domain] }
+      to: { namespaces: ["ZeroAlloc.ORM.**"] }
+  - id: DAE-NO-OUTBOX-IN-DOMAIN
+    because: Domain must stay ignorant of the outbox transport; step messages live in Daedalus.Agents.
+    requireTarget: true
+    forbid:
+      from: { layers: [Domain] }
+      to: { namespaces: ["ZeroAlloc.Outbox.**"] }
+  - id: DAE-NO-CRONOS-IN-DOMAIN
+    because: Domain must not parse cron expressions; that framework concern lives in Daedalus.Agents.
+    requireTarget: true
+    forbid:
+      from: { layers: [Domain] }
+      to: { namespaces: ["Cronos.**"] }
+
+  # One seam to the LLM.
+  - id: DAE-ONE-SUBAGENT-SEAM
+    because: SubagentRunExecutor, WorkflowNodeDispatcherFactory, BudgetedSubagentRunner, ReviewLensRunner, StandingInstructionsRunner, RunModeRunner, ReviewFindingsRunner, NodeSelectionRunner, WorkIntentRunner and FailedNodeUsageRunner are the only Daedalus types permitted to depend on Thalos' ISubagentRunner; every other caller must go through ISubagentRunExecutor instead.
+    requireTarget: true
+    allowOnly:
+      from:
+        types:
+          - Daedalus.Agents.Scheduling.SubagentRunExecutor
+          - Daedalus.Agents.Workflow.WorkflowNodeDispatcherFactory
+          - Daedalus.Agents.Workflow.BudgetedSubagentRunner
+          - Daedalus.Agents.Workflow.ReviewLensRunner
+          - Daedalus.Agents.Workflow.StandingInstructionsRunner
+          - Daedalus.Agents.Workflow.RunModeRunner
+          - Daedalus.Agents.Workflow.ReviewFindingsRunner
+          - Daedalus.Agents.Workflow.NodeSelectionRunner
+          - Daedalus.Agents.Workflow.WorkIntentRunner
+          - Daedalus.Agents.Workflow.FailedNodeUsageRunner
+      to: { types: [Thalos.ISubagentRunner] }
+    exceptions:
+      - assemblies: ["Daedalus.Tests.*"]
+        because: The rule covers the solution's production code; tests substitute the runner.
+
+  # Rag.NET is an implementation detail of Daedalus.Agents.
+  - id: DAE-RAGNET-ONLY-IN-AGENTS
+    because: No layer but Daedalus.Agents may know the vector store; Rag.NET lives behind Thalos' IMemoryIndex in Daedalus.Agents.
+    forbid:
+      from: { layers: [Domain, Application, Infrastructure, Api, Web] }
+      to: { namespaces: ["Rag.**"] }
+
+  # Where types live.
+  - id: DAE-ENDPOINTS-IN-API
+    because: Endpoints are API-layer concerns.
+    require:
+      for: { names: ["*Endpoints"], kinds: [class, record] }
+      layer: Api
+  - id: DAE-REPOSITORY-INTERFACES-IN-APPLICATION
+    because: Repository contracts belong in Application layer.
+    require:
+      for: { names: ["I*Repository"], kinds: [interface] }
+      layer: Application
+  - id: DAE-REPOSITORIES-IN-INFRASTRUCTURE
+    because: Repository implementations belong in Infrastructure layer.
+    require:
+      for: { names: ["*Repository"], kinds: [class, record], abstract: false, static: false }
+      layer: Infrastructure
+    exceptions:
+      - assemblies: ["Daedalus.Tests.*"]
+        because: Test doubles live next to the tests.
+
+  # The Web binds the Application DTOs and keeps no copy of its own.
+  - id: DAE-WEB-NO-DTO-COPIES
+    because: The Web binds Daedalus.Application.DTOs instead of copying them.
+    requireTarget: true
+    uniqueNames:
+      for: { layers: [Web] }
+      against: { namespaces: ["Daedalus.Application.DTOs.**"] }
+
+  # Packages that must not come back.
+  - id: DAE-NO-ZEROALLOC-SCHEDULING
+    because: ZeroAlloc.Scheduling is excluded by design; ScheduledRuns.NextRunAt is the source of truth and the sweep is idempotent, so durable job state buys nothing over the plain BackgroundService.
+    bannedPackages:
+      packages: ["**.*ZeroAlloc.Scheduling*.**"]
+  - id: DAE-NO-FLUENTVALIDATION
+    because: Phase 1.7 replaced FluentValidation with ZeroAlloc.Validation.
+    bannedPackages:
+      packages: ["**.*FluentValidation*.**"]
+  - id: DAE-NO-CSHARPFUNCTIONALEXTENSIONS
+    because: Phase 1.7 migrated every caller off CSharpFunctionalExtensions; it must not return.
+    bannedPackages:
+      packages: ["**.*CSharpFunctionalExtensions*.**"]
+  - id: DAE-NO-ENTITY-FRAMEWORK
+    because: Phase 3.5 removed EF Core; no project may resolve it again, directly or transitively.
+    bannedPackages:
+      packages:
+        - "Microsoft.EntityFrameworkCore*.**"
+        - "Npgsql.EntityFrameworkCore.PostgreSQL"
+        - "ZeroAlloc.Outbox.EfCore"
+        - "ZeroAlloc.ValueObjects.EfCore"
