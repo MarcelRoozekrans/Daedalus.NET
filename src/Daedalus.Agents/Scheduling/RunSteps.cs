@@ -1,4 +1,5 @@
 using ZeroAlloc.Outbox;
+using ZeroAlloc.Serialisation;
 
 namespace Daedalus.Agents.Scheduling;
 
@@ -20,10 +21,12 @@ namespace Daedalus.Agents.Scheduling;
 ///     </para>
 /// </remarks>
 [OutboxMessage]
+[ZeroAllocSerializable(SerializationFormat.SystemTextJson)]
 public sealed record RunScoutStep(Guid ExecutionId);
 
 /// <summary>Run the writer subagent over the persisted findings. See <see cref="RunScoutStep"/> for the redelivery contract.</summary>
 [OutboxMessage]
+[ZeroAllocSerializable(SerializationFormat.SystemTextJson)]
 public sealed record RunWriterStep(Guid ExecutionId);
 
 /// <summary>
@@ -32,4 +35,5 @@ public sealed record RunWriterStep(Guid ExecutionId);
 ///     waiting for since phase 1.4, which was never the saga's doing, only the transaction's.
 /// </summary>
 [OutboxMessage]
+[ZeroAllocSerializable(SerializationFormat.SystemTextJson)]
 public sealed record DeliverDigest(Guid ExecutionId);

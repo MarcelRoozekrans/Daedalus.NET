@@ -1,8 +1,42 @@
 # Session State
 
-**Last session:** 2026-11-10
+**Last session:** 2026-11-11
 
-## Current Position - phase 3.5 merged (2026-11-10), next: phase 3.6
+## Current Position - phase 3.6 executing (2026-11-13), Tasks 1-7a and 9 done, next: CI on the head, Task 8
+
+**Milestone 3, phase 3.6, native API, CLI and Migrations.** Branch `phase/3.6-native-publish`, draft PR #448 with the
+`native-publish` label, rebased onto `main` 2026-11-13 (net11.0 target #446 and Aspire #451 are on main; #450 was closed
+as a duplicate). Plan `docs/superpowers/plans/2026-11-11-phase-3.6-native-publish-plan.md`, rulings
+`docs/plans/2026-11-11-phase-3.6-rulings.md`, measurements `docs/plans/2026-11-11-phase-3.6-measurements.md`.
+
+- **Verified on CI, run 43456828388 on `9f966a9d`:** Native publish Api, Cli and Migrations green; AOT analysis 0 for
+  Api, Cli, Migrations and Sandbox; Native suites (Playwright.Api against the native host) green; Measure green.
+  Measured: Api start-up 427 ms against 1972 JIT, Cli 145.5 against 1126, sandbox 325 against 561.
+- **Fixed after the rebase:** `NativeApiHost` moved to net11.0; the Api image installs `icu-libs` (runtime-deps has none and
+  the native Api stopped at start-up); the outbox integration test writes its legacy payload as plain JSON.
+- **Not verified yet:** `Docker (daedalus-api)` (runs after Build & Test is green) and Build & Test with the test fix.
+- **Pending the owner, Task 8:** one native CLI turn and one live manufacture run with an API key; runbook at the end of the
+  rulings doc. A native-only failure is fixed in this phase.
+- **Remaining:** read the Docker job; carried issues #444 #445 #438 stay open with their pointers; ROADMAP row for 3.6 and
+  MILESTONE status to complete after Task 8; merge #448 only when CI is green and CodeRabbit approves (owner's instruction
+  2026-11-13), take the draft out of draft first.
+- **Rules:** never work on or push to main; push `HEAD:phase/3.6-native-publish` (this worktree is detached); no
+  Co-Authored-By or Claude signature; commit body lines at most 100, no nested parentheses; no local Native AOT publish;
+  `dotnet` one at a time with `DOTNET_USE_POLLING_FILE_WATCHER=1`; the 3 `RunScopedRoslynRoutingTests` fail only on the agents VM.
+
+## Open Decisions
+
+Whether #448 merges before the owner's Task 8 run.
+
+## Blockers
+
+Task 8 needs the owner's API key.
+
+## Recommended Next Step
+
+Read CI on the head of #448, fix what it reports, then ask the owner about Task 8 and the merge.
+
+## Earlier Position - phase 3.5 merged (2026-11-10), next: phase 3.6
 
 **Milestone 3, phase 3.5, EF Core to ZeroAlloc.ORM, is complete.** Merged as #443 (squash `9725fb55`, admin merge: the
 required `codecov/project` check compared with main's 88.89%, which counted about 27,600 lines of EF-generated

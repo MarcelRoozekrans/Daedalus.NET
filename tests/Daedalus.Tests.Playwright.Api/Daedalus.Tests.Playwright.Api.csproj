@@ -57,6 +57,12 @@
     <ItemGroup>
         <Compile Include="..\Shared\DatabaseSchema.cs" Link="Shared\DatabaseSchema.cs"/>
         <Compile Include="..\Shared\StoreSeed.cs" Link="Shared\StoreSeed.cs"/>
+        <!-- The Api overrides and their stubs, shared with Daedalus.Tests.NativeApiHost so both hosts serve one Api. -->
+        <Compile Include="..\Shared\ApiTestOverrides.cs" Link="Shared\ApiTestOverrides.cs"/>
+        <Compile Include="..\Shared\StubAgentFactory.cs" Link="Shared\StubAgentFactory.cs"/>
+        <Compile Include="..\Shared\StubPullRequestFactory.cs" Link="Shared\StubPullRequestFactory.cs"/>
+        <Compile Include="..\Shared\StubRalphLoopOrchestrator.cs" Link="Shared\StubRalphLoopOrchestrator.cs"/>
+        <Compile Include="..\Shared\TestAuthHandler.cs" Link="Shared\TestAuthHandler.cs"/>
     </ItemGroup>
 
 </Project>

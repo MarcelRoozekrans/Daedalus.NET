@@ -28,7 +28,7 @@ namespace Daedalus.Agents.Workflow;
 ///     <para>
 ///     <b>Not the security boundary.</b> Nothing here checks who is calling. <c>WorkflowRunsEndpoints</c> is
 ///     reachable only once ASP.NET Core's own <c>WorkflowResume</c> authorization policy (<c>developer</c> or
-///     <c>admin</c> role, see <c>Program.cs</c>) has already let the request through — the same criterion
+///     <c>admin</c> role, see <c>ApiApplication.cs</c>) has already let the request through — the same criterion
 ///     <c>Thalos:ToolPolicies</c> binds <c>git__*</c> and <c>repoaction__*</c> to, enforced here by ASP.NET Core's
 ///     role-based authorization instead of <c>DefaultToolAuthorizer</c>, because a REST endpoint is not a Thalos
 ///     tool call and <c>DefaultToolAuthorizer</c> never sees one.

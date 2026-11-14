@@ -2,9 +2,9 @@ using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using ZeroAlloc.Results;
 
-namespace Daedalus.Tests.Playwright.Api;
+namespace Daedalus.Tests.Shared;
 
-internal class StubPullRequestFactory : IPullRequestFactory
+internal sealed class StubPullRequestFactory : IPullRequestFactory
 {
     public Task<Result<PullRequestResult>> CreatePullRequestAsync(
         string repositoryUrl, string featureBranch, string baseBranch,

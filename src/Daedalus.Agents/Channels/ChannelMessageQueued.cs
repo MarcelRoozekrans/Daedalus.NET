@@ -1,4 +1,5 @@
 using ZeroAlloc.Outbox;
+using ZeroAlloc.Serialisation;
 
 namespace Daedalus.Agents.Channels;
 
@@ -40,4 +41,5 @@ namespace Daedalus.Agents.Channels;
 ///     <c>Payload</c> blob (see <c>AddChannelMessageOutbox</c>'s <c>OutboxMessages</c> table), not per-field columns.
 /// </remarks>
 [OutboxMessage]
+[ZeroAllocSerializable(SerializationFormat.SystemTextJson)]
 public sealed record ChannelMessageQueued(string ChannelId, string ConversationId, string Text, Guid? ExecutionId = null);

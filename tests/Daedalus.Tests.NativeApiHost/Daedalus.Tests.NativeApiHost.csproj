@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <!-- The Api with the Playwright.Api suite's overrides, as a program of its own. WebApplicationFactory hosts the Api
+         in memory and cannot run a Native AOT binary, so CI publishes this project natively and runs Playwright.Api
+         against it over E2E_BASE_URL and E2E_CONNECTION_STRING. It composes the Api with the two calls Daedalus.Api's
+         Program.cs makes, ApiApplication.AddServices and UsePipeline, and applies tests/Shared/ApiTestOverrides.cs
+         in between. -->
+    <PropertyGroup>
+        <TargetFramework>net11.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <LangVersion>13</LangVersion>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>false</IsTestProject>
+        <!-- Published like Daedalus.Api: Native AOT, full trimming, ICU kept. -->
+        <PublishAot>true</PublishAot>
+        <TrimMode>full</TrimMode>
+        <InvariantGlobalization>false</InvariantGlobalization>
+        <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Daedalus.Api\Daedalus.Api.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- The overrides and their stubs, linked from tests/Shared exactly as Playwright.Api links them. -->
+        <Compile Include="..\Shared\ApiTestOverrides.cs" Link="Shared\ApiTestOverrides.cs" />
+        <Compile Include="..\Shared\StubAgentFactory.cs" Link="Shared\StubAgentFactory.cs" />
+        <Compile Include="..\Shared\StubPullRequestFactory.cs" Link="Shared\StubPullRequestFactory.cs" />
+        <Compile Include="..\Shared\StubRalphLoopOrchestrator.cs" Link="Shared\StubRalphLoopOrchestrator.cs" />
+        <Compile Include="..\Shared\TestAuthHandler.cs" Link="Shared\TestAuthHandler.cs" />
+    </ItemGroup>
+
+</Project>

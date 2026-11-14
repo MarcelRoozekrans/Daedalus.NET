@@ -588,7 +588,7 @@ public static partial class DaedalusAgentsServiceCollectionExtensions
 
         // The resume/cancel REST boundary's only path to IWorkflowStore (from AddWorkflowOrm above). Never an
         // agent, never a Thalos tool — see WorkflowRunGateway's own remarks for why, and for what actually
-        // authorizes a call to it (ASP.NET Core's WorkflowResume policy in Daedalus.Api/Program.cs, not
+        // authorizes a call to it (ASP.NET Core's WorkflowResume policy in Daedalus.Api/ApiApplication.cs, not
         // Thalos:ToolPolicies, which DefaultToolAuthorizer only ever evaluates against a tool call).
         services.AddSingleton<WorkflowRunGateway>();
 

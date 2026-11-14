@@ -19,7 +19,7 @@ namespace Daedalus.Tests.Integration.Architecture;
 ///         <c>ClassDeclarationSyntax</c> — and every validated DTO in this solution is a <c>record</c>. So
 ///         registration is explicit and hand-maintained in two places: the <c>ValidatorFor&lt;T&gt;</c>
 ///         singletons in <c>Daedalus.Application.Extensions.ApplicationServiceExtensions</c>, and the
-///         <see cref="IValidationAdapter"/> registrations in <c>Daedalus.Api</c>'s <c>Program.cs</c>. A DTO that
+///         <see cref="IValidationAdapter"/> registrations in <c>Daedalus.Api</c>'s <c>ApiApplication.AddServices</c>. A DTO that
 ///         gains <c>[Validate]</c> but no adapter registration is never validated — no exception, no 500, the
 ///         request just succeeds when it should have been rejected. <see cref="Every_validated_dto_has_a_registered_validation_adapter"/>
 ///         is the only guard that would catch that drift, which is why it is asserted against the adapter set
@@ -32,7 +32,8 @@ namespace Daedalus.Tests.Integration.Architecture;
 ///         ban — a pure file-system scan with no database dependency belongs in the fast suite that runs on every
 ///         ordinary task-verification pass), because proving the adapter set requires the real DI container
 ///         <c>Daedalus.Api</c>'s <c>Program</c> builds. The <see cref="IValidationAdapter"/> registrations are
-///         top-level statements on <c>builder.Services</c> inside <c>Program.cs</c>, not exposed any other way —
+///         statements on <c>builder.Services</c> inside <c>ApiApplication.AddServices</c>, which <c>Program.cs</c>
+///         calls among all the Api's other registrations; they are not exposed one by one —
 ///         a source-text scan could only ever check that a registration line's text exists, not that it actually
 ///         runs and lands in the container the endpoint filter resolves from. Booting the host is the truthful
 ///         check; <see cref="ApiWebApplicationFactory"/> is the existing seam for doing that in-process, hence
@@ -60,7 +61,8 @@ public sealed class CleanArchitectureTests(PostgresFixture fixture) : IAsyncLife
 
     /// <summary>What would break this: adding <c>[Validate]</c> to a DTO in <c>Daedalus.Application</c> and
     /// forgetting the matching <c>AddSingleton&lt;IValidationAdapter, ValidationAdapter&lt;T&gt;&gt;()</c> line
-    /// in <c>Daedalus.Api</c>'s <c>Program.cs</c>. Verified red/green manually — see task-6-report.md.</summary>
+    /// in <c>Daedalus.Api</c>'s <c>ApiApplication.cs</c>. Verified red/green manually — see task-6-report.md, and again
+    /// after the registrations moved from <c>Program.cs</c> into <c>ApiApplication</c>.</summary>
     [Fact]
     public void Every_validated_dto_has_a_registered_validation_adapter()
     {

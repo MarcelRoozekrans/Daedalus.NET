@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Data.Common;
+using System.Text.Json;
 using Daedalus.Agents.Channels;
 using Daedalus.Agents.Scheduling;
 using Daedalus.Domain.Entities;
@@ -395,13 +396,15 @@ public sealed class ScheduledRunExecutionStoreTests(PostgresFixture fixture) : I
     {
         // Guards the compatibility rule ChannelMessageQueued's own remarks state: ZeroAlloc.Outbox stores this
         // record as an opaque serialized payload, so a row queued before ExecutionId existed must deserialize
-        // harmlessly with it defaulted, not throw. OriginalChannelMessageQueued models exactly that pre-existing
-        // three-property shape; the real, DI-resolved IOutboxSerializer (not an assumed wire format) both writes
-        // the "old" payload and reads it back as the current record.
+        // harmlessly with it defaulted, not throw. The "old" payload is the three-property JSON such a row holds,
+        // written with the default System.Text.Json options the outbox has always used, so it does not depend on
+        // the outbox serializer knowing a type that no longer exists in src. The real, DI-resolved
+        // IOutboxSerializer reads it back as the current record.
         Store(); // populates _serializer as a side effect; this test makes no database calls itself
         var serializer = _serializer!;
 
-        var oldPayload = serializer.Serialize(new OriginalChannelMessageQueued("telegram", "123456", "hello"));
+        var oldPayload = JsonSerializer.SerializeToUtf8Bytes(
+            new OriginalChannelMessageQueued("telegram", "123456", "hello"));
         var current = serializer.Deserialize<ChannelMessageQueued>(oldPayload);
 
         current.ExecutionId.Should().BeNull(

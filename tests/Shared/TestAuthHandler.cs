@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace Daedalus.Tests.Playwright.Api.Fixtures;
+namespace Daedalus.Tests.Shared;
 
 /// <summary>
 ///     A test authentication handler that automatically authenticates all requests.
@@ -20,7 +20,7 @@ internal sealed class TestAuthHandler(
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        // Grant every role used by the API's authorization policies (see Program.cs AddAuthorization).
+        // Grant every role used by the API's authorization policies (see ApiApplication.cs AddAuthorization).
         // Without these, endpoints behind role-based policies -- Admin, TaskManagement,
         // ProjectManagement, CodeAnalysis -- return 403 Forbidden for every E2E test, since an
         // authenticated principal with no role claims still fails RequireRole(...) checks.

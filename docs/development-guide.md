@@ -467,6 +467,37 @@ count, with our own source-generated clients, `ZeroAlloc.Rest.Anthropic` and `Ze
 0.20.0. Neither package is in any dependency graph now; see "LLM providers". Rulings, ratchet moves and the native run:
 `docs/plans/2026-10-24-phase-3.3-rulings.md` and `docs/plans/2026-10-24-phase-3.3-native-smoke.md`.
 
+Phase 3.6 made the Api, the Cli and Migrations native too. `PublishAot` is on for Api, Cli, Migrations and Sandbox, `TrimMode`
+is `full`, and the baselines for those four are 0 (Web stays 196, phase 3.7). The Api image holds the native executable
+on a `runtime-deps` base. CI runs `Daedalus.Tests.Playwright.Api` against a natively published host
+(`tests/Daedalus.Tests.NativeApiHost`, which composes the Api through `ApiApplication`) and checks that the production
+binary starts. Rulings and numbers: `docs/plans/2026-11-11-phase-3.6-rulings.md` and
+`docs/plans/2026-11-11-phase-3.6-measurements.md`.
+
+### Rules for contributors
+
+- **No reflection over your own types.** JSON goes through a source-generated context, configuration through the binder
+  generator, handlers and validators through explicit registration. A reflective path is a warning, and the baseline
+  for each of the four server targets is 0, so a new warning fails `aot-analysis`.
+- **No suppressions.** Do not add `UnconditionalSuppressMessage`, `#pragma warning disable IL...`, a `NoWarn` for
+  IL2xxx or IL3xxx, or a trimmer root (`TrimmerRootAssembly`, `TrimmerRootDescriptor`) to make a count go down. Find the
+  call that needs reflection and replace it.
+- **Lowering a baseline** is a commit of its own: run `eng/aot/count-warnings.sh --target <Name> --write` on CI's
+  numbers, not a local publish.
+
+### Native publish in CI, never on the shared VM
+
+A Native AOT publish of the Api runs ILC at 10 to 16 GB resident, and the agents VM has 24 GB for about nine sessions;
+local publishes were OOM-killed three times on 2026-10-22. So the publish happens in CI:
+
+- `aot-analysis` in `ci.yml` publishes each target and checks the count against the baseline.
+- The `native-publish` workflow runs on a pull request that carries the **`native-publish`** label. It publishes Api,
+  Cli and Migrations and uploads them as the artifacts `native-Api`, `native-Cli` and `native-Migrations`; a `native-suites`
+  job migrates a Postgres service with the native Migrations binary and runs Playwright.Api against the native test host;
+  a `measure` job runs `eng/measure` and uploads `native-measurements`. Download an artifact with
+  `gh run download <run-id> -n native-Cli` to try a binary by hand.
+- `dotnet build`, `dotnet test` and non-AOT publishes stay fine locally, one at a time.
+
 ### The toolchain
 
 - **clang and the zlib headers** link the native binaries: `sudo apt-get install -y clang zlib1g-dev` on Debian or
@@ -962,7 +993,7 @@ a class; expected a struct") — every command/query in
 
 `AddMediator()` and the generated `IMediator` interface are `internal` to
 `Daedalus.Application` (see `ApplicationServiceExtensions.cs`). They cannot
-appear in a public method signature, and `Program.cs` in `Daedalus.Api` never
+appear in a public method signature, and `Daedalus.Api`'s `Program.cs` and `ApiApplication.cs` never
 references `IMediator` directly. Two `internal` classes inside
 `Daedalus.Application` are allowed to depend on it —
 `Services/ApplicationCommands.cs` and `Services/PrdService.cs` — and
@@ -983,12 +1014,12 @@ validator registration is explicit and hand-maintained in two places:
    `ValidatorFor<T>` explicitly, e.g.
    `services.AddSingleton<ValidatorFor<CreateTaskDto>, CreateTaskDtoValidator>();`
    (currently ×8).
-2. `Daedalus.Api`'s `Program.cs` registers the matching `IValidationAdapter`
+2. `Daedalus.Api`'s `ApiApplication.cs` registers the matching `IValidationAdapter`
    for each type — this is what `ZeroAllocValidationEndpointFilter` actually consults
    at request time. The filter is added to every endpoint group by
    `MapApiGroup`; it is not an MVC filter any more.
 
-A DTO that gains `[Validate]` but no adapter registration in `Program.cs` is
+A DTO that gains `[Validate]` but no adapter registration in `ApiApplication.cs` is
 **silently never validated** — no exception, no 500. This is guarded by
 `Daedalus.Tests.Integration.Architecture.CleanArchitectureTests`, which
 reflects over `Daedalus.Application` for `[Validate]`-attributed types and
@@ -1475,7 +1506,7 @@ public static async Task<Results<Created<ProjectDto>, ApiJsonResult<ErrorBody>>>
   order 415, then the binding problems, then runs the `IValidationAdapter` registered for each argument's
   type and answers the first failure. The two-place validator rule is unchanged (see "Validation" above):
   a `[Validate]` DTO needs its `ValidatorFor<T>` in `ApplicationServiceExtensions` and its
-  `ValidationAdapter<T>` line in `Daedalus.Api/Program.cs`, or it is silently never validated.
+  `ValidationAdapter<T>` line in `Daedalus.Api/ApiApplication.cs`, or it is silently never validated.
   `CleanArchitectureTests` guards it against the host's own service provider; the Browser E2E fixture
   registers no adapters (issue #436).
 - **Logging.** A handler that logs takes `ILoggerFactory` and a nested `private static partial class Log`
@@ -1484,7 +1515,7 @@ public static async Task<Results<Created<ProjectDto>, ApiJsonResult<ErrorBody>>>
 
 Other API conventions:
 
-- Response compression is enabled once, in `src/Daedalus.Api/Program.cs`
+- Response compression is enabled once, in `src/Daedalus.Api/ApiApplication.cs`
   (`AddResponseCompression`).
 - JSON goes through `System.Text.Json` source generation alone:
   `AddDaedalusEndpoints` points the Http `JsonOptions` at

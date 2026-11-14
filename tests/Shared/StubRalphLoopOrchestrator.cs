@@ -2,9 +2,9 @@ using Daedalus.Application.Services.CodeAnalysis;
 using Daedalus.Domain.CodeAnalysis;
 using ZeroAlloc.Results;
 
-namespace Daedalus.Tests.Playwright.Api;
+namespace Daedalus.Tests.Shared;
 
-internal class StubRalphLoopOrchestrator : IRalphLoopOrchestrator
+internal sealed class StubRalphLoopOrchestrator : IRalphLoopOrchestrator
 {
     public Task<Result<Guid>> SubmitAnalysisAsync(
         string repoUrl, string filePath, AnalysisType type, string title, string description,

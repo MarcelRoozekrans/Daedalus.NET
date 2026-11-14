@@ -25,7 +25,7 @@ public sealed class ApiHostClaudeModelTests(PostgresFixture fixture)
         claude.Model.Should().Be("claude-sonnet-5");
     }
 
-    /// <summary>Red: drop the ClaudeModelPricedValidator registration from Program.cs; the host starts.</summary>
+    /// <summary>Red: drop the ClaudeModelPricedValidator registration from ApiApplication.cs; the host starts.</summary>
     [Fact]
     public async Task The_host_refuses_to_start_on_an_unpriced_model()
     {

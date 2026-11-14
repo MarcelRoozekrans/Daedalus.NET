@@ -1,365 +1,81 @@
-using System.Data.Common;
-using System.Net;
-using System.Net.Sockets;
-using Daedalus.Application.Abstractions;
-using Daedalus.Application.Services.CodeAnalysis;
-using Daedalus.Domain.Entities;
-using Daedalus.Infrastructure.Persistence;
-using Daedalus.Infrastructure.Persistence.Orm;
-using Daedalus.Tests.Playwright.Api.Fixtures;
-using Daedalus.Tests.Shared;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Npgsql;
-// Alias to resolve ambiguity between Daedalus.Api.Program and other hosts' Program types
-using ApiProgram = Daedalus.Api.Program;
 using Task = System.Threading.Tasks.Task;
 
 namespace Daedalus.Tests.Playwright.Api;
 
 /// <summary>
-///     NUnit SetUpFixture that manages the lifecycle of the test server and database container.
+///     NUnit SetUpFixture that manages the lifecycle of the test server and database for the whole suite.
 ///     This runs once before all tests and once after all tests in the namespace.
-///     Uses WebApplicationFactory with in-memory TestServer; tests access via HttpClient.
+///     By default it hosts the Api in memory over a Postgres container; with <c>E2E_BASE_URL</c> and
+///     <c>E2E_CONNECTION_STRING</c> set it runs the suite against that already running host instead
+///     (see <see cref="E2EServer"/>). Tests access either through <see cref="CreateClient"/>.
 /// </summary>
 [SetUpFixture]
 public class E2EServerFixture
 {
-    private static PostgreSqlContainer? _postgresContainer;
-    private static WebApplicationFactory<ApiProgram>? _factory;
+    private static E2EServer? _server;
 
     /// <summary>
-    ///     The base URL where the test server is listening (in-memory TestServer).
+    ///     The base URL of the server under test: the external host's, or a placeholder for the in-memory TestServer.
     /// </summary>
-    public static Uri? ServerUrl { get; private set; }
+    public static Uri? ServerUrl => _server?.ServerUrl;
 
     /// <summary>
     ///     The connection string for the test database.
     /// </summary>
-    public static string ConnectionString { get; private set; } = string.Empty;
+    public static string ConnectionString => _server?.ConnectionString ?? string.Empty;
 
     /// <summary>
     ///     Indicates whether the server is ready for tests.
     /// </summary>
-    public static bool IsServerReady { get; private set; }
+    public static bool IsServerReady => _server?.IsReady ?? false;
 
     /// <summary>
-    ///     The port (kept for backward compatibility, not used by TestServer).
+    ///     The port of <see cref="ServerUrl"/> (not used by TestServer).
     /// </summary>
-    public static int Port { get; private set; }
+    public static int Port => _server?.Port ?? 0;
 
     /// <summary>
-    ///     Creates an HttpClient configured to communicate with the in-memory test server.
+    ///     Creates an HttpClient configured to communicate with the server under test.
     /// </summary>
     public static HttpClient CreateClient()
     {
-        if (_factory == null)
+        if (_server == null)
         {
             throw new InvalidOperationException(
                 "Test server is not initialized. Ensure E2EServerFixture has completed setup.");
         }
 
-        return _factory.CreateClient();
+        return _server.CreateClient();
     }
 
     [OneTimeSetUp]
     public async Task GlobalSetupAsync()
     {
+        _server = new E2EServer(name => Environment.GetEnvironmentVariable(name));
         try
         {
-            // Start PostgreSQL container
-#pragma warning disable CS0618 // Using PostgreSqlBuilder - obsolete warning for parameterless constructor
-            _postgresContainer = new PostgreSqlBuilder()
-                .WithImage("pgvector/pgvector:pg16")
-                .WithDatabase("daedalus_e2e_test")
-                .WithUsername("e2e_user")
-                .WithPassword("e2e_password")
-                .Build();
-#pragma warning restore CS0618
-
-            await _postgresContainer.StartAsync().ConfigureAwait(false);
-            ConnectionString = _postgresContainer.GetConnectionString();
-
-            // Set connection string as environment variable BEFORE creating WebApplicationFactory
-            Environment.SetEnvironmentVariable("ConnectionStrings__daedalus", ConnectionString);
-
-            // Find an available port (kept for ServerUrl compatibility)
-            Port = GetAvailablePort();
-            ServerUrl = new Uri($"http://localhost:{Port}");
-
-            // Create the database schema and seed data BEFORE the WebApplicationFactory host ever starts.
-            // WebApplicationFactory starts the whole host - including hosted services such as Thalos's
-            // SkillSyncService, which queries the Skills table - the first time _factory.Services (or
-            // CreateClient()) is touched below. Doing schema setup afterwards raced that startup and
-            // failed with "relation Skills does not exist" because the host's hosted services ran against
-            // an empty database. Building the schema and the seed over a standalone data source here, before the
-            // factory exists at all, guarantees the schema is in place first.
-            await using (var seedSource = NpgsqlDataSource.Create(ConnectionString))
-            {
-                // The real migrations, the schema Daedalus.Migrations builds in production, workflow tables included.
-                await DatabaseSchema.ApplyAsync(ConnectionString, CancellationToken.None).ConfigureAwait(false);
-                await SeedTestDataAsync(seedSource).ConfigureAwait(false);
-            }
-
-            // Create and configure the WebApplicationFactory (uses in-memory TestServer)
-            _factory = new WebApplicationFactory<ApiProgram>()
-                .WithWebHostBuilder(builder =>
-                {
-                    builder.UseEnvironment("Development");
-
-                    builder.ConfigureAppConfiguration((context, config) =>
-                    {
-                        config.AddInMemoryCollection(new Dictionary<string, string?>
-                        {
-                            ["ConnectionStrings:daedalus"] = ConnectionString
-                        });
-                    });
-
-                    // UseSetting, not ConfigureAppConfiguration, for this one - AddDaedalusAgents reads
-                    // Workflow.Enabled synchronously while Program.cs registers services (same "too late" timing
-                    // ApiWebApplicationFactory's ConnectionStrings:daedalus comment describes), so a
-                    // ConfigureAppConfiguration value here would not exist yet when the gate is evaluated.
-                    // The workflow engine stays off for this suite, as it was before the fixture database held the engine's
-                    // tables: this suite tests the Api's endpoints, not the engine. processes/manufacture.yaml (Task 11)
-                    // is a real file on Thalos:Workflow's ProcessesRoot and flows into this host's output the same way
-                    // skills/*.SKILL.md does, so left enabled, ProcessDefinitionSyncHostedService.StartAsync would sync
-                    // it and the engine's pollers would start against the Api suite's stubbed runtime. The tables exist
-                    // now, so turning it on is a decision for a later change, not a schema gap.
-                    builder.UseSetting("Thalos:Workflow:Enabled", "false");
-
-                    // A host setting, so Program sees it while it registers services: AddApplicationDatabase builds the
-                    // NpgsqlDataSource behind DaedalusDb from it then, before ConfigureAppConfiguration above applies,
-                    // and the ZeroAlloc.ORM stores and AgentSessionCrashRecovery would open the default database.
-                    builder.UseSetting("ConnectionStrings:daedalus", ConnectionString);
-
-                    builder.ConfigureServices(services =>
-                    {
-                        // Register repositories that are missing from the API project
-                        services.AddScoped<ITaskRepository, TaskRepository>();
-
-                        // Register mock/stub services for external dependencies
-                        services.AddScoped<IAgentFactory, StubAgentFactory>();
-
-                        // Replace services that require HttpClient with stubs
-                        RemoveService<IPullRequestFactory>(services);
-                        RemoveService<IRalphLoopOrchestrator>(services);
-
-                        services.AddScoped<IPullRequestFactory, StubPullRequestFactory>();
-                        services.AddScoped<IRalphLoopOrchestrator, StubRalphLoopOrchestrator>();
-
-                        // Commands and queries are NOT stubbed here: the 8 commands reachable through
-                        // IApplicationCommands only touch ITaskRepository/IProjectRepository (both real,
-                        // against the seeded Postgres container), so the real handlers run and behave
-                        // exactly like production - including returning "not found" for a missing id.
-                        // The commands that do call out to an LLM (GeneratePrd,// ConvertPrdToTasks) are safe too: they go through
-                        // IAgentFactory, which is stubbed above.
-
-                        // Add HttpClient for any services that still need it
-                        services.AddHttpClient();
-
-                        // Replace real JWT Bearer authentication with a test scheme
-                        services.AddAuthentication(TestAuthHandler.SchemeName)
-                            .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
-                                TestAuthHandler.SchemeName, _ => { });
-                        services.PostConfigureAll<AuthenticationOptions>(options =>
-                        {
-                            options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-                            options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-                            options.DefaultScheme = TestAuthHandler.SchemeName;
-                        });
-
-                        // Disable JwtBearer OIDC discovery
-                        services.PostConfigureAll<JwtBearerOptions>(options =>
-                        {
-                            options.Authority = null;
-                            options.RequireHttpsMetadata = false;
-                            options.Configuration = new OpenIdConnectConfiguration();
-                        });
-
-                        // Remove and replace health checks to avoid database dependencies
-                        RemoveServicesByType(services, "HealthCheck");
-                        services.AddHealthChecks();
-
-                        // Production registers a global 100 req/min limiter (partitioned per user) and a
-                        // 30 req/min "write-operations" limiter. All E2E tests authenticate as the same
-                        // TestAuthHandler identity, so they share one partition; a full test run fires far
-                        // more than 100 requests well within a minute and starts getting 429s that have
-                        // nothing to do with the behavior under test. Replace the configured RateLimiterOptions
-                        // with effectively unlimited policies of the same names so [EnableRateLimiting(...)]
-                        // attributes still resolve, but never actually throttle in tests.
-                        RemoveConfigureOptions<RateLimiterOptions>(services);
-                        services.AddRateLimiter(options =>
-                        {
-                            options.AddFixedWindowLimiter("llm-operations", limiterOptions =>
-                            {
-                                limiterOptions.PermitLimit = int.MaxValue;
-                                limiterOptions.Window = TimeSpan.FromMilliseconds(1);
-                            });
-                            options.AddFixedWindowLimiter("write-operations", limiterOptions =>
-                            {
-                                limiterOptions.PermitLimit = int.MaxValue;
-                                limiterOptions.Window = TimeSpan.FromMilliseconds(1);
-                            });
-                        });
-                    });
-                });
-
-            // Verify the server is responding via in-memory TestServer
-            using var client = _factory.CreateClient();
-            var response = await client.GetAsync("/health").ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            IsServerReady = true;
-            await TestContext.Progress.WriteLineAsync($"E2E Test Server started at {ServerUrl}").ConfigureAwait(false);
+            await _server.StartAsync().ConfigureAwait(false);
+            await TestContext.Progress.WriteLineAsync(_server.HostsInProcess
+                    ? $"E2E Test Server started at {ServerUrl}"
+                    : $"E2E tests run against the external host at {ServerUrl}")
+                .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             await TestContext.Progress.WriteLineAsync($"Failed to start E2E Test Server: {ex.Message}")
                 .ConfigureAwait(false);
-            IsServerReady = false;
             throw;
-        }
-    }
-
-    private static void RemoveService<T>(IServiceCollection services)
-    {
-        var descriptor = services.FirstOrDefault(d => d.ServiceType == typeof(T));
-        if (descriptor != null)
-        {
-            services.Remove(descriptor);
-        }
-    }
-
-    private static void RemoveServicesByType(IServiceCollection services, string typeNamePart)
-    {
-        var toRemove = services
-            .Where(d => d.ServiceType.Name.Contains(typeNamePart, StringComparison.Ordinal))
-            .ToList();
-        foreach (var descriptor in toRemove)
-        {
-            services.Remove(descriptor);
-        }
-    }
-
-    /// <summary>
-    ///     Removes IConfigureOptions/IPostConfigureOptions registrations for <typeparamref name="TOptions" />.
-    ///     Needed because Program.cs's AddRateLimiter(...) already ran (it's part of top-level Program
-    ///     construction) by the time this ConfigureServices callback executes, and RateLimiterOptions'
-    ///     AddPolicy throws if a policy name is registered twice on the same options instance -- so the
-    ///     production limiter configuration must be removed outright before re-adding permissive policies.
-    /// </summary>
-    private static void RemoveConfigureOptions<TOptions>(IServiceCollection services)
-    {
-        var toRemove = services
-            .Where(d => d.ServiceType.IsGenericType
-                        && d.ServiceType.GenericTypeArguments.Length == 1
-                        && d.ServiceType.GenericTypeArguments[0] == typeof(TOptions)
-                        && (d.ServiceType.GetGenericTypeDefinition() == typeof(IConfigureOptions<>)
-                            || d.ServiceType.GetGenericTypeDefinition() == typeof(IPostConfigureOptions<>)))
-            .ToList();
-        foreach (var descriptor in toRemove)
-        {
-            services.Remove(descriptor);
-        }
-    }
-
-    private static async Task SeedTestDataAsync(NpgsqlDataSource dataSource)
-    {
-        try
-        {
-            await using (var any = dataSource.CreateCommand("SELECT EXISTS (SELECT 1 FROM \"Projects\")"))
-            {
-                if ((bool)(await any.ExecuteScalarAsync().ConfigureAwait(false))!)
-                {
-                    return;
-                }
-            }
-
-            var projectResult = Project.Create(
-                Guid.NewGuid(),
-                "Test Project",
-                "A test project for E2E testing");
-
-            if (projectResult.IsFailure)
-            {
-                return;
-            }
-
-            var project = projectResult.Value;
-
-            var task1Result = Domain.Entities.Task.Create(
-                Guid.NewGuid(),
-                project.Id,
-                "TASK-001",
-                "Implement feature A",
-                "Complete the implementation of feature A",
-                Priority.Medium,
-                "Backend",
-                1,
-                Complexity.Medium,
-                "Implement feature A by creating the necessary code");
-
-            if (task1Result.IsSuccess)
-            {
-                project.AddTask(task1Result.Value);
-            }
-
-            var task2Result = Domain.Entities.Task.Create(
-                Guid.NewGuid(),
-                project.Id,
-                "TASK-002",
-                "Fix bug B",
-                "Fix the critical bug in module B",
-                Priority.High,
-                "Backend",
-                1,
-                Complexity.Low,
-                "Fix the bug in module B by analyzing and correcting the code");
-
-            if (task2Result.IsSuccess)
-            {
-                project.AddTask(task2Result.Value);
-            }
-
-            await StoreSeed.AddProjectAsync(new DaedalusDb(dataSource), project).ConfigureAwait(false);
-        }
-        catch (DbException)
-        {
-            // Seeding failed, tests may fail due to missing data
         }
     }
 
     [OneTimeTearDown]
     public async Task GlobalTeardownAsync()
     {
-        Environment.SetEnvironmentVariable("ConnectionStrings__daedalus", null);
-
-        if (_factory != null)
+        if (_server != null)
         {
-            await _factory.DisposeAsync().ConfigureAwait(false);
-        }
-
-        if (_postgresContainer != null)
-        {
-            await _postgresContainer.DisposeAsync().ConfigureAwait(false);
+            await _server.DisposeAsync().ConfigureAwait(false);
         }
 
         await TestContext.Progress.WriteLineAsync("E2E Test Server stopped").ConfigureAwait(false);
-    }
-
-    private static int GetAvailablePort()
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
-        return port;
     }
 }

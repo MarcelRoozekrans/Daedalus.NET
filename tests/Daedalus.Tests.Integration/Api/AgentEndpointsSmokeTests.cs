@@ -193,7 +193,7 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
 
     /// <summary>
     ///     Review Focus 4: the stream goes out byte-transparent, with no <c>Content-Encoding</c>, even when the client
-    ///     offers gzip. The response-compression <c>MimeTypes</c> in <c>Program.cs</c> leave out <c>text/event-stream</c>;
+    ///     offers gzip. The response-compression <c>MimeTypes</c> in <c>ApiApplication.cs</c> leave out <c>text/event-stream</c>;
     ///     that, not <c>DisableBuffering</c>, is what keeps it uncompressed. The raw bytes start with the connection comment.
     /// </summary>
     [Fact]
@@ -209,7 +209,7 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
 
         // Red: Response.StatusCode = 202 in place of 200 in RunTurnStream.
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        // Red: "text/event-stream" added to the response compression MimeTypes in Program.cs; the stream goes out
+        // Red: "text/event-stream" added to the response compression MimeTypes in ApiApplication.cs; the stream goes out
         //      gzip-encoded, DisableBuffering notwithstanding.
         response.Content.Headers.ContentEncoding.Should().BeEmpty("SSE must never be gzip-buffered");
         var bytes = await response.Content.ReadAsByteArrayAsync();
@@ -278,7 +278,7 @@ public sealed class AgentEndpointsSmokeTests(PostgresFixture fixture) : IAsyncLi
         using (var next = StreamRequest(sessionId))
         using (var response = await client.SendAsync(next))
         {
-            // Red: llm-operations' PermitLimit lowered to 1 in Program.cs; the next turn is refused with 429.
+            // Red: llm-operations' PermitLimit lowered to 1 in ApiApplication.cs; the next turn is refused with 429.
             response.StatusCode.Should().Be(HttpStatusCode.OK);
             var frames = (await response.Content.ReadAsStringAsync()).Split("\n\n", StringSplitOptions.RemoveEmptyEntries);
             // Red: enumerate the turn in RunTurnStream through runtime.RunTurnStreamingAsync(...).GetAsyncEnumerator(ct)

@@ -11,7 +11,7 @@ namespace Daedalus.Tests.Integration.Api;
 [Collection(DatabaseCollection.Name)]
 public sealed class RateLimitPartitionTests(PostgresFixture fixture)
 {
-    /// <summary>The global limiter's permit count per window, as <c>Program.cs</c> configures it.</summary>
+    /// <summary>The global limiter's permit count per window, as <c>ApiApplication.cs</c> configures it.</summary>
     private const int GlobalPermits = 100;
 
     /// <summary>
