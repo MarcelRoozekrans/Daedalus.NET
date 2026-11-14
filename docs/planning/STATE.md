@@ -1,12 +1,18 @@
 # Session State
 
-**Last session:** 2026-11-11
+**Last session:** 2026-11-14
 
 ## Current Position - building the live native run workflow for #452 (2026-11-14)
 
 **Branch `ci/live-native-run`, from main `b93394ed`, no PR yet.** Phase 3.6 is merged (#448, #453). The owner asked for the live
 manufacture run on the native Api (#452) to run in CI as a manual workflow.
 
+- **Built (2026-11-14):** `.github/workflows/live-native-run.yml` and `eng/live-run/drive.sh`, README beside it.
+  Allow-list: `Thalos:Workflow:Repositories` in the Api's `appsettings.json`, entry `sandbox`. Token: `GITHUB_TOKEN`,
+  also for the mirror clone, since `daedalus-sandbox` is private. Terminal statuses: Succeeded, Failed, Cancelled; the
+  run parks at `gate` on `human_approval`, which the driver approves. Secrets `ANTHROPIC_API_KEY` and
+  `SANDBOX_GITHUB_TOKEN` in environment `live-manufacture`. A pull request touching the workflow or `eng/live-run/`
+  runs dry mode, because `workflow_dispatch` only works once the file is on main. Dry mode passed locally on the JIT Api.
 - **Design, agreed with the owner:** a `workflow_dispatch` workflow, never label-triggered (secrets and real Anthropic spend).
   It starts Postgres and Keycloak as containers, as `eng/measure/lib.sh` does; builds `daedalus-sandbox:dev` from
   `src/Daedalus.Sandbox/Dockerfile` on the runner (a native publish is fine in CI); downloads or publishes the native Api and
