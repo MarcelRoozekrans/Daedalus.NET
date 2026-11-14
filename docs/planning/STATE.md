@@ -2,7 +2,21 @@
 
 **Last session:** 2026-11-14
 
-## Current Position - building the live native run workflow for #452 (2026-11-14)
+## Current Position - live native run workflow in PR #454, CI green (2026-11-14), next: the owner's live run
+
+**PR #454 from `ci/live-native-run`, all checks green, not merged.** The dry run on the PR passed on the native Api:
+`/health` after 2 s, project and task created, Manufacture refused a non-allow-listed repository with 422. The
+empty environment name on the dry path created no environment.
+
+- **Owner's choice, 2026-11-14:** environment `live-manufacture` with a required reviewer, environment secrets
+  `ANTHROPIC_API_KEY` and `SANDBOX_GITHUB_TOKEN`, fine-grained for daedalus-sandbox, Contents and Pull requests
+  read/write. The owner adds them in GitHub Settings; never ask for a key in chat.
+- **Next:** the owner merges #454 and dispatches Live native run from main with `dry_run` cleared. Read the job
+  summary and the `live-native-run-logs` artifact. A native-only failure gets fixed on a new branch. On success, record
+  run id, PR and cost in a ruling in `docs/plans/2026-11-11-phase-3.6-rulings.md`, tick Milestone 3's #452 line and
+  close #452.
+
+## Earlier Position - building the live native run workflow for #452 (2026-11-14)
 
 **Branch `ci/live-native-run`, from main `b93394ed`, no PR yet.** Phase 3.6 is merged (#448, #453). The owner asked for the live
 manufacture run on the native Api (#452) to run in CI as a manual workflow.
