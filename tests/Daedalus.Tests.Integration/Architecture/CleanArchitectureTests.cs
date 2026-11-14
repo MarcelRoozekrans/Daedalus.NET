@@ -27,9 +27,9 @@ namespace Daedalus.Tests.Integration.Architecture;
 ///         <c>ValidatorFor&lt;T&gt;</c> set.
 ///     </para>
 ///     <para>
-///         This test lives in the Integration project, not alongside the ArchUnitNET-based
-///         <c>Daedalus.Tests.Unit.Architecture.CleanArchitectureTests</c> (which also carries the FluentValidation
-///         ban — a pure file-system scan with no database dependency belongs in the fast suite that runs on every
+///         This test lives in the Integration project, not in the Ariadne pack that
+///         <c>Daedalus.Tests.Unit.Architecture.AriadneArchitectureTests</c> checks (which also carries the FluentValidation
+///         ban — a check with no database dependency belongs in the fast suite that runs on every
 ///         ordinary task-verification pass), because proving the adapter set requires the real DI container
 ///         <c>Daedalus.Api</c>'s <c>Program</c> builds. The <see cref="IValidationAdapter"/> registrations are
 ///         statements on <c>builder.Services</c> inside <c>ApiApplication.AddServices</c>, which <c>Program.cs</c>

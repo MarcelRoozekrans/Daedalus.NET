@@ -1585,11 +1585,10 @@ trigger and dropped by design, not because it is broken. `ClaimAndEnqueueDueAsyn
 `ScheduledRuns.NextRunAt` is the sweep's only source of truth — a missed tick is simply picked up by the
 next one, and there is no "the sweeper ran" row that would ever need to survive a crash. Durable jobs,
 retries, dead-lettering, a dashboard: none of it buys anything over the plain `BackgroundService` this
-already is. This is enforced, not merely documented: `CleanArchitectureTests.No_project_references_ZeroAlloc_Scheduling`
-(`tests/Daedalus.Tests.Unit/Architecture/CleanArchitectureTests.cs`) asserts by direct `.csproj` text scan
-that no project references the package — a namespace-based ArchUnitNET rule would be vacuously true here,
-since the whole point of dropping the package is that nothing loads it, so the test greps `.csproj` files
-directly instead. The test's own failure message records that the decision is reversible: the package now
+already is. This is enforced, not merely documented: the Ariadne rule `DAE-NO-ZEROALLOC-SCHEDULING` in
+`.architecture/rules.yaml` is a `bannedPackages` rule, which reads each project's restored package graph, so it
+fails when any project resolves the package, directly or transitively; a namespace rule would be vacuously true
+here, since the whole point of dropping the package is that nothing references its types. The test's own failure message records that the decision is reversible: the package now
 ships a zero-setup in-memory store and the package's own EF context migrations could target, so it can slot
 back in later if durable job state is ever genuinely needed — "if that is ever wanted, delete this fact
 rather than working around it."
