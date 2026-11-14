@@ -142,10 +142,12 @@ is unversioned. The pattern: `docs/development-guide.md`, "API endpoints".
   no file under `src/` uses it since phase 2.8, only the benchmarks. Standard
   LINQ is fine elsewhere.
 - Clean Architecture layering (Domain has no dependency on Application/
-  Infrastructure/Api) is enforced by ArchUnitNET
-  (`TngTech.ArchUnitNET.xUnit`) in
-  `tests/Daedalus.Tests.Unit/Architecture/CleanArchitectureTests.cs` and the
-  Integration-project counterpart.
+  Infrastructure/Api) and the other architecture rules live in the Ariadne
+  pack `.architecture/rules.yaml`, checked by
+  `tests/Daedalus.Tests.Unit/Architecture/AriadneArchitectureTests.cs`
+  (`Ariadne.NET.Testing`). Facts the pack cannot hold are in
+  `RetainedArchitectureTests.cs` next to it and in the Integration project's
+  `Architecture/CleanArchitectureTests.cs`.
 
 ## Data layer: ZeroAlloc.ORM, no EF Core
 

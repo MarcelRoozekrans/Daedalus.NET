@@ -259,11 +259,12 @@ the other endpoint groups still differ (issue #366).
 is an unrelated code-analysis type that kept its name (issue #279).
 
 Clean Architecture layer boundaries (Domain must not depend on Application/
-Infrastructure/Api, etc.) are enforced by ArchUnitNET tests in
-`tests/Daedalus.Tests.Unit/Architecture/CleanArchitectureTests.cs` and
-`tests/Daedalus.Tests.Integration/Architecture/CleanArchitectureTests.cs`. The
-package is `TngTech.ArchUnitNET.xUnit` (0.13.2) — not the plain `ArchUnitNET`
-package some older docs reference.
+Infrastructure/Api, etc.) are rules in the Ariadne pack `.architecture/rules.yaml`.
+`tests/Daedalus.Tests.Unit/Architecture/AriadneArchitectureTests.cs` checks the
+solution against it with `Ariadne.NET.Testing`; each rule's `because` says why it
+exists. Facts the pack cannot hold stay in C#: `RetainedArchitectureTests.cs` next
+to it, and `tests/Daedalus.Tests.Integration/Architecture/CleanArchitectureTests.cs`,
+which needs the API host's DI container.
 
 ## Developer workflows
 

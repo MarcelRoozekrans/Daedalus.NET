@@ -252,7 +252,7 @@ src/
 └── Daedalus.Migrations/       # SQL database migration runner (DaedalusMigrations, then the workflow engine's)
 
 tests/
-├── Daedalus.Tests.Unit/              # General unit tests + ArchUnit rules (xUnit)
+├── Daedalus.Tests.Unit/              # General unit tests + Ariadne architecture check (xUnit)
 ├── Daedalus.Tests.Unit.Domain/       # Domain layer unit tests (xUnit)
 ├── Daedalus.Tests.Unit.Application/  # Application layer unit tests (xUnit)
 ├── Daedalus.Tests.Unit.Infrastructure/ # Infrastructure unit tests (xUnit)
@@ -1293,7 +1293,7 @@ builder.Services.AddOidcAuthentication(options =>
 | Respawn                      | 7.0.0   | Database cleanup between integration tests             |
 | Testcontainers.PostgreSql    | 4.14.0  | PostgreSQL Docker containers for integration tests (image `pgvector/pgvector:pg16`) |
 | Thalos.NET.Testing           | 0.4.0   | `ScriptedChatClient`, in-memory stores, `MemoryStoreContractTests`, `SkillStoreContractTests` |
-| TngTech.ArchUnitNET.xUnit    | 0.13.2  | Layer/boundary rules (`CleanArchitectureTests`)        |
+| Ariadne.NET.Testing          | 0.9.0   | Checks the solution against `.architecture/rules.yaml` (`AriadneArchitectureTests`) |
 
 ### Commands
 

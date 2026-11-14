@@ -41,7 +41,6 @@
         <PackageReference Include="ZeroAlloc.Results"/>
         <PackageReference Include="Bogus"/>
         <PackageReference Include="Spectre.Console.Testing"/>
-        <PackageReference Include="TngTech.ArchUnitNET.xUnit"/>
         <PackageReference Include="Ariadne.NET.Testing"/>
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>
         <PackageReference Include="ZeroAlloc.TestHelpers"/>
