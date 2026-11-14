@@ -762,6 +762,14 @@ worktree at the commit the images were built from, two passes of 10, with the va
 measures the native build on the same VM the same way. Start-up varies by about 5 % at the median between passes, so
 a smaller difference is noise.
 
+### The live manufacture run
+
+The `Live native run` workflow runs one manufacture run on the natively published Api, on a GitHub runner, against
+the allow-listed `daedalus-sandbox` repository. It is started by hand only. Dry mode, the default, stops before
+Manufacture and needs no secret; live mode runs in the protected `live-manufacture` environment, approves the run at
+its gate and fails unless the run opens a pull request. `eng/live-run/README.md` has the steps, the secrets and how to
+run the driver by hand.
+
 ## Token budget
 
 Phase 2.15. Every workflow turn runs under a token ceiling of its own agent's, from `Thalos:Workflow:TurnBudgets`:

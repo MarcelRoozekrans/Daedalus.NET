@@ -1,8 +1,39 @@
 # Session State
 
-**Last session:** 2026-11-11
+**Last session:** 2026-11-14
 
-## Current Position - phase 3.6 merged (2026-11-14), next: phase 3.7
+## Current Position - building the live native run workflow for #452 (2026-11-14)
+
+**Branch `ci/live-native-run`, from main `b93394ed`, no PR yet.** Phase 3.6 is merged (#448, #453). The owner asked for the live
+manufacture run on the native Api (#452) to run in CI as a manual workflow.
+
+- **Built (2026-11-14):** `.github/workflows/live-native-run.yml` and `eng/live-run/drive.sh`, README beside it.
+  Allow-list: `Thalos:Workflow:Repositories` in the Api's `appsettings.json`, entry `sandbox`. Token: `GITHUB_TOKEN`,
+  also for the mirror clone, since `daedalus-sandbox` is private. Terminal statuses: Succeeded, Failed, Cancelled; the
+  run parks at `gate` on `human_approval`, which the driver approves. Secrets `ANTHROPIC_API_KEY` and
+  `SANDBOX_GITHUB_TOKEN` in environment `live-manufacture`. A pull request touching the workflow or `eng/live-run/`
+  runs dry mode, because `workflow_dispatch` only works once the file is on main. Dry mode passed locally on the JIT Api.
+- **Design, agreed with the owner:** a `workflow_dispatch` workflow, never label-triggered (secrets and real Anthropic spend).
+  It starts Postgres and Keycloak as containers, as `eng/measure/lib.sh` does; builds `daedalus-sandbox:dev` from
+  `src/Daedalus.Sandbox/Dockerfile` on the runner (a native publish is fine in CI); downloads or publishes the native Api and
+  Migrations; applies the Migrations; starts the native Api on the runner's Docker socket with
+  `Thalos__Workflow__Sandbox__Enabled=true`; then a driver script gets a Keycloak token (see `eng/measure/load-projects.sh` for
+  the realm's client secret and users), creates a project whose `RepositoryUrl` is the `daedalus-sandbox` repository
+  (must match the allow-list, find where it is configured), creates one small task, calls `POST /api/tasks/{id}/manufacture`,
+  polls the run to a terminal state, reads the cost from `/api/cost-analytics`, asserts success and writes run id, PR and cost
+  to the job summary. Logs are uploaded either way.
+- **Secrets, owner adds them, never through chat:** `ANTHROPIC_API_KEY` and a token that may open pull requests on
+  `daedalus-sandbox`, in a protected environment. The workflow only references them. Find out which variable the publisher reads
+  for the GitHub token. Keys on the agents VM come from `bao-env daedalus -- <cmd>`, only for local checks.
+- **Owner asked for a dry mode first:** an input that stops before Manufacture, so everything but the Anthropic spend and the
+  sandbox PR is proven first.
+- **Done when:** a dry-mode run is green on CI, the PR is open, and the owner knows which secrets and environment to create.
+  Then the owner triggers the live run and the result goes in a ruling and closes #452.
+- **Rules:** never push to main; push `ci/live-native-run:ci/live-native-run`; no Co-Authored-By or Claude signature, no session
+  links; commit body lines at most 100, no nested parentheses; no local Native AOT publish (CI only); `dotnet` one at a time
+  with `DOTNET_USE_POLLING_FILE_WATCHER=1`; do not print or store a key; workflow secrets only by reference.
+
+## Earlier Position - phase 3.6 merged (2026-11-14), next: phase 3.7
 
 **Milestone 3, phase 3.6, native API, CLI and Migrations, is merged** as #448 (squash `03656931`), CodeRabbit approved and
 CI green. ROADMAP and MILESTONE mark it complete on branch `chore/complete-phase-3.6`.

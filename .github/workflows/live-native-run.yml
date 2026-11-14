@@ -1,0 +1,247 @@
+name: Live native run
+
+# One manufacture run on the natively published Api, issue #452: Postgres and Keycloak as containers, the sandbox
+# image built from this checkout, the native Migrations and Api published here, and eng/live-run/drive.sh pressing
+# Manufacture on a task for the allow-listed daedalus-sandbox repository. See eng/live-run/README.md.
+#
+# Started by hand only. A live run spends Anthropic credit and opens a pull request on daedalus-sandbox, so it is
+# never label-triggered, and its job runs in the protected `live-manufacture` environment, which holds the two secrets
+# and asks for an approval. Dry mode, the default, stops before Manufacture, uses no secret and no environment.
+# A pull request that changes this workflow or the driver runs dry mode too, so the dry path is proven on every change.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Stop before Manufacture, with no model call, no sandbox run and no pull request
+        type: boolean
+        default: true
+      task_title:
+        description: Title of the task the run manufactures; blank for the driver's default
+        type: string
+        default: ''
+      task_description:
+        description: Description of the task; blank for the driver's default
+        type: string
+        default: ''
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/live-native-run.yml
+      - eng/live-run/**
+
+# A live run is never cancelled by a later dispatch: it may be about to open its pull request.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  publish:
+    name: Native publish (${{ matrix.target }})
+    # Pinned, not ubuntu-latest: a native binary needs the glibc it was linked against or newer.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: true
+      matrix:
+        target: [Api, Migrations]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install the native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang zlib1g-dev
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          dotnet-version: 10.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-aot-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-aot-${{ runner.os }}-
+
+      # The native-publish workflow's command. Warnings do not fail it: the aot-analysis job counts them.
+      - name: Publish with Native AOT
+        run: >
+          dotnet publish src/Daedalus.${{ matrix.target }} -c Release -r linux-x64 -p:PublishAot=true
+          -p:TreatWarningsAsErrors=false -p:WarningsAsErrors= -o "${{ runner.temp }}/native/${{ matrix.target }}"
+          -tl:off
+
+      - name: Drop the debug symbols
+        run: find "${{ runner.temp }}/native/${{ matrix.target }}" -name '*.dbg' -delete
+
+      - name: Upload the binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: live-native-${{ matrix.target }}
+          path: ${{ runner.temp }}/native/${{ matrix.target }}/
+          retention-days: 1
+          if-no-files-found: error
+          # .mcp.json is part of the Api's publish output, and upload-artifact skips dotfiles by default.
+          include-hidden-files: true
+
+  run:
+    name: Manufacture run (${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run == false) && 'live' || 'dry' }})
+    needs: publish
+    runs-on: ubuntu-26.04
+    # Only a live dispatch enters the protected environment; an empty name runs the job without one. The event check
+    # matters: on a pull request inputs.dry_run is null, and null == false holds in an expression.
+    environment: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run == false) && 'live-manufacture' || '' }}
+    # The driver waits up to 120 minutes for the run; the rest is the sandbox image and the stack.
+    timeout-minutes: 170
+    env:
+      LIVE: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run == false) && 'true' || 'false' }}
+      DB_CONN: Host=localhost;Port=5432;Database=daedalus;Username=daedalus;Password=daedalus
+      API_URL: http://127.0.0.1:5010
+      KC_PORT: 8082
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: daedalus
+          POSTGRES_USER: daedalus
+          POSTGRES_PASSWORD: daedalus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U daedalus -d daedalus"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download the native Migrations binary
+        uses: actions/download-artifact@v8
+        with:
+          name: live-native-Migrations
+          path: ${{ runner.temp }}/native/Migrations
+
+      - name: Download the native Api binary
+        uses: actions/download-artifact@v8
+        with:
+          name: live-native-Api
+          path: ${{ runner.temp }}/native/Api
+
+      # The image the Api starts each run's container from, built from this checkout as the AppHost builds it.
+      - name: Build the sandbox image
+        run: docker build -t daedalus-sandbox:dev -f src/Daedalus.Sandbox/Dockerfile .
+
+      # Published on localhost:8082, so the token's issuer is the Authority the Api is given, as in eng/measure.
+      - name: Start Keycloak
+        run: |
+          mkdir -p "$RUNNER_TEMP/logs"
+          docker run -d --name daedalus-live-kc -p "127.0.0.1:${KC_PORT}:8080" \
+            -v "$GITHUB_WORKSPACE/keycloak-realm.json:/opt/keycloak/data/import/realm.json:ro" \
+            -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=changeme \
+            quay.io/keycloak/keycloak:26.1 start-dev --import-realm
+          SECONDS=0
+          until curl -fsS --max-time 2 -o /dev/null "http://localhost:${KC_PORT}/realms/daedalus"; do
+            if [ "$SECONDS" -ge 180 ]; then
+              echo "::error::Keycloak did not serve the daedalus realm within 180 seconds"
+              docker logs --tail 100 daedalus-live-kc
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "Keycloak served the realm after $SECONDS seconds"
+
+      - name: Migrate the database with the native Migrations binary
+        run: |
+          chmod +x "${{ runner.temp }}/native/Migrations/Daedalus.Migrations"
+          cd "${{ runner.temp }}/native/Migrations"
+          ./Daedalus.Migrations
+        env:
+          ConnectionStrings__daedalus: ${{ env.DB_CONN }}
+
+      # Development, as the AppHost and eng/measure run it: it is what allows the http Authority. The secrets are
+      # passed on a live dispatch only, so a dry run cannot reach the model or GitHub even when the repository holds
+      # secrets of the same names.
+      - name: Start the native Api
+        run: |
+          dir="${{ runner.temp }}/native/Api"
+          chmod +x "$dir/Daedalus.Api"
+          mkdir -p "${{ runner.temp }}/workflow-data"
+          cd "$dir"
+          nohup ./Daedalus.Api > "$RUNNER_TEMP/logs/api.log" 2>&1 &
+          echo $! > "${{ runner.temp }}/api.pid"
+          SECONDS=0
+          while [ "$SECONDS" -lt 180 ]; do
+            if curl -fsS --max-time 5 -o /dev/null "$API_URL/health"; then
+              echo "The native Api answered /health after $SECONDS seconds"
+              exit 0
+            fi
+            if ! kill -0 "$(cat "${{ runner.temp }}/api.pid")" 2>/dev/null; then
+              echo "::error::The native Api exited before answering /health"
+              tail -n 100 "$RUNNER_TEMP/logs/api.log"
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::The native Api did not answer /health within 180 seconds"
+          tail -n 100 "$RUNNER_TEMP/logs/api.log"
+          exit 1
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ASPNETCORE_URLS: ${{ env.API_URL }}
+          ConnectionStrings__daedalus: ${{ env.DB_CONN }}
+          Authentication__Authority: http://localhost:8082/realms/daedalus
+          Thalos__Workflow__Sandbox__Enabled: 'true'
+          Thalos__Workflow__Sandbox__Image: daedalus-sandbox:dev
+          Thalos__Workflow__DataRoot: ${{ runner.temp }}/workflow-data
+          OTEL_EXPORTER_OTLP_ENDPOINT: ''
+          ANTHROPIC_API_KEY: ${{ env.LIVE == 'true' && secrets.ANTHROPIC_API_KEY || '' }}
+          GITHUB_TOKEN: ${{ env.LIVE == 'true' && secrets.SANDBOX_GITHUB_TOKEN || '' }}
+
+      - name: Drive the run
+        run: eng/live-run/drive.sh "$API_URL"
+        env:
+          DRY_RUN: ${{ env.LIVE == 'true' && 'false' || 'true' }}
+          TASK_TITLE: ${{ inputs.task_title }}
+          TASK_DESCRIPTION: ${{ inputs.task_description }}
+          OUT_DIR: ${{ runner.temp }}/logs
+
+      - name: Stop the native Api
+        if: always()
+        run: |
+          if [ -f "${{ runner.temp }}/api.pid" ]; then kill "$(cat "${{ runner.temp }}/api.pid")" 2>/dev/null || true; fi
+
+      # Every sandbox container, its gateway and its egress proxy carry thalos.sandbox=true.
+      - name: Collect the container logs
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/logs/containers"
+          docker logs daedalus-live-kc > "$RUNNER_TEMP/logs/containers/keycloak.log" 2>&1 || true
+          for c in $(docker ps -aq --filter label=thalos.sandbox=true); do
+            name="$(docker inspect -f '{{.Name}}' "$c" | tr -d /)"
+            docker logs "$c" > "$RUNNER_TEMP/logs/containers/$name.log" 2>&1 || true
+          done
+          tail -n 100 "$RUNNER_TEMP/logs/api.log" || true
+
+      - name: Upload the logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: live-native-run-logs
+          path: ${{ runner.temp }}/logs/
+          retention-days: 14
+          if-no-files-found: warn
