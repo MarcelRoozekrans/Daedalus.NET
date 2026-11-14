@@ -27,39 +27,32 @@ manufacture run on the native Api (#452) to run in CI as a manual workflow.
   links; commit body lines at most 100, no nested parentheses; no local Native AOT publish (CI only); `dotnet` one at a time
   with `DOTNET_USE_POLLING_FILE_WATCHER=1`; do not print or store a key; workflow secrets only by reference.
 
-## Current Position - phase 3.6 executing (2026-11-13), Tasks 1-7a and 9 done, next: CI on the head, Task 8
+## Earlier Position - phase 3.6 merged (2026-11-14), next: phase 3.7
 
-**Milestone 3, phase 3.6, native API, CLI and Migrations.** Branch `phase/3.6-native-publish`, draft PR #448 with the
-`native-publish` label, rebased onto `main` 2026-11-13 (net11.0 target #446 and Aspire #451 are on main; #450 was closed
-as a duplicate). Plan `docs/superpowers/plans/2026-11-11-phase-3.6-native-publish-plan.md`, rulings
-`docs/plans/2026-11-11-phase-3.6-rulings.md`, measurements `docs/plans/2026-11-11-phase-3.6-measurements.md`.
+**Milestone 3, phase 3.6, native API, CLI and Migrations, is merged** as #448 (squash `03656931`), CodeRabbit approved and
+CI green. ROADMAP and MILESTONE mark it complete on branch `chore/complete-phase-3.6`.
 
-- **Verified on CI, run 43456828388 on `9f966a9d`:** Native publish Api, Cli and Migrations green; AOT analysis 0 for
-  Api, Cli, Migrations and Sandbox; Native suites (Playwright.Api against the native host) green; Measure green.
-  Measured: Api start-up 427 ms against 1972 JIT, Cli 145.5 against 1126, sandbox 325 against 561.
-- **Fixed after the rebase:** `NativeApiHost` moved to net11.0; the Api image installs `icu-libs` (runtime-deps has none and
-  the native Api stopped at start-up); the outbox integration test writes its legacy payload as plain JSON.
-- **Not verified yet:** `Docker (daedalus-api)` (runs after Build & Test is green) and Build & Test with the test fix.
-- **Pending the owner, Task 8:** one native CLI turn and one live manufacture run with an API key; runbook at the end of the
-  rulings doc. A native-only failure is fixed in this phase.
-- **Remaining:** read the Docker job; carried issues #444 #445 #438 stay open with their pointers; ROADMAP row for 3.6 and
-  MILESTONE status to complete after Task 8; merge #448 only when CI is green and CodeRabbit approves (owner's instruction
-  2026-11-13), take the draft out of draft first.
-- **Rules:** never work on or push to main; push `HEAD:phase/3.6-native-publish` (this worktree is detached); no
-  Co-Authored-By or Claude signature; commit body lines at most 100, no nested parentheses; no local Native AOT publish;
-  `dotnet` one at a time with `DOTNET_USE_POLLING_FILE_WATCHER=1`; the 3 `RunScopedRoslynRoutingTests` fail only on the agents VM.
+- **Proven:** zero AOT warnings on Api, Cli, Migrations and Sandbox; Playwright.Api 119 of 119 on a natively published
+  host; the native Api image starts after the ICU fix; the native CLI turn with a real key (via `bao-env daedalus`);
+  measurements in `docs/plans/2026-11-11-phase-3.6-measurements.md`.
+- **Open:** one live manufacture run on the native Api, #452. It needs the sandbox image and a GitHub credential.
+  Milestone 3's line for it stays unchecked.
+- **Open issues carried:** #444, #445, #438, #377, #452.
+- **Cleanup:** the phase-3.5 and 3.6 worktrees and the git-ignored SDD ledgers can go.
+- **Rules:** no Co-Authored-By or Claude signature; commit body lines at most 100, no nested parentheses; no local Native AOT
+  publish; keys only through `bao-env`.
 
 ## Open Decisions
 
-Whether #448 merges before the owner's Task 8 run.
+None.
 
 ## Blockers
 
-Task 8 needs the owner's API key.
+None for 3.7. #452 needs the owner.
 
 ## Recommended Next Step
 
-Read CI on the head of #448, fix what it reports, then ask the owner about Task 8 and the merge.
+Merge the `chore/complete-phase-3.6` PR, then `start-next-phase`: phase 3.7, Blazor WebAssembly AOT.
 
 ## Earlier Position - phase 3.5 merged (2026-11-10), next: phase 3.6
 
