@@ -320,9 +320,10 @@
     <PackageVersion Include="Respawn" Version="7.0.0" />
     <PackageVersion Include="Spectre.Console.Testing" Version="0.54.0" />
     <PackageVersion Include="TngTech.ArchUnitNET.xUnit" Version="0.13.2" />
-    <!-- Ariadne.NET.Testing 0.8.0 (Ariadne phase 4.6): AriadneArchitectureTests checks the solution against
-         .architecture/rules.yaml. It needs the 0.8.0 selector traits and requireTarget. -->
-    <PackageVersion Include="Ariadne.NET.Testing" Version="0.8.0" />
+    <!-- Ariadne.NET.Testing 0.9.0 (Ariadne phase 4.6): AriadneArchitectureTests checks the solution against
+         .architecture/rules.yaml. It needs the 0.8.0 selector traits and requireTarget, and 0.9.0 for Roslyn 5.12,
+         which the SDK 11 Razor generator needs to build Daedalus.Web's components in the workspace. -->
+    <PackageVersion Include="Ariadne.NET.Testing" Version="0.9.0" />
     <PackageVersion Include="ZeroAlloc.TestHelpers" Version="1.3.2" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
