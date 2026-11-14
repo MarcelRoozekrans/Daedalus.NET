@@ -8,6 +8,6 @@ permissions:
 
 jobs:
   history-scan:
-    uses: MarcelRoozekrans/ci-baseline/.github/workflows/history-scan.yml@v1
+    uses: MarcelRoozekrans/ci-baseline/.github/workflows/history-scan.yml@v1.0.0
     secrets:
       GITLEAKS_CONFIG: ${{ secrets.GITLEAKS_CONFIG }}
