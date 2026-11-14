@@ -9,7 +9,9 @@ One manufacture run on the natively published Api, issue #452. The `Live native 
 2. Starts Postgres as a service container and Keycloak with `keycloak-realm.json`, on `localhost:8082`.
 3. Builds `daedalus-sandbox:dev` from `src/Daedalus.Sandbox/Dockerfile`, as the AppHost does.
 4. Applies the migrations with the native Migrations binary.
-5. Starts the native Api with `Thalos__Workflow__Sandbox__Enabled=true` on the runner's Docker.
+5. Starts the native Api with `Thalos__Workflow__Sandbox__Enabled=true` on the runner's Docker. Before that it starts
+   following the log of every `thalos.sandbox=true` container as it starts, because publish parks the run and a park
+   deletes its sandbox.
 6. Runs `drive.sh`, then uploads the Api log, the Keycloak and sandbox container logs, `run.json` and `cost.json`.
 
 ## Modes

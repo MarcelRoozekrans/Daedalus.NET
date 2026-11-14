@@ -173,6 +173,25 @@ jobs:
         env:
           ConnectionStrings__daedalus: ${{ env.DB_CONN }}
 
+      # Every sandbox container, its gateway and its egress proxy carry thalos.sandbox=true. Publish parks the run,
+      # and a park deletes its sandbox, so a successful run leaves no container to read afterwards: follow each
+      # container's log from the moment it starts. --since the start event keeps a restart from repeating output.
+      # setsid gives the follower its own process group, whose id it writes down, so one kill stops every reader.
+      - name: Follow the sandbox container logs
+        run: |
+          mkdir -p "$RUNNER_TEMP/logs/containers"
+          export PGID_FILE="${{ runner.temp }}/log-follower.pgid"
+          setsid nohup bash -c '
+            echo $$ > "$PGID_FILE"
+            docker events --filter label=thalos.sandbox=true --filter event=start \
+              --format "{{.Actor.ID}} {{.Actor.Attributes.name}} {{.Time}}" |
+            while read -r id name since; do
+              docker logs -f --since "$since" "$id" >> "$RUNNER_TEMP/logs/containers/$name.log" 2>&1 &
+            done' > "$RUNNER_TEMP/logs/log-follower.log" 2>&1 &
+          for _ in $(seq 50); do [ -s "$PGID_FILE" ] && exit 0; sleep 0.1; done
+          echo "::error::The log follower did not start"
+          exit 1
+
       # Development, as the AppHost and eng/measure run it: it is what allows the http Authority. The secrets are
       # passed on a live dispatch only, so a dry run cannot reach the model or GitHub even when the repository holds
       # secrets of the same names.
@@ -225,15 +244,20 @@ jobs:
         run: |
           if [ -f "${{ runner.temp }}/api.pid" ]; then kill "$(cat "${{ runner.temp }}/api.pid")" 2>/dev/null || true; fi
 
-      # Every sandbox container, its gateway and its egress proxy carry thalos.sandbox=true.
+      # The follower has the logs of every sandbox that came and went. A container it has no file for is read here.
       - name: Collect the container logs
         if: always()
         run: |
           mkdir -p "$RUNNER_TEMP/logs/containers"
+          if [ -s "${{ runner.temp }}/log-follower.pgid" ]; then
+            kill -- "-$(cat "${{ runner.temp }}/log-follower.pgid")" 2>/dev/null || true
+          fi
           docker logs daedalus-live-kc > "$RUNNER_TEMP/logs/containers/keycloak.log" 2>&1 || true
           for c in $(docker ps -aq --filter label=thalos.sandbox=true); do
             name="$(docker inspect -f '{{.Name}}' "$c" | tr -d /)"
-            docker logs "$c" > "$RUNNER_TEMP/logs/containers/$name.log" 2>&1 || true
+            if [ ! -s "$RUNNER_TEMP/logs/containers/$name.log" ]; then
+              docker logs "$c" > "$RUNNER_TEMP/logs/containers/$name.log" 2>&1 || true
+            fi
           done
           tail -n 100 "$RUNNER_TEMP/logs/api.log" || true
 
