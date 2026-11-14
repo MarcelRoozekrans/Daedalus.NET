@@ -2,7 +2,22 @@
 
 **Last session:** 2026-11-14
 
-## Current Position - live native run workflow in PR #454, CI green (2026-11-14), next: the owner's live run
+## Current Position - #454 waits on Thalos 0.21.1 (2026-11-14), next: bump Thalos, merge #454
+
+**PR #454 is approved by CodeRabbit on 461f300c, Build & Test red, not merged.** The owner asked to merge it when green.
+
+- 461f300c streams each `thalos.sandbox=true` container log from its start event, because publish parks the run and
+  the park deletes the sandbox. CodeRabbit's finding, fixed and resolved.
+- Build & Test fails in `ScratchWorkflowHost.TearDownAsync`: `ObjectDisposedException` from
+  `Thalos.Sandbox.SandboxReconcileService.StopAsync`, which ran after `Dispose`. Not caused by #454; it also hit
+  renovate/github-actions. Fixed in Thalos.NET#530, shipping as 0.21.1 in release PR Thalos.NET#533.
+- Thalos.NET#533 is red on two tests unrelated to the release, filed as Thalos.NET#535, a possible Windows race, and
+  #536, a timing-sensitive test. The owner chose to merge #533 themselves; flaky waits #532 were fixed in #534.
+- **Next:** once Thalos.NET.* 0.21.1 is on NuGet, bump every Thalos package in `Directory.Packages.props` from 0.20.0
+  to 0.21.1 on a new branch from main, open a PR, merge it when green. Then update #454 from main and merge it when
+  green, squash, via ci-watch. Never push to main. Then the live-run steps below.
+
+### Earlier: PR #454 CI green before the CodeRabbit fix
 
 **PR #454 from `ci/live-native-run`, all checks green, not merged.** The dry run on the PR passed on the native Api:
 `/health` after 2 s, project and task created, Manufacture refused a non-allow-listed repository with 422. The
