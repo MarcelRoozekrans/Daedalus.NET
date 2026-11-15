@@ -2,7 +2,25 @@
 
 **Last session:** 2026-11-14
 
-## Current Position - #454 waits on Thalos 0.21.1 (2026-11-14), next: bump Thalos, merge #454
+## Current Position - Thalos 0.21.1 bump blocked by AI.Sentinel exact pins (2026-11-15)
+
+**#454 is still waiting; Thalos 0.21.1 is on NuGet but Daedalus cannot restore it.** The owner chose to file the
+problem and wait.
+
+- Thalos.NET#533 merged; the first publish failed on the flaky test Thalos.NET#536, a re-run of the failed jobs
+  published all 19 packages.
+- Branch `build/thalos-0.21.1`, pushed, no PR, holds d3ddeb78: Thalos 0.20.0 to 0.21.1 plus every floor it raises,
+  each with its comment: Microsoft.Extensions.* 10.0.15, ModelContextProtocol 2.4.0, ZeroAlloc.ORM 2.16.1,
+  Results 1.5.0, Rest 3.7.0, Collections 1.2.5, Authorization 2.2.1, Mediator 6.6.5, Outbox and Outbox.Orm 4.6.0.
+- Restore still fails with NU1608 as an error in Agents, Api, Cli and the tests: Thalos.NET.Sentinel 0.21.1 takes
+  AI.Sentinel 4.2.0, which pins ZeroAlloc.Telemetry [1.12.7], Serialisation [2.10.0] and Inject [1.11.6] exactly.
+  Daedalus needs Telemetry 1.14.0 and Serialisation 2.11.0 for Ariadne.NET 0.8.0. AI.Sentinel 5.2.0 pins exactly
+  too. Cause: the fix for AI.Sentinel#425 wrote `Version="[x]"`. Filed as AI.Sentinel#604.
+- **Next:** once AI.Sentinel ships without exact ranges, Thalos.NET.Sentinel moves to it and Thalos.NET cuts a patch;
+  then redo the bump on `build/thalos-0.21.1` at that version, drop "wip" from the commit, open the PR, merge it
+  when green and CodeRabbit-approved, then update #454 from main and merge it the same way.
+
+### Earlier: #454 waits on Thalos 0.21.1 (2026-11-14)
 
 **PR #454 is approved by CodeRabbit on 461f300c, Build & Test red, not merged.** The owner asked to merge it when green.
 
