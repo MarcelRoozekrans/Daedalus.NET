@@ -2,7 +2,22 @@
 
 **Last session:** 2026-11-14
 
-## Current Position - Thalos 0.21.1 bump blocked by AI.Sentinel exact pins (2026-11-15)
+## Current Position - waiting on the owner to merge AI.Sentinel release 5.2.1 (2026-11-15)
+
+The owner asked to fix the exact pins, not wait. Merge rule from the owner: Claude merges code PRs when green and
+CodeRabbit-approved; the owner merges every release PR.
+
+- AI.Sentinel#605 merged, 1930a9e: plain versions instead of `[x]`, Renovate NuGet `rangeStrategy` pin to bump,
+  `Directory.Build.targets` rejects floating and exact versions. Closes AI.Sentinel#604.
+- AI.Sentinel#606 merged, 6c51ceb: the flaky dashboard isolation test reads the bound address.
+- **Waiting:** release PR AI.Sentinel#608, 5.2.1, green, for the owner to merge.
+- **Next:** once AI.Sentinel 5.2.1 is on NuGet, move Thalos.NET `Directory.Packages.props` AI.Sentinel 4.2.0 to
+  5.2.1, either on Renovate PR Thalos.NET#494 or a new branch. 5.0's only breaking change is net10.0-only CLI
+  tools, which Thalos does not use. Merge when green and CodeRabbit-approved; the owner merges the Thalos release
+  PR. Then redo `build/thalos-0.21.1` at the new Thalos version; AI.Sentinel 5.2.1 may raise more floors. Then
+  update #454 from main and merge it.
+
+### Earlier: Thalos 0.21.1 bump blocked by AI.Sentinel exact pins (2026-11-15)
 
 **#454 is still waiting; Thalos 0.21.1 is on NuGet but Daedalus cannot restore it.** The owner chose to file the
 problem and wait.
