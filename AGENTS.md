@@ -85,7 +85,8 @@ rule of 80 percent: hand-written code measures 75.9 percent, and raising it is t
 below before running it locally.
 
 Inner loop, verified locally with SDK 11.0.100: build the solution in `Release` as CI does, because a Debug solution
-build fails in `Daedalus.Tests.NativeApiHost` on a scoped-css bundle error. Then run one test project.
+build fails in `Daedalus.Tests.NativeApiHost` on a scoped-css bundle error, tracked in #455. Then run one
+test project.
 
 ```bash
 dotnet build Daedalus.sln --configuration Release -p:Version=9.9.9-local

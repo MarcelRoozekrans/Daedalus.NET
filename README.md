@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/MarcelRoozekrans/Daedalus.NET/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MarcelRoozekrans/Daedalus.NET/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/MarcelRoozekrans/Daedalus.NET/graph/badge.svg)](https://codecov.io/gh/MarcelRoozekrans/Daedalus.NET)
-[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![.NET](https://img.shields.io/badge/.NET-11.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![C#](https://img.shields.io/badge/C%23-13.0-239120?logo=csharp)](https://learn.microsoft.com/dotnet/csharp/)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?logo=docker)](https://github.com/MarcelRoozekrans/Daedalus.NET/pkgs/container/)
 
