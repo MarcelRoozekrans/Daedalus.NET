@@ -2,7 +2,27 @@
 
 **Last session:** 2026-11-14
 
-## Current Position - waiting on the owner to merge AI.Sentinel release 5.2.1 (2026-11-15)
+## Current Position - waiting on the owner to merge Thalos.NET#538 (2026-11-16)
+
+Merge rule from the owner: Claude merges code PRs when green and CodeRabbit-approved; the owner merges every release
+PR.
+
+- AI.Sentinel 5.2.1 is on NuGet with minimum versions, no exact ranges. AI.Sentinel#605, #606 and release #608 merged.
+- Thalos.NET#538, branch `build/ai-sentinel-5.2.1`: AI.Sentinel 4.2.0 to 5.2.1 in `Directory.Packages.props`, as
+  `fix(sentinel)`. All checks green, CodeRabbit approved d719cf1, but `gh pr merge` was refused: "the base branch
+  policy prohibits the merge". Likely `require_extra_approval_for_unattributed_changes` in main's ruleset. The owner
+  approves or merges it; never `--admin` unless the owner says so. Renovate PR Thalos.NET#494 is superseded by it.
+- **Next, in order:**
+  1. #538 merged: release-please opens the Thalos release PR, 0.21.2. Confirm #538 is in its changelog; the owner
+     merges it. Wait until all 19 Thalos.NET.* 0.21.2 packages are on NuGet; a flaky publish test is Thalos.NET#536.
+  2. Daedalus branch `build/thalos-0.21.1`, pushed, commit d3ddeb78 "wip": move every Thalos package 0.21.1 to
+     0.21.2, rename the branch or keep it, drop "wip" from the commit. Restore and add the floors AI.Sentinel 5.2.1
+     raises, each with a comment like the others: seen so far ZeroAlloc.Authorization 2.3.0, Mediator and Generator
+     6.7.1, Validation 2.6.0 via `ZeroAllocValidationVersion`, ValueObjects 2.4.0; repeat restore until clean. Then
+     `dotnet build`, `dotnet test`, `dotnet format`. Open the PR, merge it when green and CodeRabbit-approved.
+  3. Update #454 from main and merge it the same way. Then the live-run steps below.
+
+### Earlier: waiting on the owner to merge AI.Sentinel release 5.2.1 (2026-11-15)
 
 The owner asked to fix the exact pins, not wait. Merge rule from the owner: Claude merges code PRs when green and
 CodeRabbit-approved; the owner merges every release PR.
