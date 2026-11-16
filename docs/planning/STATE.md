@@ -1,8 +1,121 @@
 # Session State
 
-**Last session:** 2026-11-11
+**Last session:** 2026-11-14
 
-## Current Position - phase 3.6 merged (2026-11-14), next: phase 3.7
+## Current Position - waiting on the owner to merge Thalos.NET#538 (2026-11-16)
+
+Merge rule from the owner: Claude merges code PRs when green and CodeRabbit-approved; the owner merges every release
+PR.
+
+- AI.Sentinel 5.2.1 is on NuGet with minimum versions, no exact ranges. AI.Sentinel#605, #606 and release #608 merged.
+- Thalos.NET#538, branch `build/ai-sentinel-5.2.1`: AI.Sentinel 4.2.0 to 5.2.1 in `Directory.Packages.props`, as
+  `fix(sentinel)`. All checks green, CodeRabbit approved d719cf1, but `gh pr merge` was refused: "the base branch
+  policy prohibits the merge". Likely `require_extra_approval_for_unattributed_changes` in main's ruleset. The owner
+  approves or merges it; never `--admin` unless the owner says so. Renovate PR Thalos.NET#494 is superseded by it.
+- **Next, in order:**
+  1. #538 merged: release-please opens the Thalos release PR, 0.21.2. Confirm #538 is in its changelog; the owner
+     merges it. Wait until all 19 Thalos.NET.* 0.21.2 packages are on NuGet; a flaky publish test is Thalos.NET#536.
+  2. Daedalus branch `build/thalos-0.21.1`, pushed, commit d3ddeb78 "wip": move every Thalos package 0.21.1 to
+     0.21.2, rename the branch or keep it, drop "wip" from the commit. Restore and add the floors AI.Sentinel 5.2.1
+     raises, each with a comment like the others: seen so far ZeroAlloc.Authorization 2.3.0, Mediator and Generator
+     6.7.1, Validation 2.6.0 via `ZeroAllocValidationVersion`, ValueObjects 2.4.0; repeat restore until clean. Then
+     `dotnet build`, `dotnet test`, `dotnet format`. Open the PR, merge it when green and CodeRabbit-approved.
+  3. Update #454 from main and merge it the same way. Then the live-run steps below.
+
+### Earlier: waiting on the owner to merge AI.Sentinel release 5.2.1 (2026-11-15)
+
+The owner asked to fix the exact pins, not wait. Merge rule from the owner: Claude merges code PRs when green and
+CodeRabbit-approved; the owner merges every release PR.
+
+- AI.Sentinel#605 merged, 1930a9e: plain versions instead of `[x]`, Renovate NuGet `rangeStrategy` pin to bump,
+  `Directory.Build.targets` rejects floating and exact versions. Closes AI.Sentinel#604.
+- AI.Sentinel#606 merged, 6c51ceb: the flaky dashboard isolation test reads the bound address.
+- **Waiting:** release PR AI.Sentinel#608, 5.2.1, green, for the owner to merge.
+- **Next:** once AI.Sentinel 5.2.1 is on NuGet, move Thalos.NET `Directory.Packages.props` AI.Sentinel 4.2.0 to
+  5.2.1, either on Renovate PR Thalos.NET#494 or a new branch. 5.0's only breaking change is net10.0-only CLI
+  tools, which Thalos does not use. Merge when green and CodeRabbit-approved; the owner merges the Thalos release
+  PR. Then redo `build/thalos-0.21.1` at the new Thalos version; AI.Sentinel 5.2.1 may raise more floors. Then
+  update #454 from main and merge it.
+
+### Earlier: Thalos 0.21.1 bump blocked by AI.Sentinel exact pins (2026-11-15)
+
+**#454 is still waiting; Thalos 0.21.1 is on NuGet but Daedalus cannot restore it.** The owner chose to file the
+problem and wait.
+
+- Thalos.NET#533 merged; the first publish failed on the flaky test Thalos.NET#536, a re-run of the failed jobs
+  published all 19 packages.
+- Branch `build/thalos-0.21.1`, pushed, no PR, holds d3ddeb78: Thalos 0.20.0 to 0.21.1 plus every floor it raises,
+  each with its comment: Microsoft.Extensions.* 10.0.15, ModelContextProtocol 2.4.0, ZeroAlloc.ORM 2.16.1,
+  Results 1.5.0, Rest 3.7.0, Collections 1.2.5, Authorization 2.2.1, Mediator 6.6.5, Outbox and Outbox.Orm 4.6.0.
+- Restore still fails with NU1608 as an error in Agents, Api, Cli and the tests: Thalos.NET.Sentinel 0.21.1 takes
+  AI.Sentinel 4.2.0, which pins ZeroAlloc.Telemetry [1.12.7], Serialisation [2.10.0] and Inject [1.11.6] exactly.
+  Daedalus needs Telemetry 1.14.0 and Serialisation 2.11.0 for Ariadne.NET 0.8.0. AI.Sentinel 5.2.0 pins exactly
+  too. Cause: the fix for AI.Sentinel#425 wrote `Version="[x]"`. Filed as AI.Sentinel#604.
+- **Next:** once AI.Sentinel ships without exact ranges, Thalos.NET.Sentinel moves to it and Thalos.NET cuts a patch;
+  then redo the bump on `build/thalos-0.21.1` at that version, drop "wip" from the commit, open the PR, merge it
+  when green and CodeRabbit-approved, then update #454 from main and merge it the same way.
+
+### Earlier: #454 waits on Thalos 0.21.1 (2026-11-14)
+
+**PR #454 is approved by CodeRabbit on 461f300c, Build & Test red, not merged.** The owner asked to merge it when green.
+
+- 461f300c streams each `thalos.sandbox=true` container log from its start event, because publish parks the run and
+  the park deletes the sandbox. CodeRabbit's finding, fixed and resolved.
+- Build & Test fails in `ScratchWorkflowHost.TearDownAsync`: `ObjectDisposedException` from
+  `Thalos.Sandbox.SandboxReconcileService.StopAsync`, which ran after `Dispose`. Not caused by #454; it also hit
+  renovate/github-actions. Fixed in Thalos.NET#530, shipping as 0.21.1 in release PR Thalos.NET#533.
+- Thalos.NET#533 is red on two tests unrelated to the release, filed as Thalos.NET#535, a possible Windows race, and
+  #536, a timing-sensitive test. The owner chose to merge #533 themselves; flaky waits #532 were fixed in #534.
+- **Next:** once Thalos.NET.* 0.21.1 is on NuGet, bump every Thalos package in `Directory.Packages.props` from 0.20.0
+  to 0.21.1 on a new branch from main, open a PR, merge it when green. Then update #454 from main and merge it when
+  green, squash, via ci-watch. Never push to main. Then the live-run steps below.
+
+### Earlier: PR #454 CI green before the CodeRabbit fix
+
+**PR #454 from `ci/live-native-run`, all checks green, not merged.** The dry run on the PR passed on the native Api:
+`/health` after 2 s, project and task created, Manufacture refused a non-allow-listed repository with 422. The
+empty environment name on the dry path created no environment.
+
+- **Owner's choice, 2026-11-14:** environment `live-manufacture` with a required reviewer, environment secrets
+  `ANTHROPIC_API_KEY` and `SANDBOX_GITHUB_TOKEN`, fine-grained for daedalus-sandbox, Contents and Pull requests
+  read/write. The owner adds them in GitHub Settings; never ask for a key in chat.
+- **Next:** the owner merges #454 and dispatches Live native run from main with `dry_run` cleared. Read the job
+  summary and the `live-native-run-logs` artifact. A native-only failure gets fixed on a new branch. On success, record
+  run id, PR and cost in a ruling in `docs/plans/2026-11-11-phase-3.6-rulings.md`, tick Milestone 3's #452 line and
+  close #452.
+
+## Earlier Position - building the live native run workflow for #452 (2026-11-14)
+
+**Branch `ci/live-native-run`, from main `b93394ed`, no PR yet.** Phase 3.6 is merged (#448, #453). The owner asked for the live
+manufacture run on the native Api (#452) to run in CI as a manual workflow.
+
+- **Built (2026-11-14):** `.github/workflows/live-native-run.yml` and `eng/live-run/drive.sh`, README beside it.
+  Allow-list: `Thalos:Workflow:Repositories` in the Api's `appsettings.json`, entry `sandbox`. Token: `GITHUB_TOKEN`,
+  also for the mirror clone, since `daedalus-sandbox` is private. Terminal statuses: Succeeded, Failed, Cancelled; the
+  run parks at `gate` on `human_approval`, which the driver approves. Secrets `ANTHROPIC_API_KEY` and
+  `SANDBOX_GITHUB_TOKEN` in environment `live-manufacture`. A pull request touching the workflow or `eng/live-run/`
+  runs dry mode, because `workflow_dispatch` only works once the file is on main. Dry mode passed locally on the JIT Api.
+- **Design, agreed with the owner:** a `workflow_dispatch` workflow, never label-triggered (secrets and real Anthropic spend).
+  It starts Postgres and Keycloak as containers, as `eng/measure/lib.sh` does; builds `daedalus-sandbox:dev` from
+  `src/Daedalus.Sandbox/Dockerfile` on the runner (a native publish is fine in CI); downloads or publishes the native Api and
+  Migrations; applies the Migrations; starts the native Api on the runner's Docker socket with
+  `Thalos__Workflow__Sandbox__Enabled=true`; then a driver script gets a Keycloak token (see `eng/measure/load-projects.sh` for
+  the realm's client secret and users), creates a project whose `RepositoryUrl` is the `daedalus-sandbox` repository
+  (must match the allow-list, find where it is configured), creates one small task, calls `POST /api/tasks/{id}/manufacture`,
+  polls the run to a terminal state, reads the cost from `/api/cost-analytics`, asserts success and writes run id, PR and cost
+  to the job summary. Logs are uploaded either way.
+- **Secrets, owner adds them, never through chat:** `ANTHROPIC_API_KEY` and a token that may open pull requests on
+  `daedalus-sandbox`, in a protected environment. The workflow only references them. Find out which variable the publisher reads
+  for the GitHub token. Keys on the agents VM come from `bao-env daedalus -- <cmd>`, only for local checks.
+- **Owner asked for a dry mode first:** an input that stops before Manufacture, so everything but the Anthropic spend and the
+  sandbox PR is proven first.
+- **Done when:** a dry-mode run is green on CI, the PR is open, and the owner knows which secrets and environment to create.
+  Then the owner triggers the live run and the result goes in a ruling and closes #452.
+- **Rules:** never push to main; push `ci/live-native-run:ci/live-native-run`; no Co-Authored-By or Claude signature, no session
+  links; commit body lines at most 100, no nested parentheses; no local Native AOT publish (CI only); `dotnet` one at a time
+  with `DOTNET_USE_POLLING_FILE_WATCHER=1`; do not print or store a key; workflow secrets only by reference.
+
+## Earlier Position - phase 3.6 merged (2026-11-14), next: phase 3.7
 
 **Milestone 3, phase 3.6, native API, CLI and Migrations, is merged** as #448 (squash `03656931`), CodeRabbit approved and
 CI green. ROADMAP and MILESTONE mark it complete on branch `chore/complete-phase-3.6`.
