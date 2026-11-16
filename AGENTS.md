@@ -48,8 +48,8 @@ an exception to the repo-wide `net11.0` in `Directory.Build.props`; it needs the
 
 ```bash
 dotnet run --project src/Daedalus.AppHost   # Aspire: Postgres, Keycloak, Ollama, migrations, sandbox image, API, Web; dashboard :17300
-dotnet build
-dotnet test
+dotnet build --configuration Release        # a Debug solution build fails in NativeApiHost, #455
+dotnet test --configuration Release
 dotnet test tests/Daedalus.Tests.Unit
 dotnet test tests/Daedalus.Tests.Integration
 dotnet format                                # run before committing
