@@ -1,8 +1,26 @@
 # Session State
 
-**Last session:** 2026-11-14
+**Last session:** 2026-11-17
 
-## Current Position - waiting on the owner to merge Thalos.NET#538 (2026-11-16)
+## Current Position - waiting on the owner to dispatch Live native run (2026-11-17)
+
+Merge rule from the owner: Claude merges code PRs when green and CodeRabbit-approved; the owner merges every release
+PR.
+
+- Thalos.NET#538 merged; release 0.21.2, Thalos.NET#544, merged by the owner; all 19 Thalos.NET.* 0.21.2 on NuGet.
+- #462 merged, 3a322ff3: every Thalos package 0.20.0 to 0.21.2 plus the floors it raises, each commented in
+  `Directory.Packages.props`. Microsoft.Extensions.AI.Abstractions goes to 11.0.0 for Rag.NET.Abstractions 1.9.2;
+  Microsoft.Extensions.AI stays at 10.11.0, because 11.0.0 would raise every Microsoft.Extensions.* floor to 11.0.0.
+  Branch `build/thalos-0.21.1` is superseded and can be deleted.
+- #454 was merged by the owner on 2026-11-16, f1002632, before the bump.
+- Local, agents VM only: `tests/Daedalus.Tests.NativeApiHost` fails to build with a static-web-assets "scoped css
+  bundles do not have matching endpoints" error, on main's packages too; CI builds it. Unit tests need
+  `DOTNET_USE_POLLING_FILE_WATCHER=1`, or the inotify instance limit of 128 fails the endpoint binding tests.
+- **Next:** the owner dispatches Live native run from main with `dry_run` cleared, then the steps under "Earlier: PR
+  #454 CI green before the CodeRabbit fix" below: read the job summary and the `live-native-run-logs` artifact,
+  record the ruling, close #452.
+
+### Earlier: waiting on the owner to merge Thalos.NET#538 (2026-11-16)
 
 Merge rule from the owner: Claude merges code PRs when green and CodeRabbit-approved; the owner merges every release
 PR.
