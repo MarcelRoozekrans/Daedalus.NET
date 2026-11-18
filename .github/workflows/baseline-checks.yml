@@ -15,7 +15,7 @@ jobs:
       contents: read
       security-events: write
       actions: read
-    uses: MarcelRoozekrans/ci-baseline/.github/workflows/baseline.yml@v1
+    uses: MarcelRoozekrans/ci-baseline/.github/workflows/baseline.yml@v1.0.0
     with:
       solution: Daedalus.sln
       # global.json pins the SDK with rollForward disabled, so the audit restores with that exact SDK.
