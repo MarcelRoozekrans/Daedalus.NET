@@ -44,9 +44,9 @@
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
 
     <!-- Testcontainers 4.10.0 → 4.14.0 (SSH.NET) -->
-    <PackageVersion Include="Testcontainers" Version="4.16.0" />
-    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
-    <PackageVersion Include="Testcontainers.Keycloak" Version="4.16.0" />
+    <PackageVersion Include="Testcontainers" Version="4.17.0" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.17.0" />
+    <PackageVersion Include="Testcontainers.Keycloak" Version="4.17.0" />
 
     <!-- AI stack aligned with Thalos.NET -->
     <!-- 10.10.0 → 10.11.0: floor set by Thalos.NET 0.18.0. It stays at 10.11.0 while Abstractions moves to 11.0.0:
@@ -329,7 +329,7 @@
     <PackageVersion Include="AwesomeAssertions" Version="9.6.0" />
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.0" />
     <PackageVersion Include="Bogus" Version="35.6.5" />
-    <PackageVersion Include="coverlet.collector" Version="10.1.0" />
+    <PackageVersion Include="coverlet.collector" Version="10.1.1" />
     <!-- 10.10.0 → 10.11.0: floor set by Thalos.NET.Testing 0.18.0 -->
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.12.0" />
