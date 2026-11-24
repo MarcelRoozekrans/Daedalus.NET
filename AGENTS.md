@@ -9,6 +9,10 @@ were retired in phase 2.8 (October 2026). Full pattern catalogue and extended ex
 but is superseded and may contain stale guidance — treat it as historical,
 not authoritative.
 
+## Product-line standards
+
+This repository is part of a .NET product line. Read the [product-line standards](https://github.com/MarcelRoozekrans/product-line/blob/main/standards.md) before changing anything: they hold the rules for every product, including how to build (a failing test first, the cause before a fix, build and test output before calling work done) and what may appear in commits, pull requests and issues. Build sessions do not use superpowers. This file adds what is specific to this repository.
+
 ## Layout
 
 ```
@@ -234,11 +238,11 @@ enabled; an explicit empty list is refused. Publish refuses `.github/` and the o
 
 ### Git commit messages: no nested parentheses
 
-release-please's conventional-commit parser throws on a nested `(` inside a
-parenthesized group and **silently drops the whole commit** from the
-changelog — the workflow still reports success. Write `typeof IFoo`, not
-`(typeof(IFoo))`; use a fenced code block or restructure the sentence instead
-of nesting parens in a commit body. Square brackets are fine.
+release-please's conventional-commit parser throws on a body line that starts
+with a word followed by a nested `(`, such as `Foo(Bar(1))`, and **silently
+drops the whole commit** from the changelog — the workflow still reports
+success. A fenced code block does not protect it. Write `typeof IFoo`, not
+`(typeof(IFoo))`, or restructure the sentence so no parenthesis nests.
 
 ### Tests that pass for the wrong reason
 
